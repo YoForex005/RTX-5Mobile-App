@@ -1,3 +1,4 @@
+﻿import { AuthEntryScreen } from '../src/features/auth/AuthEntryScreen';
 import { FastPressable as Pressable } from '../src/ui/components/FastPressable';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -16,14 +17,15 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { isLoginRequestAbortedError, loginAPI } from '../src/api/auth';
-import { extractFeedBrokerToken } from '../src/api/feedAuth';
+import { isInvestorReadOnlySession } from '../src/api/investorSession';
 import { getBrokerConfig } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useDeferredActiveFlag } from '../src/hooks/useDeferredActiveFlag';
@@ -69,7 +71,6 @@ import {
   isStaleBrokerSessionCommitError,
   type BrokerSessionCommitAuthorization,
 } from '../src/services/brokerSessionCoordinator';
-import { resolveSessionFeedAuth } from '../src/api/feedAuthContract';
 import { redactAuthPayload, redactSensitiveString } from '../src/api/authRedaction';
 import {
   buildAccountEnvironmentKey,
@@ -146,7 +147,7 @@ const formatDemoPhoneForSubmission = (dialCode: string, phoneNumber: string) => 
 /**
  * Screen for opening a new Demo or Real account. Contains forms for user details, server selection, and account preferences.
  */
-export default function RegisterScreen() {
+function LegacyRegisterScreen() {
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -262,7 +263,8 @@ export default function RegisterScreen() {
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
-  const styles = React.useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
+  const { width, fontScale } = useWindowDimensions();
+  const styles = React.useMemo(() => makeStyles(T, isDark, insets, width, fontScale), [T, isDark, insets, width, fontScale]);
   const privacyPolicyUrl = resolveLegalUrl(
     getConfiguredPrivacyPolicyUrl(),
     'https://rtx5.orrnn.com/privacy-policy',
@@ -573,8 +575,6 @@ export default function RegisterScreen() {
       if (isRegisterAttemptCancelled()) return;
       const sessionToken = authResponse.access_token ?? authResponse.token ?? '';
       const sessionRefreshToken = authResponse.refresh_token ?? authResponse.refreshToken ?? '';
-      const sessionFeedToken = extractFeedBrokerToken(authResponse);
-      const feedAuthContractSource: unknown = authResponse;
       const authenticatedAccountLogin = String(
         authResponse.account_login ??
         authResponse.accountLogin ??
@@ -604,13 +604,6 @@ export default function RegisterScreen() {
         source: demoRegistrationSource,
         allowInitialFallback: true,
       })!;
-      const sessionFeed = resolveSessionFeedAuth({
-        response: feedAuthContractSource,
-        brokerId: demoAuthRoute.endpoints.brokerId,
-        accountLogin: sessionLogin,
-        existingFeedToken: sessionFeedToken,
-      });
-
       const committedSession = await commitBrokerSession({
         session: {
           brokerId: demoAuthRoute.endpoints.brokerId,
@@ -620,14 +613,13 @@ export default function RegisterScreen() {
           tradeWsBase: demoAuthRoute.endpoints.tradeWsBase,
           feedStatusUrl: demoAuthRoute.endpoints.feedStatusUrl,
           servicesDomain: demoAuthRoute.endpoints.servicesDomain,
-          feedAuthContext: sessionFeed.feedAuthContext,
           configVersion: demoAuthRoute.endpoints.configVersion,
+          investor: isInvestorReadOnlySession(authResponse),
         },
         credentials: {
           accessToken: sessionToken,
           refreshToken: sessionRefreshToken,
           expiresAt: sessionExpiresAt,
-          ...(sessionFeed.feedToken ? { feedToken: sessionFeed.feedToken } : {}),
         },
         account: {
           name: accountName,
@@ -659,14 +651,14 @@ export default function RegisterScreen() {
         hasCredentials: true,
       });
       setSavedAccountPassword(canonicalBrokerId, savedLogin, password).catch((err) => {
-        console.warn('[Register] Failed to persist saved-account credential', redactAuthPayload(err));
+        console.error('[Register] Failed to persist saved-account credential', redactAuthPayload(err));
       });
 
       // Invalidate cached queries
       void invalidateSessionQueryRoots(
         queryClient,
         committedSession.session.cacheNamespace,
-        ['accountsList', 'accountDetail', 'brokerConfig'],
+        ['accountDetail', 'brokerConfig'],
       );
 
       const pendingTradeIntent = consumePendingTradeAuthIntent();
@@ -1180,7 +1172,7 @@ export default function RegisterScreen() {
 }
 
 // Dynamic theme + register layout.
-function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
+function makeStyles(T: ThemeColors, isDark: boolean, insets: EdgeInsets, width: number, fontScale: number) {
   const pageBg = isDark ? T.bg : REGISTER_QUOTES_LIGHT_BACKGROUND;
   const surface = isDark ? T.glass2 : '#FFFFFF';
   const raisedSurface = isDark ? T.glass1 : 'rgba(15,23,42,0.04)';
@@ -1194,12 +1186,15 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
   const fieldText = T.text;
   const mutedText = T.textMuted;
   const actionTintBg = isDark ? raisedSurface : 'rgba(37,99,235,0.08)';
+  const singleColumn = width - insets.left - insets.right < 360 || fontScale > 1.3;
 
   return StyleSheet.create({
     bg: {
       flex: 1,
       backgroundColor: pageBg,
-      paddingTop: safeTop,
+      paddingTop: insets.top,
+      paddingLeft: insets.left,
+      paddingRight: insets.right,
     },
     container: {
       flex: 1,
@@ -1226,7 +1221,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       flex: 1,
       fontSize: 17,
       lineHeight: 22,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
       textAlign: 'center',
       paddingHorizontal: 12,
@@ -1237,13 +1232,16 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
 
     scrollContent: {
-      paddingBottom: REGISTER_KEYBOARD_BOTTOM_PADDING,
+      paddingBottom: REGISTER_KEYBOARD_BOTTOM_PADDING + insets.bottom,
       paddingTop: 16,
     },
 
     formContainer: {
       position: 'relative',
-      paddingHorizontal: 24,
+      paddingHorizontal: width - insets.left - insets.right < 360 ? 16 : 24,
+      width: '100%',
+      maxWidth: 760,
+      alignSelf: 'center',
     },
     inlineStatus: {
       flexDirection: 'row',
@@ -1559,7 +1557,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     phoneCodeButton: {
       minWidth: 54,
-      height: 36,
+      minHeight: 36,
+      paddingVertical: 8,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
@@ -1581,13 +1580,14 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     input: {
       flex: 1,
+      minWidth: 0,
       color: fieldText,
       fontSize: 16,
       fontWeight: '500',
       padding: 0,
       paddingHorizontal: 0,
       margin: 0,
-      height: 44,
+      height: Math.max(44, Math.ceil(22 * fontScale + 16)),
       minHeight: 44,
       backgroundColor: 'transparent',
       borderWidth: 0,
@@ -1640,13 +1640,14 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       fontWeight: '500',
     },
     twoColumnRow: {
-      flexDirection: 'row',
+      flexDirection: singleColumn ? 'column' : 'row',
       gap: 8,
       alignItems: 'flex-start',
       marginBottom: 11,
     },
     twoColumnCell: {
-      flex: 1,
+      flex: singleColumn ? undefined : 1,
+      alignSelf: 'stretch',
       minWidth: 0,
     },
     selectValue: {
@@ -1729,7 +1730,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: primaryBlue,
-      height: 54,
+      minHeight: 54,
       borderRadius: 8,
       marginTop: 0,
       overflow: 'hidden',
@@ -1741,12 +1742,14 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     registerGradient: {
       flex: 1,
+      minHeight: 54,
       alignSelf: 'stretch',
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: 12,
       paddingHorizontal: 18,
+      paddingVertical: 14,
     },
     registerBtnPressed: {
       opacity: 0.85,
@@ -1758,6 +1761,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       elevation: 0,
     },
     registerBtnText: {
+      flexShrink: 1,
+      textAlign: 'center',
       color: '#ffffff',
       fontSize: 16,
       fontWeight: '600',
@@ -1781,3 +1786,6 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
   });
 }
+
+export default function SharedAuthenticationEntry() { return <AuthEntryScreen form="demo" />; }
+

@@ -6,7 +6,7 @@ import test from 'node:test';
 const readSource = (relativePath: string) =>
   readFileSync(resolve(process.cwd(), relativePath), 'utf8');
 
-test('chart symbol pickers keep the saved chart symbol first and include fallback symbols', () => {
+test('chart symbol pickers share the broker catalog and repair unavailable saved selections', () => {
   for (const sourcePath of [
     'src/features/chart/ChartScreen.native.tsx',
     'src/features/chart/ChartScreen.web.tsx',
@@ -15,10 +15,9 @@ test('chart symbol pickers keep the saved chart symbol first and include fallbac
 
     assert.doesNotMatch(source, /const\s+CHART_SYMBOLS\s*=/, sourcePath);
     assert.doesNotMatch(source, /apiSymbols\.length\s*>\s*0\s*\?\s*apiSymbols\s*:/, sourcePath);
-    assert.match(source, /DEFAULT_CHART_SYMBOLS/, sourcePath);
-    assert.match(source, /const\s+buildAvailableChartSymbols\s*=\s*\(chartSymbol: string, apiSymbols: readonly string\[\]\)/, sourcePath);
-    assert.match(source, /push\(chartSymbol\);[\s\S]*apiSymbols\.forEach\(push\);[\s\S]*DEFAULT_CHART_SYMBOLS\.forEach\(push\);/, sourcePath);
-    assert.match(source, /const\s+availableSymbols\s*=\s*useMemo\([\s\S]*buildAvailableChartSymbols\(chartSymbol, apiSymbols\)/, sourcePath);
+    assert.match(source, /import \{ buildAvailableChartSymbols, resolveBrokerChartSymbol \} from '\.\/chartBrokerSymbols'/, sourcePath);
+    assert.match(source, /const\s+availableSymbols\s*=\s*useMemo\([\s\S]*buildAvailableChartSymbols\(chartSymbol, apiSymbols(?:Data)?\)/, sourcePath);
+    assert.match(source, /const nextSymbol = resolveBrokerChartSymbol\(chartSymbol, apiSymbols(?:Data)?\)/, sourcePath);
     assert.match(source, /subtitle:\s*resolveChartSymbolFullName\(sym\)/, sourcePath);
     assert.match(source, /resolveChartSymbolCategory\(chartSymbol\)/, sourcePath);
     assert.doesNotMatch(source, /setChartSymbol\(apiSymbols\[0\]\)/, sourcePath);
@@ -254,10 +253,6 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   const timeframeTextStyle = styles.slice(
     styles.indexOf('compactHeaderTimeframeText:'),
     styles.indexOf('/*', styles.indexOf('compactHeaderTimeframeText:')),
-  );
-  const toolbarTradeTextStyle = styles.slice(
-    styles.indexOf('toolbarTradeText:'),
-    styles.indexOf('toolbarTrailingGroup:', styles.indexOf('toolbarTradeText:')),
   );
   const timeframeHandlerSource = source.slice(
     source.indexOf('const handleOpenTimeframePicker = useCallback'),
@@ -529,20 +524,22 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     source.slice(source.indexOf('const handleOpenSettingsScreen'), source.indexOf('const handleToggleChartExpanded')),
     /requestAnimationFrame/,
   );
-  assert.match(source, /onPress=\{\(\) => routeChartWindowToolbarAction\('timeframe'\)\}[\s\S]*activateOnPressIn/);
-  assert.match(source, /onPressIn=\{\(\) => routeChartWindowToolbarAction\('sltp'\)\}/);
-  assert.match(source, /onPress=\{\(\) => routeChartWindowToolbarAction\('drawings'\)\}[\s\S]*activateOnPressIn/);
-  assert.match(source, /accessibilityLabel="Chart settings"[\s\S]*onPress=\{\(\) => routeChartWindowToolbarAction\('settings'\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/);
-  assert.match(source, /onPress=\{\(\) => routeChartWindowToolbarAction\('more'\)\}[\s\S]*activateOnPressIn/);
+  const scrollableToolbar = source.slice(
+    source.indexOf('const renderCompactHeaderToolbar'),
+    source.indexOf('const renderChartTradeSheetTopHeader'),
+  );
+  for (const action of ['crosshair', 'timeframe', 'sltp', 'drawings', 'more']) {
+    assert.ok(scrollableToolbar.includes(`onPress={() => routeChartWindowToolbarAction('${action}')}`));
+  }
+  assert.doesNotMatch(scrollableToolbar, /routeChartWindowToolbarAction\('settings'\)|options-outline/);
+  assert.doesNotMatch(scrollableToolbar, /activateOnPressIn|activateOnTouchStart|onPressIn=/);
   assert.match(
     source,
     /useChartWindowToolbarRouter\([\s\S]*timeframe: handleOpenTimeframePicker[\s\S]*sltp: handleActivateDirectChartProtection[\s\S]*drawings: handleOpenDrawingTools[\s\S]*settings: handleOpenSettingsScreen[\s\S]*more: handleOpenMoreMenu/,
   );
   assert.match(source, /onPress=\{handleOpenChartExpirationMenu\}[\s\S]*activateOnPressIn/);
-  assert.match(timeframeTextStyle, /color:\s*TEXT_MUTED/);
+  assert.match(timeframeTextStyle, /color:\s*HEADER_CONTROL_COLOR/);
   assert.doesNotMatch(timeframeTextStyle, /color:\s*BLUE/);
-  assert.match(toolbarTradeTextStyle, /color:\s*TEXT_MUTED/);
-  assert.doesNotMatch(toolbarTradeTextStyle, /color:\s*BLUE/);
   const scrollableExpirationOpeners = tradeFeatureSource.match(
     /<Pressable\b[^>]*\bonPress=\{handlers\.onOpenExpirationMenu\}[^>]*>/g,
   ) ?? [];

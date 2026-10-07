@@ -2,8 +2,8 @@
  * Core module: accounts.ts
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { getAccounts, getAccountById, TradingAccount, AccountsApiError } from '../api/accounts';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getAccountById, TradingAccount, AccountsApiError } from '../api/accounts';
 import {
   getSessionQueryCacheNamespace,
   runSessionBoundQuery,
@@ -13,21 +13,20 @@ import {
 // ═══════════════════════════════════════════════════════════════════════════════
 // TanStack Query hooks for Accounts API
 //
-//   useAccounts()              — GET /accounts (list all trading accounts)
-//   useAccountDetails(login)   — GET /accounts/{login} (single account details)
+//   useAccountDetails(login)   — GET /account/{login} (the session account)
+//
+// There is no list hook: `GET /accounts` returns 403 for traders (contract v3)
+// and the user's account is the session `account_login`.
 //
 // Caching strategy:
-//   List:   staleTime 30s, polls every 60s — accounts change as trades execute
-//   Detail: staleTime 15s, polls every 30s — more granular, used for active view
+//   Detail: staleTime 15s, polls every 30s — used for the active view
 //   retry:  smart — retries transient errors (500/503/network), skips client
 //           errors (401/403/404/422) since those won't resolve on retry
+//   Server metrics missing from a response keep the last cached value and are
+//   listed in `staleMetrics`.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export const ACCOUNTS_LIST_KEY = 'accountsList';
 export const ACCOUNT_DETAIL_KEY = 'accountDetail';
-
-export const getAccountsListQueryKey = (cacheNamespace: string) =>
-  [ACCOUNTS_LIST_KEY, cacheNamespace] as const;
 
 export const getAccountDetailQueryKey = (
   cacheNamespace: string,
@@ -61,48 +60,26 @@ function shouldRetryAccounts(failureCount: number, error: Error): boolean {
 }
 
 /**
- * TanStack Query hook for listing all trading accounts.
- *
- * GET /accounts — returns the full list of trading accounts for
- * the authenticated user. Requires Bearer token.
- *
- * @param enabled - Optional override to control when the query fires.
- *                  Defaults to true (assumes caller checks auth state).
- */
-export function useAccounts(enabled?: boolean) {
-  const session = useActiveBrokerQuerySession();
-  const cacheNamespace = getSessionQueryCacheNamespace(session);
-  const isEnabled = Boolean(session) && (enabled ?? true);
-  return useQuery<TradingAccount[], Error>({
-    queryKey: getAccountsListQueryKey(cacheNamespace),
-    queryFn: () => runSessionBoundQuery(cacheNamespace, getAccounts),
-    enabled: isEnabled,
-    staleTime: 5 * 1000,          // 5 seconds — keep data fresh for account screens
-    refetchInterval: isEnabled ? 10 * 1000 : false,  // Refresh every 10 seconds for near-real-time data
-    retry: shouldRetryAccounts,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
-  });
-}
-
-/**
  * TanStack Query hook for a single account's details.
  *
- * GET /accounts/{login} — returns detailed account information for a
- * specific MT5 login number. Requires Bearer token.
+ * GET /account/{login} — returns detailed account information for a
+ * specific login number. Requires Bearer token.
  *
- * @param login   - The MT5 account login number (e.g. 200052).
+ * @param login   - The account login number (e.g. 200074).
  *                  Query is disabled if login is undefined or 0.
  * @param enabled - Optional override to control when the query fires.
  */
 export function useAccountDetails(login?: number, enabled?: boolean) {
+  const queryClient = useQueryClient();
   const session = useActiveBrokerQuerySession();
   const cacheNamespace = getSessionQueryCacheNamespace(session);
   const isEnabled = Boolean(session) && (enabled ?? true) && !!login;
+  const queryKey = getAccountDetailQueryKey(cacheNamespace, login);
   return useQuery<TradingAccount, Error>({
-    queryKey: getAccountDetailQueryKey(cacheNamespace, login),
+    queryKey,
     queryFn: () => runSessionBoundQuery(
       cacheNamespace,
-      () => getAccountById(login!),
+      () => getAccountById(login!, queryClient.getQueryData<TradingAccount>(queryKey)),
     ),
     enabled: isEnabled,
     staleTime: 15 * 1000,        // 15 seconds — tighter for active account view
@@ -111,4 +88,3 @@ export function useAccountDetails(login?: number, enabled?: boolean) {
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
   });
 }
-

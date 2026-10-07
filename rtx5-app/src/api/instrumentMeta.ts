@@ -1,8 +1,12 @@
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../domain/symbols';
 import { normalizePriceDigits, resolveDecimalsFromPriceStep } from '../utils/pricePrecision';
+import { derivePointFromDigits } from '../utils/pricePoint';
 
 export interface InstrumentMetaDTO {
   symbol: string;
+  tradeMode?: string | number;
+  visible?: boolean;
+  enabled?: boolean;
   name?: string;
   category?: string;
   sector?: string;
@@ -198,6 +202,14 @@ const BASE_CURRENCY_FIELD_KEYS = [
   'base_currency',
   'currencyBase',
   'currency_base',
+] as const;
+
+const MARGIN_CURRENCY_FIELD_KEYS = [
+  'marginCurrency',
+  'MarginCurrency',
+  'margin_currency',
+  'currencyMargin',
+  'currency_margin',
 ] as const;
 
 const PROFIT_CURRENCY_FIELD_KEYS = [
@@ -396,12 +408,17 @@ export const normalizeInstrumentMetaPayload = (
   const swapShort = pickFiniteNumber(record, SWAP_SHORT_FIELD_KEYS);
   const marginInitial = pickFiniteNumber(record, MARGIN_INITIAL_FIELD_KEYS);
   const marginMaintenance = pickFiniteNumber(record, MARGIN_MAINTENANCE_FIELD_KEYS);
-  const baseCurrency = pickStringField(record, BASE_CURRENCY_FIELD_KEYS);
+  // Contract v3 has no base_currency; margin_currency is the base for FX.
+  const baseCurrency = pickStringField(record, BASE_CURRENCY_FIELD_KEYS)
+    ?? pickStringField(record, MARGIN_CURRENCY_FIELD_KEYS);
   const profitCurrency = pickStringField(record, PROFIT_CURRENCY_FIELD_KEYS);
   const spreadMode = pickStringField(record, SPREAD_MODE_FIELD_KEYS);
   const calculation = pickStringField(record, CALCULATION_FIELD_KEYS);
   const chartMode = pickStringField(record, CHART_MODE_FIELD_KEYS);
   const meta: InstrumentMetaDTO = {
+    ...(typeof record.trade_mode === 'string' || typeof record.trade_mode === 'number' ? { tradeMode: record.trade_mode } : {}),
+    ...(typeof record.visible === 'boolean' ? { visible: record.visible } : {}),
+    ...(typeof record.enabled === 'boolean' ? { enabled: record.enabled } : {}),
     ...(record as Partial<InstrumentMetaDTO>),
     symbol,
   };
@@ -485,6 +502,19 @@ export const normalizeInstrumentMetaPayload = (
   const resolvedDigits = digits ?? pickStepDerivedDigits(record);
   if (resolvedDigits !== undefined) {
     meta.digits = resolvedDigits;
+  }
+
+  // Point is the quote unit (10^-broker digits), distinct from the trading tick.
+  // Tick size alone does not establish broker quote precision. Keep an unknown
+  // point absent rather than inventing it from the symbol or a trading step.
+  if (!(typeof meta.point === 'number' && Number.isFinite(meta.point) && meta.point > 0)) {
+    const derivedPoint = derivePointFromDigits(digits);
+    if (derivedPoint !== undefined) {
+      meta.point = derivedPoint;
+    }
+  }
+  if (meta.stopsLevel === undefined && meta.symbol) {
+    meta.stopsLevel = '0';
   }
 
   return meta;

@@ -32,6 +32,14 @@ export function AlertRow({
   styles,
 }: AlertRowProps) {
   const isAbove = alert.condition === 'above';
+  // `cross` fires when price crosses the level in either direction.
+  const isCross = alert.condition === 'cross';
+  const conditionLabel = isAbove ? '▲ Above' : isCross ? '↕ Cross' : '▼ Below';
+  const conditionColor = isAbove
+    ? T.trading.buy.primary
+    : isCross
+      ? T.text
+      : T.trading.sell.primary;
 
   return (
     <>
@@ -42,14 +50,16 @@ export function AlertRow({
           { backgroundColor: alert.triggered
             ? (isDark ? T.glass1 : '#F1F5F9')
             : isAbove
-              ? (isDark ? T.upGlow : 'rgba(34,197,94,0.12)')
-              : (isDark ? T.downGlow : 'rgba(239,68,68,0.12)'),
+              ? T.upGlow
+              : isCross
+                ? (isDark ? T.glass1 : '#F1F5F9')
+                : (isDark ? T.downGlow : 'rgba(239,68,68,0.12)'),
           },
         ]}>
           <Ionicons
-            name={isAbove ? 'trending-up' : 'trending-down'}
+            name={isAbove ? 'trending-up' : isCross ? 'swap-vertical' : 'trending-down'}
             size={18}
-            color={alert.triggered ? T.textMuted : isAbove ? T.trading.buy.primary : T.trading.sell.primary}
+            color={alert.triggered ? T.textMuted : conditionColor}
           />
         </View>
 
@@ -66,9 +76,9 @@ export function AlertRow({
             )}
           </View>
           <Text style={[styles.alertCondition, {
-            color: alert.triggered ? T.textMuted : isAbove ? T.trading.buy.primary : T.trading.sell.primary,
+            color: alert.triggered ? T.textMuted : conditionColor,
           }]}>
-            {isAbove ? '▲ Above' : '▼ Below'} {alert.price.toFixed(5)}
+            {conditionLabel} {alert.price.toFixed(5)}
           </Text>
           {!!alert.message && (
             <Text style={[styles.alertMessage, { color: T.textMuted }]} numberOfLines={1}>

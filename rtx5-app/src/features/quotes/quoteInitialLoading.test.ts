@@ -98,7 +98,7 @@ test('QuotesScreen wires the skeleton to initial query loading and preserves rea
     /if \(!hasSetInitialSymbols\) \{[\s\S]*if \(!quoteCatalogActive\)[\s\S]*catalogIsLoading \|\| \(quoteWatchlistActive && watchlistIsLoading\)/,
   );
   const publicSeedIndex = source.indexOf(
-    'if (isPublicDemoMarket && currentSymbols.length === 0)',
+    'if (isPublicDemoMarket && currentSymbols.length === 0 && feedAwareSymbols.length === 0)',
   );
   const catalogWaitIndex = source.indexOf(
     'if (catalogIsLoading || (quoteWatchlistActive && watchlistIsLoading))',
@@ -106,7 +106,7 @@ test('QuotesScreen wires the skeleton to initial query loading and preserves rea
   assert.ok(publicSeedIndex >= 0 && publicSeedIndex < catalogWaitIndex);
   assert.match(
     source,
-    /if \(isPublicDemoMarket && currentSymbols\.length === 0\) \{[\s\S]*setQuoteSymbols\(\[\.\.\.DEFAULT_QUOTE_WATCHLIST\]\)/,
+    /if \(isPublicDemoMarket && currentSymbols\.length === 0 && feedAwareSymbols\.length === 0\) return/,
   );
   assert.doesNotMatch(source, /isFetching: (catalog|watchlist)IsLoading/);
 });

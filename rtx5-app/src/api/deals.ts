@@ -21,6 +21,11 @@ import { apiClient } from './apiClient';
 export interface Deal {
   ticket: number;
   order_ticket: number;
+  /**
+   * Not sent by the v3 gateway on either deals endpoint (contract 6.4). Kept
+   * optional-at-runtime for older builds; derived history falls back to
+   * per-symbol FIFO pairing when it is missing.
+   */
   position_ticket: number;
   account_login: number;
   symbol: string;
@@ -56,6 +61,55 @@ const readDealsPayload = (json: unknown, depth = 0): Deal[] => {
   return [];
 };
 
+/** Contract 6.4: /account/deals returns at most 1000 rows per page. */
+export const ACCOUNT_DEALS_PAGE_SIZE = 1000;
+/** Safety cap for one full-history walk (50k deals). */
+export const ACCOUNT_DEALS_MAX_PAGES = 50;
+
+export type AccountDealsPageFetcher = (
+  limit: number,
+  offset: number,
+  from?: number,
+  to?: number,
+) => Promise<Deal[]>;
+
+const dealPageSignature = (deals: Deal[]): string =>
+  deals
+    .map((deal) => [deal.ticket, deal.time, deal.entry, deal.volume].join(':'))
+    .join('|');
+
+/**
+ * Walks GET /account/deals with offset paging (limit=1000) until a short or
+ * empty page. A repeated page (a server that ignores offset) stops the walk.
+ */
+export const fetchAllAccountDeals = async (
+  options: Readonly<{
+    from?: number;
+    to?: number;
+    maxPages?: number;
+    fetchPage?: AccountDealsPageFetcher;
+  }> = {},
+): Promise<Deal[]> => {
+  const fetchPage = options.fetchPage ?? dealsApi.getAccountDeals;
+  const maxPages = Math.max(1, Math.floor(options.maxPages ?? ACCOUNT_DEALS_MAX_PAGES));
+  const deals: Deal[] = [];
+  const seenSignatures = new Set<string>();
+  let offset = 0;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const rows = await fetchPage(ACCOUNT_DEALS_PAGE_SIZE, offset, options.from, options.to);
+    if (rows.length === 0) break;
+    const signature = dealPageSignature(rows);
+    if (seenSignatures.has(signature)) break;
+    seenSignatures.add(signature);
+    deals.push(...rows);
+    if (rows.length < ACCOUNT_DEALS_PAGE_SIZE) break;
+    offset += rows.length;
+  }
+
+  return deals;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Trading API — Account Deals (JWT-resolved, date-range aware)
 // Endpoint: GET /api/v2/account/deals
@@ -74,12 +128,20 @@ export const dealsApi = {
    * Optionally pass `from` and `to` as Unix timestamps (seconds) to restrict the
    * result to a specific date window (e.g. Last 6 months, custom calendar range).
    *
-   * @param limit  - Max records to return (default: 500)
+   * PRIMARY deals source (contract 6.4): offset paging works, max 1000 rows.
+   * Use fetchAllAccountDeals() to walk every page.
+   *
+   * @param limit  - Max records to return (default and max: 1000)
    * @param offset - Pagination offset (default: 0)
    * @param from   - Range start as Unix seconds (optional)
    * @param to     - Range end as Unix seconds (optional, defaults to now on server)
    */
-  getAccountDeals: async (limit = 500, offset = 0, from?: number, to?: number): Promise<Deal[]> => {
+  getAccountDeals: async (
+    limit = ACCOUNT_DEALS_PAGE_SIZE,
+    offset = 0,
+    from?: number,
+    to?: number,
+  ): Promise<Deal[]> => {
     const params = new URLSearchParams({
       limit: String(limit),
       offset: String(offset),
@@ -101,6 +163,10 @@ export const dealsApi = {
    * Fetch deal history for a trading account.
    *
    * GET /api/v2/deals/{login}?limit={limit}&offset={offset}[&from={from}&to={to}]
+   *
+   * FALLBACK ONLY (contract 6.4): the v3 gateway ignores paging here, caps
+   * the result at 500 rows and sends no `position_ticket`. Prefer
+   * fetchAllAccountDeals().
    *
    * Deals are the atomic execution records that compose positions.
    * Each deal has an `entry` field indicating whether it opened ("entry_in")

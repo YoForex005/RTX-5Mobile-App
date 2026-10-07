@@ -84,8 +84,8 @@ export const ABOUT_ACTIONS: AboutAction[] = [
   },
   {
     id: 'contact-developer',
-    title: 'Contact Developer',
-    icon: 'mail-outline',
+    title: 'Report a Bug',
+    icon: 'bug-outline',
   },
 ];
 

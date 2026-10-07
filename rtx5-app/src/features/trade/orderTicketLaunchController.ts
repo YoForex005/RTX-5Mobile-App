@@ -1,3 +1,4 @@
+import { scheduleAfterVisualFrame } from '../../utils/afterVisualFrame';
 /**
  * Controls the short handoff from New Order to the full ticket:
  * prepare the symbol, show a lightweight ticket, then open the real route.
@@ -219,10 +220,5 @@ export function scheduleOrderTicketLaunchNavigation(
   // Shell is already shown via UI-thread setNativeProps/shared value. One paint
   // frame is enough before router.push — double-rAF added ~32ms of dead wait
   // on every Buy/Sell open with no visual benefit.
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(runIfCurrent);
-    return;
-  }
-
-  setTimeout(runIfCurrent, 0);
+  return scheduleAfterVisualFrame(runIfCurrent);
 }

@@ -55,6 +55,7 @@ import {
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { BrokerFeedHealthBanner } from '../../../market/BrokerFeedHealthBanner';
 import { requestOrrnnDemoTradeAuth } from '../../trade/tradeAuthPrompt';
+import { markTradeIntent } from '../../../utils/tradeIntent';
 
 const formatDetailNumber = (value: number | null | undefined) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -316,6 +317,8 @@ export function SymbolDetailsInteractiveContent({
     : '--';
   const swapLong = resolveDetailNumber(remoteMeta?.swapLong, q.swapLong);
   const swapShort = resolveDetailNumber(remoteMeta?.swapShort, q.swapShort);
+  const hasSwapRates = (swapLong !== undefined && Number.isFinite(swapLong))
+    || (swapShort !== undefined && Number.isFinite(swapShort));
   const spp = ((q.spread || 0) * (pip || 1)).toFixed(1);
   const ctk = q.tickValue ?? (Number.isFinite(mid) && mid > 0 ? 10 / mid : undefined);
 
@@ -363,6 +366,8 @@ export function SymbolDetailsInteractiveContent({
   };
 
   const handleTrade = (side: 'buy' | 'sell') => {
+    // Tap time for the Journal's order latency telemetry.
+    markTradeIntent();
     if (requestOrrnnDemoTradeAuth({
       kind: oneClickAccepted ? 'market-order' : 'order-ticket',
       symbol,
@@ -512,7 +517,7 @@ export function SymbolDetailsInteractiveContent({
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '600', color: T.text }}>
+          <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '500', color: T.text }}>
             {t('Quote Details')}
           </Text>
           <View style={{ width: 42 }} />
@@ -610,7 +615,7 @@ export function SymbolDetailsInteractiveContent({
                 latencyLabel="symbolDetails.trade.buy"
                 latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
               >
-                <LinearGradient colors={[isDark ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.02)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
+                <LinearGradient colors={[T.upGlow, 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
                 <View style={s.ticker.sideHeader}>
                   <Text style={[s.ticker.sideLabel, { color: T.up }]}>{t('BUY')}</Text>
                   <View style={s.ticker.arrowWrap}>
@@ -696,9 +701,14 @@ export function SymbolDetailsInteractiveContent({
           <Row label={t('Stops Level')} value={meta.stopsLevel} />
           <Row label={t('Margin Initial')} value={(q.marginInitial ?? 0).toFixed(2) + '%'} />
           <Row label={t('Margin Maintenance')} value={(q.marginMaintenance ?? 0).toFixed(2) + '%'} />
-          <Row label={t('Leverage')} value={leverageText} />
-          <Row label={t('Swap Long')} value={formatSwapValue(swapLong)} accent={swapLong !== undefined ? (swapLong < 0 ? T.down : T.up) : undefined} />
-          <Row label={t('Swap Short')} value={formatSwapValue(swapShort)} accent={swapShort !== undefined ? (swapShort > 0 ? T.up : T.down) : undefined} last />
+          <Row label={t('Leverage')} value={leverageText} last={!hasSwapRates} />
+          {/* Contract v3 instruments carry no swap_* fields: hide the rows. */}
+          {hasSwapRates ? (
+            <>
+              <Row label={t('Swap Long')} value={formatSwapValue(swapLong)} accent={swapLong !== undefined ? (swapLong < 0 ? T.down : T.up) : undefined} />
+              <Row label={t('Swap Short')} value={formatSwapValue(swapShort)} accent={swapShort !== undefined ? (swapShort > 0 ? T.up : T.down) : undefined} last />
+            </>
+          ) : null}
         </Section>
 
         <Section title={t('Instrument Profile')} icon="briefcase-outline">

@@ -65,7 +65,7 @@ test('confirmed chart fills use the thin receipt inside the chart viewport', () 
 
   assert.match(
     receiptStyles,
-    /left: 0[\s\S]*right: 0[\s\S]*bottom: 16[\s\S]*alignItems: 'center'[\s\S]*chartTradeReceiptBar:[\s\S]*width: '52%'[\s\S]*minWidth: 200[\s\S]*maxWidth: 230[\s\S]*minHeight: 40[\s\S]*flexDirection: 'row'[\s\S]*backgroundColor: isDark \? T\.glass2 : '#FFFFFF'[\s\S]*borderLeftWidth: 3[\s\S]*borderRadius: 2[\s\S]*paddingHorizontal: 10[\s\S]*elevation: 6[\s\S]*gap: 8/,
+    /left: 0[\s\S]*right: 0[\s\S]*bottom: 16[\s\S]*alignItems: 'center'[\s\S]*chartTradeReceiptBar:[\s\S]*width: '90%'[\s\S]*minWidth: 0[\s\S]*maxWidth: 230[\s\S]*minHeight: 40[\s\S]*flexDirection: 'row'[\s\S]*backgroundColor: isDark \? T\.glass2 : '#FFFFFF'[\s\S]*borderLeftWidth: 3[\s\S]*borderRadius: 2[\s\S]*paddingHorizontal: 10[\s\S]*elevation: 6[\s\S]*gap: 8/,
   );
   assert.match(
     receiptStyles,

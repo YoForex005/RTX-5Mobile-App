@@ -39,9 +39,9 @@ const logAccountWsDiagnostic = (...args: Parameters<typeof console.log>) => {
   }
 };
 
-const warnAccountWsDiagnostic = (...args: Parameters<typeof console.warn>) => {
+const warnAccountWsDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (DEBUG_ACCOUNT_WS) {
-    console.warn(...args.map(redactDiagnosticValue));
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
@@ -355,7 +355,8 @@ class AccountWebSocketService {
         this.startHeartbeat(session);
         // Different backend deployments still expose either `metrics.LOGIN`
         // or `account.LOGIN` for the same live account-summary stream.
-        ['metrics', 'account', 'positions', 'orders', 'deals', 'history'].forEach((channelPrefix) => {
+        // `deals.LOGIN` is dropped (contract v3: nothing is sent on it).
+        ['metrics', 'account', 'positions', 'orders', 'history'].forEach((channelPrefix) => {
           this.send({ action: 'subscribe', channel: `${channelPrefix}.${session.login}` });
         });
       };
@@ -395,10 +396,7 @@ class AccountWebSocketService {
         warnAccountWsDiagnostic(`[Account WS] Connection error - readyState: ${state}`);
       };
     } catch (error) {
-      console.error(
-        '[Account WS] Connection initialization failed',
-        redactDiagnosticValue(error),
-      );
+      logAccountWsDiagnostic('[Account WS] Connection initialization failed', error);
       this.attemptReconnect(session);
     }
   }

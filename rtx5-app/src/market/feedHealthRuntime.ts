@@ -3,12 +3,13 @@ import {
   feedHealthCanSafelyRetry,
   initialFeedHealthState,
   reduceFeedHealth,
+  resolveLocalTickStaleAfterMs,
   sameFeedHealthIdentity,
   type FeedHealthEvent,
   type FeedHealthIdentity,
   type FeedHealthState,
   type FeedHealthThresholds,
-  type NormalizedFeedServerHealth,
+  type FeedServerStatus,
 } from './feedHealthState';
 import { recordMarketDataEvent } from './marketDataTelemetry';
 
@@ -36,16 +37,20 @@ const clearEvaluationTimer = (): void => {
 
 const scheduleFreshnessEvaluation = (): void => {
   clearEvaluationTimer();
-  if (!latestState.identity || !latestState.thresholds || !latestState.lastServerStatusAt) {
+  // Only a healthy (fresh-tick) state can age out on its own: 8 s after the
+  // last accepted tick it turns stale so prices are greyed. The socket is not
+  // touched; the quote service owns reconnect decisions.
+  if (
+    !latestState.identity ||
+    latestState.status !== 'healthy' ||
+    !latestState.lastLocalTickAt
+  ) {
     return;
   }
 
   const deadlines = [
-    latestState.lastServerStatusAt + latestState.thresholds.serverStatusStaleAfterMs,
+    latestState.lastLocalTickAt + resolveLocalTickStaleAfterMs(latestState),
   ];
-  if (latestState.marketSchedule === 'open' && latestState.lastLocalTickAt) {
-    deadlines.push(latestState.lastLocalTickAt + latestState.thresholds.localTickStaleAfterMs);
-  }
   const now = Date.now();
   const nextDeadline = Math.min(...deadlines.filter((deadline) => deadline > now));
   if (!Number.isFinite(nextDeadline)) {
@@ -144,20 +149,22 @@ export const reportFeedLocalTick = (
   }>,
 ): FeedHealthState => dispatchFeedHealthEvent({ type: 'LOCAL_TICK', identity, ...tick });
 
-/** Accepts only an already-normalized, approved server-health contract. */
+/** Diagnostic /ws/feed/status verdict. Live ticks still win over it. */
 export const reportFeedServerStatus = (
   identity: FeedHealthIdentity,
-  health: NormalizedFeedServerHealth,
+  health: FeedServerStatus,
 ): FeedHealthState => dispatchFeedHealthEvent({ type: 'SERVER_STATUS', identity, health });
 
+/** Transport close. The quote feed has no auth, so there is no auth latch. */
 export const reportFeedSocketClosed = (
   identity: FeedHealthIdentity,
-  authFailure = false,
-): FeedHealthState => dispatchFeedHealthEvent({
-  type: 'SOCKET_CLOSED',
-  identity,
-  authFailure,
-});
+): FeedHealthState => dispatchFeedHealthEvent({ type: 'SOCKET_CLOSED', identity });
+
+/** Re-evaluate freshness now (used by the quote watchdog after silence). */
+export const reportFeedSilence = (
+  identity: FeedHealthIdentity,
+  now: number = Date.now(),
+): FeedHealthState => dispatchFeedHealthEvent({ type: 'EVALUATE', identity, now });
 
 /** Must be called only after an approved credential refresh has committed. */
 export const reportFeedCredentialsRefreshed = (

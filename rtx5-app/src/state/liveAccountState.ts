@@ -28,6 +28,22 @@ export type LiveAccountData = {
 export type LiveAccountMetricFlags = Record<keyof Omit<LiveAccountData, 'login'>, boolean>;
 
 /**
+ * Metrics the server calculates and may omit when that calculation fails
+ * (contract v3: `equity`, `used_margin`, `free_margin`, `margin_level`,
+ * `floating_pnl`). A missing value keeps the last known value and is flagged
+ * stale instead of being replaced with 0 or recomputed.
+ */
+export const SERVER_CALCULATED_LIVE_METRICS = [
+  'equity',
+  'margin',
+  'margin_free',
+  'margin_level',
+  'floating',
+] as const;
+
+export type ServerCalculatedLiveMetric = (typeof SERVER_CALCULATED_LIVE_METRICS)[number];
+
+/**
  * Zustand store interface for managing live account metrics.
  */
 type LiveAccountState = LiveAccountData & {
@@ -41,10 +57,21 @@ type LiveAccountState = LiveAccountData & {
    */
   metricFlags: LiveAccountMetricFlags;
   /**
+   * Metrics whose latest account snapshot omitted them. The stored value is the
+   * last known one. Cleared per metric when a fresh value arrives.
+   */
+  staleMetricFlags: LiveAccountMetricFlags;
+  /**
    * Updates one or more properties of the live account state.
    * @param data - Partial metrics to merge into current state
    */
   updateMetrics: (data: Partial<LiveAccountData>) => void;
+  /**
+   * Applies a full account snapshot (REST `GET /account/{login}` or a
+   * `metrics_update` frame): present metrics are updated, and server-calculated
+   * metrics that are missing keep their last value and are marked stale.
+   */
+  applyMetricsSnapshot: (data: Partial<LiveAccountData>) => void;
   /**
    * Resets the account metrics to their default (zero) state.
    */
@@ -83,10 +110,11 @@ function buildMetricFlags(
   data: Partial<LiveAccountData>,
   currentFlags: LiveAccountMetricFlags,
 ): LiveAccountMetricFlags {
-  const nextFlags = { ...currentFlags };
+  let nextFlags = currentFlags;
 
   for (const key of financialMetricKeys) {
-    if (key in data) {
+    if (key in data && !nextFlags[key]) {
+      if (nextFlags === currentFlags) nextFlags = { ...currentFlags };
       nextFlags[key] = true;
     }
   }
@@ -94,8 +122,44 @@ function buildMetricFlags(
   return nextFlags;
 }
 
+function clearStaleFlags(
+  data: Partial<LiveAccountData>,
+  currentFlags: LiveAccountMetricFlags,
+): LiveAccountMetricFlags {
+  let nextFlags = currentFlags;
+  for (const key of financialMetricKeys) {
+    if (key in data && nextFlags[key]) {
+      if (nextFlags === currentFlags) nextFlags = { ...currentFlags };
+      nextFlags[key] = false;
+    }
+  }
+  return nextFlags;
+}
+
 function hasAnyMetric(flags: LiveAccountMetricFlags): boolean {
   return financialMetricKeys.some((key) => flags[key]);
+}
+
+function mergeMetrics(state: LiveAccountState, data: Partial<LiveAccountData>, snapshot = false) {
+  const loginChanged = data.login !== undefined && data.login !== state.login;
+  const metricFlags = buildMetricFlags(data, loginChanged ? initialMetricFlags : state.metricFlags);
+  let staleMetricFlags = clearStaleFlags(data, loginChanged ? initialMetricFlags : state.staleMetricFlags);
+  if (snapshot) {
+    const previousFlags = staleMetricFlags;
+    for (const key of SERVER_CALCULATED_LIVE_METRICS) {
+      if (!(key in data) && !staleMetricFlags[key]) {
+        if (staleMetricFlags === previousFlags) staleMetricFlags = { ...previousFlags };
+        staleMetricFlags[key] = true;
+      }
+    }
+  }
+  const hasMetrics = hasAnyMetric(metricFlags);
+  if (!loginChanged && metricFlags === state.metricFlags && staleMetricFlags === state.staleMetricFlags
+      && hasMetrics === state.hasMetrics
+      && (Object.keys(data) as Array<keyof LiveAccountData>).every(key => Object.is(data[key], state[key]))) {
+    return state;
+  }
+  return { ...(loginChanged ? initialState : state), ...data, hasMetrics, metricFlags, staleMetricFlags };
 }
 
 /**
@@ -107,21 +171,14 @@ export const useLiveAccountState = create<LiveAccountState>((set) => ({
   ...initialState,
   hasMetrics: false,
   metricFlags: initialMetricFlags,
-  updateMetrics: (data) => set((state) => {
-    const loginChanged = data.login !== undefined && data.login !== state.login;
-    const nextMetricFlags = buildMetricFlags(
-      data,
-      loginChanged ? initialMetricFlags : state.metricFlags,
-    );
-    const baseState = loginChanged ? initialState : state;
-
-    return {
-      ...baseState,
-      ...data,
-      hasMetrics: hasAnyMetric(nextMetricFlags),
-      metricFlags: nextMetricFlags,
-    };
+  staleMetricFlags: initialMetricFlags,
+  updateMetrics: (data) => set(state => mergeMetrics(state, data)),
+  applyMetricsSnapshot: (data) => set(state => mergeMetrics(state, data, true)),
+  resetMetrics: () => set({
+    ...initialState,
+    hasMetrics: false,
+    metricFlags: initialMetricFlags,
+    staleMetricFlags: initialMetricFlags,
   }),
-  resetMetrics: () => set({ ...initialState, hasMetrics: false, metricFlags: initialMetricFlags }),
 }));
 

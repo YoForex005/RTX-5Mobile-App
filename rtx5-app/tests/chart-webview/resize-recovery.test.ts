@@ -93,7 +93,7 @@ test('WebView ready events recover cold-start viewport size after the bridge exi
   );
 });
 
-test('fullscreen enter and exit cancel stale resize frames and use the fast press path', () => {
+test('fullscreen enter and exit cancel stale resize frames and remain available in More', () => {
   assertSourceContains(
     source,
     /useEffect\(\(\) => \{[\s\S]*cancelChartViewportRecovery\(\)[\s\S]*pendingChartViewportSizeRef\.current = null[\s\S]*\}, \[cancelChartViewportRecovery, isChartExpanded\]\)/,
@@ -106,13 +106,13 @@ test('fullscreen enter and exit cancel stale resize frames and use the fast pres
   );
   assertSourceContains(
     source,
-    /onPressIn=\{\(\) => routeChartWindowToolbarAction\('fullscreen'\)\}/,
-    'fullscreen toggle must route the targeted pane on touch-down instead of waiting for press release',
+    /label: t\(isChartExpanded \? 'Exit fullscreen' : 'Fullscreen'\)[\s\S]*onPress: \(\) => \{\s*hideChartActionSheet\(\);\s*handleToggleChartExpanded\(\);/,
+    'fullscreen action in More must close the action sheet and retain viewport-safe fullscreen handling',
   );
   assertSourceContains(
     source,
-    /useChartWindowToolbarRouter\([\s\S]*fullscreen: handleToggleChartExpanded/,
-    'targeted fullscreen routing must retain the viewport-safe fullscreen handler',
+    /useChartWindowToolbarRouter\([\s\S]*more: handleOpenMoreMenu/,
+    'the targeted More toolbar action must still expose the fullscreen menu action',
   );
 });
 

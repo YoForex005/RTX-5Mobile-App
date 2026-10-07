@@ -1,3 +1,4 @@
+import { GDark } from '../../../ui/theme/glass';
 import { Ionicons } from '@expo/vector-icons';
 import type { EconomicEvent, ImpactLevel } from '../../../dev/mock/calendarData';
 
@@ -28,7 +29,7 @@ export const COUNTRY_COLORS: Record<string, { bg: string; text: string; abbr: st
 
 export const DEFAULT_COUNTRY_COLOR = { bg: '#64748B20', text: '#64748B', abbr: '??' };
 
-export function parseAndDiff(valA?: string, valB?: string) {
+export function parseAndDiff(valA?: string, valB?: string, positiveColor = GDark.trading.profit) {
   if (!valA || valA === '—' || !valB || valB === '—') return null;
   const numA = parseFloat(valA.replace(/[^0-9.-]/g, ''));
   const numB = parseFloat(valB.replace(/[^0-9.-]/g, ''));
@@ -45,7 +46,7 @@ export function parseAndDiff(valA?: string, valB?: string) {
   const diffStr = sign + (diff).toFixed(hasPct ? 2 : 1) + suffix;
   return {
     text: diffStr,
-    color: isPositive ? '#4ADE80' : '#F87171',
+    color: isPositive ? positiveColor : '#F87171',
     symbol: isPositive ? '▲' : '▼',
   };
 }

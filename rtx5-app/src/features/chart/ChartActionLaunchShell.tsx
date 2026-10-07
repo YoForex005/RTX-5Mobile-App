@@ -47,7 +47,7 @@ export const ChartActionLaunchShell = memo(function ChartActionLaunchShell({
 
   return (
     <View style={styles.root} testID={`chart-action-launch-shell-${destination}`}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <FastPressable
           onPress={onBack}
           activateOnPressIn
@@ -247,8 +247,6 @@ function SpecificationLaunchBody({
     t('Contract size'),
     t('Spread'),
     t('Stop level, pips'),
-    t('Swap long, pips'),
-    t('Swap short, pips'),
   ];
   return (
     <View style={styles.body}>
@@ -346,7 +344,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'space-between',
     },
     backButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-    headerTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: T.text },
+    headerTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '500', color: T.text },
     body: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
     objectsSubtitle: { textAlign: 'center', color: T.textMuted, fontSize: 14, fontWeight: '600', marginBottom: 16 },
     sectionLabel: { color: T.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 0.8, marginTop: 14, marginBottom: 10 },

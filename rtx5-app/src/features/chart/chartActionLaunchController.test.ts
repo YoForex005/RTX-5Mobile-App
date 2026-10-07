@@ -125,7 +125,7 @@ test('hiding a chart action cover cancels its scheduled route', async () => {
   }
 });
 
-test('real route coverage waits two frames and requires the exact explicit revision', () => {
+test('real route coverage waits two frames and requires the exact explicit revision', async () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
   let frameQueue: Array<(timestamp: number) => void> = [];
   Object.defineProperty(globalThis, 'requestAnimationFrame', {
@@ -156,6 +156,8 @@ test('real route coverage waits two frames and requires the exact explicit revis
     const secondFrame = frameQueue;
     frameQueue = [];
     secondFrame.forEach((callback) => callback(16));
+    assert.equal(chartActionLaunchController.getSnapshot().phase, 'launching', 'coverage follows the second paint');
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(chartActionLaunchController.getSnapshot().phase, 'covered');
   } finally {
     chartActionLaunchController.hide();

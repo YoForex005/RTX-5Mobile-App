@@ -1243,7 +1243,7 @@ export function ObjectsScreen() {
       onLayout={handleLaunchBodyLayout}
       style={styles.screen}
     >
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 18) + 10 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <View style={styles.headerRow}>
           <Pressable
             onPress={editorOpen ? closeOpenEditor : () => safeRouterBack(router, '/(tabs)/chart')}

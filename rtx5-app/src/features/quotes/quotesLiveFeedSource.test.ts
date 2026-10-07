@@ -9,6 +9,7 @@ const readSource = (path: string) =>
 test('quotes tab owns the full watchlist live feed snapshot path', () => {
   const serviceSource = readSource('src/api/ws/quotesSocket/QuotesWebSocketService.ts');
   const reconnectBackoffSource = readSource('src/api/ws/reconnectBackoff.ts');
+  const failurePolicySource = readSource('src/api/ws/quotesSocket/quoteSocketFailurePolicy.ts');
   const tickProcessorSource = readSource('src/api/ws/quotesSocket/tickProcessor.ts');
   const queryWebsocketSource = readSource('src/query/websocket.ts');
   const liveQuotesSource = readSource('src/features/quotes/useLiveQuotes.ts');
@@ -30,11 +31,10 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /private markBrokerSocketUnavailable\(socketUrl: string, reason: string\): boolean/);
   assert.match(serviceSource, /private shouldStayOnBrokerMarketSocket\(socketUrl: string\): boolean/);
   assert.match(serviceSource, /Retrying the selected broker market socket/);
-  assert.match(serviceSource, /isQuoteSocketAuthenticationFailure/);
-  assert.match(
-    serviceSource,
-    /this\.isBrokerMarketAuthFailure\([\s\S]*socketUrl,[\s\S]*event\?\.code,[\s\S]*event\?\.reason,[\s\S]*didOpen,[\s\S]*\)/,
-  );
+  // Contract v3: /ws/feed has no auth, so no close code is treated as an
+  // authentication failure (1008/4001/4401/4403 and pre-open 401 all retry).
+  assert.doesNotMatch(serviceSource, /isQuoteSocketAuthenticationFailure|isBrokerMarketAuthFailure/);
+  assert.doesNotMatch(serviceSource, /4401|4403|1008/);
   const socketErrorStart = serviceSource.indexOf('socket.onerror = () =>');
   const socketErrorEnd = serviceSource.indexOf('\n      };', socketErrorStart);
   assert.notEqual(socketErrorStart, -1);
@@ -53,7 +53,8 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /createTickChannel = \(symbol: string\): string => `ticks\.\$\{symbol\}`/);
   assert.match(serviceSource, /type: 'subscribe', symbols: subscribeSymbols/);
   assert.match(serviceSource, /type: 'unsubscribe', symbols: unsubscribeSymbols/);
-  assert.match(serviceSource, /buildCandleChannelSubscriptionMessages\('subscribe'/);
+  assert.match(serviceSource, /buildFeedCandleSubscriptionMessages\('subscribe'/);
+  assert.match(serviceSource, /buildFeedCandleSubscriptionMessages\('unsubscribe'/);
   assert.doesNotMatch(serviceSource, /DEFAULT_QUOTES_WS_URL|EXPO_PUBLIC_QUOTES_WS_URL/);
   assert.match(serviceSource, /this\.openResolvedSocket\(resolved\)/);
   assert.match(serviceSource, /isActiveBrokerSessionOwnerStampCurrent\(owner\)/);
@@ -68,7 +69,8 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /const QUOTE_WS_RECONNECT_BASE_DELAY_MS = 750/);
   assert.match(serviceSource, /const QUOTE_WS_RECONNECT_MAX_DELAY_MS = 5_000/);
   assert.match(serviceSource, /const QUOTE_WS_RECONNECT_COOLDOWN_MS = 10_000/);
-  assert.match(serviceSource, /const QUOTE_WS_SILENT_STALE_MS = 8_000/);
+  assert.match(failurePolicySource, /export const QUOTE_WS_SILENT_STALE_MS = 8_000/);
+  assert.match(failurePolicySource, /export const QUOTE_WS_SILENT_RECONNECT_MS = 60_000/);
   assert.match(serviceSource, /const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000/);
   assert.match(serviceSource, /const QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS = 2_500/);
   assert.match(
@@ -82,11 +84,12 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /const deferredMs = this\.getInteractionReconnectDelay\(\);[\s\S]*this\.scheduleReconnect\(deferredMs\);[\s\S]*return;/);
   assert.match(serviceSource, /const resolvedDelayMs = Math\.max\(delayMs, this\.getInteractionReconnectDelay\(\)\)/);
   assert.match(reconnectBackoffSource, /Math\.min\([\s\S]*capMs[\s\S]*\)/);
-  assert.match(serviceSource, /staleFor > QUOTE_WS_SILENT_STALE_MS/);
-  assert.match(serviceSource, /In logged-in broker mode, reconnect only to the selected broker[\s\S]*\/ws\/v2 market socket/);
+  // Silence: 8 s greys prices (socket kept), 60 s + open market reconnects.
+  assert.match(serviceSource, /const action = decideQuoteSocketSilenceAction\(silentFor\)/);
+  assert.doesNotMatch(serviceSource, /Silent TCP drop detected|'silent after open'/);
   assert.match(
     serviceSource,
-    /const socketUrl = this\.url;[\s\S]*markBrokerSocketUnavailable\(socketUrl, 'silent after open'\)[\s\S]*return;[\s\S]*Silent TCP drop detected[\s\S]*this\.triggerInvisibleReconnect\(\)/,
+    /No frames for[\s\S]*while the market is open\. Reconnecting\.[\s\S]*this\.triggerInvisibleReconnect\(\)/,
   );
 
   const eagerUrlIndex = serviceSource.indexOf("private url = ''");
@@ -143,7 +146,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(liveQuotesSource, /const notifySymbolImmediately = \(symbol: string\): void => \{[\s\S]*pendingNotifySymbols\.delete\(symbol\);[\s\S]*notifySymbol\(symbol\);[\s\S]*\}/);
   assert.match(liveQuotesSource, /export const ingestLiveQuoteTick = \(tick: QuoteTickEvent, notifyImmediately = true\): void =>/);
   assert.match(liveQuotesSource, /scheduleSymbolNotification\(scopedKey, notifyImmediately\)/);
-  assert.match(liveQuotesSource, /export function useLiveQuoteSubscription\(symbol: string, active: boolean\): void \{[\s\S]*const socket = cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*socket\.subscribeToSymbol\(symbol, \(tick\) => \{[\s\S]*transport: 'websocket'/);
+  assert.match(liveQuotesSource, /export function useLiveQuoteSubscription\(symbol: string, active: boolean\): void \{[\s\S]*const socket = cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*socket\.subscribeToSymbol\(symbol, \(tick\) => \{[\s\S]*transport: tick\.transport \?\? 'websocket'/);
   const watchlistHookStart = liveQuotesSource.indexOf('export function useWatchlistLiveQuotes');
   const snapshotHookStart = liveQuotesSource.indexOf('export function useLiveQuoteSnapshot', watchlistHookStart);
   assert.notEqual(watchlistHookStart, -1);
@@ -159,7 +162,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
     /subscriptionSymbols\.map\(\(symbol\) =>[\s\S]*quotesWsService\.subscribeToSymbol\(symbol, listener\)/,
   );
   assert.match(watchlistHookSource, /unsubscribers\.forEach\(\(unsubscribe\) => unsubscribe\(\)\)/);
-  assert.match(watchlistHookSource, /ingestLiveQuoteTick\(\{ \.\.\.tick, transport: 'websocket' \}, true\)/);
+  assert.match(watchlistHookSource, /ingestLiveQuoteTick\(\{ \.\.\.tick, transport: tick\.transport \?\? 'websocket' \}, true\)/);
   assert.match(watchlistHookSource, /useRestQuoteSnapshotRepair\([\s\S]*normalizedSymbols,[\s\S]*cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*false[\s\S]*options\?\.restFallbackActive \?\? active,[\s\S]*cacheNamespace/);
   assert.match(watchlistHookSource, /return active && cacheNamespace \? subscriptionSymbols : \[\]/);
   assert.doesNotMatch(watchlistHookSource, /addTickListener/);
@@ -221,8 +224,9 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /volumeLabel\(item\.volume \?\? item\.cachedVolume\)/);
   assert.match(quotesScreenSource, /const QUOTE_ROW_HEIGHT = 88/);
   assert.match(quotesScreenSource, /const QUOTE_ROW_SIMPLE_HEIGHT = 64/);
-  assert.match(quotesScreenSource, /const getQuoteItemLayout = useCallback/);
-  assert.match(quotesScreenSource, /getItemLayout=\{getQuoteItemLayout\}/);
+  // Inline metadata and enlarged text can also grow; real measured offsets avoid clipping.
+  assert.doesNotMatch(quotesScreenSource, /getItemLayout=|const getQuoteItemLayout/);
+  assert.match(quotesScreenSource, /layout=\{quoteCardLayout\}/);
   assert.doesNotMatch(quotesScreenSource, /const rawLastPrice = item\.close \?\? item\.last/);
   assert.doesNotMatch(quotesScreenSource, /\{t\('Last'\)\}:/);
   assert.match(quotesScreenSource, /const quoteStickyFeedActive = quoteCatalogActive && \(isLoggedIn \|\| isPublicDemoMarket\)/);
@@ -241,7 +245,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /quotesWsService\.resumeReconnectAfterInteraction\?\.\(\)/);
   assert.match(quotesScreenSource, /pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\)/);
   assert.match(quotesScreenSource, /const handleSymbolPressIn = useCallback\([\s\S]*pauseQuoteSheetFeed\(\)/);
-  assert.match(quotesScreenSource, /liveUpdatesActive=\{quoteStickyFeedActive\}/);
+  assert.match(quotesScreenSource, /liveUpdatesActive=\{isQuoteRowLive\(quoteStickyFeedActive, sym, index, visibleQuoteSymbols\)\}/);
   assert.match(
     quotesScreenSource,
     /const observedLiveItem = useLiveQuoteSnapshot\(liveSymbol, liveUpdatesActive\);[\s\S]*const liveItem =[\s\S]*observedLiveItem \?\?[\s\S]*\(!liveUpdatesActive \? getCurrentLiveQuoteSnapshot\(liveSymbol\) : undefined\)/,
@@ -254,7 +258,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}[\s\S]*symbols=\{quoteFeedSymbols\}/);
   assert.match(
     quotesScreenSource,
-    /const quoteFeedHealthStatus: FeedHealthStatus = isPublicDemoMarket[\s\S]*\? 'connecting'[\s\S]*: scopedFeedHealth\.status/,
+    /const quoteFeedHealthStatus: FeedHealthStatus = isPublicDemoMarket[\s\S]*publicMarketStatus === 'live'[\s\S]*: scopedFeedHealth\.status/,
   );
   assert.match(
     quotesScreenSource,
@@ -311,18 +315,18 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.doesNotMatch(quotesScreenSource, /snapshotTimesRef|latestSnapshotAtRef|visibleUpdateCount/);
   assert.doesNotMatch(quotesScreenSource, /lastSampledStateTicks|stateTickDelta|useTradingState\.getState\(\)\.tickCount/);
   assert.doesNotMatch(quotesScreenSource, /useLiveQuoteSubscription\(liveSymbol, feedActive\)/);
-  assert.match(publicMarketSocketSource, /new WebSocket\(socketUrl\)/);
-  assert.match(
-    publicMarketSocketSource,
-    /getOrrnnDemoPublicQuotePayloads\(payload\)[\s\S]*toQuoteTick\(quotePayload, receivedAt, receiptMonotonicAt\)/,
-  );
-  assert.doesNotMatch(publicMarketSocketSource, /Authorization|accessToken|refreshToken|feedToken/);
-  assert.match(publicMarketSocketSource, /type: 'subscribe', symbols/);
-  assert.match(publicMarketSocketSource, /type: 'subscribe_candles', symbol, tf/);
-  assert.doesNotMatch(publicMarketSocketSource, /MAX_RECONNECT_ATTEMPTS/);
-  assert.match(publicMarketSocketSource, /this\.reconnectAttempts = Math\.min\([\s\S]*RECONNECT_DELAYS_MS\.length/);
+  // Opened through the Origin-safe factory (see src/api/ws/feedWebSocket.ts).
+  assert.match(publicMarketSocketSource, /createFeedWebSocket\(socketUrl, Platform\.OS\)/);
+  const publicCoreSource = readSource('src/api/ws/publicMarketSocketCore.ts');
+  assert.match(publicCoreSource, /getOrrnnDemoPublicQuotePayloads\(payload\)/);
+  assert.match(publicCoreSource, /normalizeQuoteTickPayload\([\s\S]*this\.instrumentMetadata\.get\(raw\)/);
+  assert.doesNotMatch(publicCoreSource, /Authorization|accessToken|refreshToken|feedToken/);
+  assert.match(publicCoreSource, /type: 'subscribe', symbols/);
+  assert.match(publicCoreSource, /candleChannel\(demand\.symbol, demand\.tf\)/);
+  assert.match(publicCoreSource, /getOrrnnDemoPublicCandles\(demand\.symbol, demand\.tf, 3/);
+  assert.match(publicCoreSource, /Math\.min\(30000, 750 \* 2 \*\* this\.retries/);
+  assert.match(publicCoreSource, /isPublicBrokerContextCurrent\(context\)/);
+  assert.match(publicCoreSource, /resetQuoteMarketData\(\)/);
   assert.match(publicMarketSocketSource, /AppState\.addEventListener\('change'/);
   assert.match(publicMarketSocketSource, /useUserPreferences\.subscribe\(\(state, previous\) =>/);
-  assert.match(publicMarketSocketSource, /if \(!this\.isSelectionActive\(\)\) \{[\s\S]*this\.deactivatePublicScope\(\)/);
-  assert.match(publicMarketSocketSource, /private deactivatePublicScope\(\): void \{[\s\S]*this\.teardownSocket\(false\)[\s\S]*resetQuoteMarketData\(\)/);
 });

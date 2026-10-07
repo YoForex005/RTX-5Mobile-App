@@ -3,6 +3,12 @@ export const CANONICAL_SLTP_BROKER_IDS = [
   'orrnn-demo',
   'gta_broker',
   'myprop-trade',
+  'nexa',
+  // Backend contract v3 (6.5). The gateway ids are exact and case-sensitive
+  // ("trivanta-markets", "Orrnn"); capability lookup matches them ignoring
+  // case, so "Orrnn" and "orrnn" share the canonical id 'orrnn'.
+  'trivanta-markets',
+  'orrnn',
 ] as const;
 
 export type CanonicalSltpBrokerId = (typeof CANONICAL_SLTP_BROKER_IDS)[number];
@@ -66,6 +72,11 @@ export const BROKER_SLTP_CAPABILITIES: Readonly<
   'orrnn-demo': MARKET_AND_POSITION_SLTP_CAPABILITIES,
   gta_broker: MARKET_AND_POSITION_SLTP_CAPABILITIES,
   'myprop-trade': MARKET_AND_POSITION_SLTP_CAPABILITIES,
+  nexa: MARKET_AND_POSITION_SLTP_CAPABILITIES,
+  // Contract 6.5: market-order and position SL/TP ON; pending-order SL/TP and
+  // trailing stop stay OFF until QA passes.
+  'trivanta-markets': MARKET_AND_POSITION_SLTP_CAPABILITIES,
+  orrnn: MARKET_AND_POSITION_SLTP_CAPABILITIES,
 });
 
 export function canonicalBrokerId(
@@ -79,6 +90,10 @@ export function canonicalBrokerId(
   }
   if (value === 'orrnn-demo') return 'orrnn-demo';
   if (value === 'myprop-trade') return 'myprop-trade';
+  if (value === 'nexa') return 'nexa';
+  if (value === 'trivanta-markets') return 'trivanta-markets';
+  // Exact match only: 'orrnn-demo' above stays a separate broker.
+  if (value === 'orrnn') return 'orrnn';
   return null;
 }
 
@@ -114,6 +129,12 @@ export function getSltpUnavailableMessage(
       return 'SL/TP is unavailable for the requested GTA trade flow. Only market-order and existing-position SL/TP are enabled.';
     case 'myprop-trade':
       return 'SL/TP is unavailable for the requested MyProp trade flow. Only market-order and existing-position SL/TP are enabled.';
+    case 'nexa':
+      return 'SL/TP is unavailable for the requested Nexa trade flow. Only market-order and existing-position SL/TP are enabled.';
+    case 'trivanta-markets':
+      return 'SL/TP is unavailable for the requested Trivanta Markets trade flow. Only market-order and existing-position SL/TP are enabled.';
+    case 'orrnn':
+      return 'SL/TP is unavailable for the requested Orrnn trade flow. Only market-order and existing-position SL/TP are enabled.';
     default:
       return 'SL/TP is unavailable because the selected broker could not be verified.';
   }

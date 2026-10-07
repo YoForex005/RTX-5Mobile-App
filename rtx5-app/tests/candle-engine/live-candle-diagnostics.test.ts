@@ -153,14 +153,13 @@ test('live candle hook keeps quote socket demand active for fast forming candles
   const hookSource = readRepoSource('src/domain/candles/hooks/useLiveCandles.ts');
 
   assert.match(hookSource, /import \{ quotesWsService \} from '\.\.\/\.\.\/\.\.\/api\/ws\/quotesSocket'/);
-  assert.match(hookSource, /import \{ candlesWsService \} from '\.\.\/ws\/candlesSocket'/);
-  assert.match(hookSource, /shouldUseServerCandleStream/);
-  assert.match(hookSource, /Keep the quote socket on for this chart/);
-  assert.match(hookSource, /quote[\s\S]*ticks are the only active-candle body source/);
-  assert.match(hookSource, /candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)/);
-  assert.match(hookSource, /candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);
+  // Contract v3: live candles come from /ws/feed subscribe_candles on the
+  // quote socket; the /ws/v2 candle service is no longer used by the hook.
+  assert.doesNotMatch(hookSource, /candlesWsService/);
+  assert.match(hookSource, /const unsubscribeCandleDemand = quotesWsService\.subscribeToCandles\(\s*normalizedSymbol,\s*normalizedTimeframe,\s*\)/);
+  assert.match(hookSource, /Quote ticks keep extending the active candle/);
   assert.match(hookSource, /const unsubscribeQuoteDemand = quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\s*\}\)/);
-  assert.match(hookSource, /unsubscribeQuoteDemand\(\);[\s\S]*unsubscribeEngine\(\);[\s\S]*unsubscribeCandleDemand\?\.\(\)/);
+  assert.match(hookSource, /unsubscribeQuoteDemand\(\);[\s\S]*unsubscribeEngine\(\);[\s\S]*unsubscribeCandleDemand\(\)/);
 });
 
 test('backend candle cache bootstrap does not reject valid intraday gaps', () => {
@@ -184,6 +183,12 @@ test('data analyzer is opt-in and avoids engine-only REST history probes', () =>
   const analyzerSource = readRepoSource('src/features/chart/DataAnalyzer.ts');
 
   assert.match(analyzerSource, /EXPO_PUBLIC_ENABLE_DATA_ANALYZER/);
+  assert.match(
+    analyzerSource,
+    /const isDataAnalyzerEnabled = \(\) =>\s*typeof __DEV__ !== 'undefined' &&\s*__DEV__ &&/,
+    'the analyzer must be dev-build only, never production',
+  );
+  assert.doesNotMatch(analyzerSource, /console\.(?:warn|error)\(/);
   assert.match(analyzerSource, /CANDLE_HISTORY_TIMEFRAMES/);
   assert.doesNotMatch(analyzerSource, /SUPPORTED_TIMEFRAMES/);
 });

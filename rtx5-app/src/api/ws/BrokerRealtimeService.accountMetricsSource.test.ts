@@ -14,11 +14,15 @@ test('broker realtime never owns executable quote or tick-derived PnL state', ()
   assert.match(legacySocketSource, /Quote channels are disabled; executable quotes use \/ws\/feed only/);
 });
 
-test('broker realtime subscribes to positions, metrics, and confirmed deals with singular channel messages', () => {
+test('broker realtime subscribes to positions and metrics (no deals) with singular channel messages', () => {
   const brokerRealtimeSource = source();
+  const protocolSource = readFileSync(resolve(process.cwd(), 'src/api/ws/tradeSocketProtocol.ts'), 'utf8');
 
-  assert.match(brokerRealtimeSource, /ACTIVE_TRADE_CHANNELS = \['positions', 'metrics', 'deals'\] as const/);
-  assert.match(brokerRealtimeSource, /channel: `\$\{channel\}\.\$\{login\}`/);
+  assert.match(protocolSource, /TRADE_SOCKET_CHANNEL_PREFIXES = \['positions', 'metrics'\] as const/);
+  assert.match(protocolSource, /channel: `\$\{prefix\}\.\$\{login\}`/);
+  assert.doesNotMatch(protocolSource, /'deals'\]/);
+  assert.match(brokerRealtimeSource, /buildTradeSocketSubscriptionMessages\(accountLogin\)/);
+  assert.doesNotMatch(brokerRealtimeSource, /ACTIVE_TRADE_CHANNELS/);
   assert.match(brokerRealtimeSource, /this\.activeChannels\.forEach\(\(channel\) => \{[\s\S]*this\.send\(\{ action: 'subscribe', channel \}\)/);
   assert.doesNotMatch(brokerRealtimeSource, /action: 'subscribe',[\s\S]{0,80}channels:/);
   assert.doesNotMatch(brokerRealtimeSource, /const DEFAULT_SYMBOL = 'EURUSD'/);
@@ -26,10 +30,68 @@ test('broker realtime subscribes to positions, metrics, and confirmed deals with
   assert.doesNotMatch(brokerRealtimeSource, /ACTIVE_TRADE_CHANNELS = \[[^\]]*'history'/);
   assert.match(brokerRealtimeSource, /channel\.startsWith\('deals\.'\)/);
   assert.match(brokerRealtimeSource, /channel\.startsWith\('history\.'\)/);
-  assert.match(brokerRealtimeSource, /asRecord\(record\.position\) \?\? asRecord\(record\.item\)/);
+  assert.match(brokerRealtimeSource, /asRecord\(record\.position\) \?\?[\s\S]*asRecord\(record\.item\) \?\?[\s\S]*asRecord\(record\.data\)/);
   assert.match(brokerRealtimeSource, /this\.invalidateLifecycleQueries\(eventName, identity\)/);
-  assert.match(brokerRealtimeSource, /dataRecord\?\.type \?\? dataRecord\?\.event/);
+  assert.match(brokerRealtimeSource, /const frame = parseTradeSocketFrame\(record\)/);
+  assert.match(brokerRealtimeSource, /frame\.kind === 'pong' \|\| frame\.kind === 'ack'/);
+  assert.match(brokerRealtimeSource, /frame\.kind === 'error'/);
+  assert.match(brokerRealtimeSource, /const data = frame\.nested \? frame\.envelope : frame\.payload/);
   assert.match(brokerRealtimeSource, /this\.send\(\{ action: 'ping' \}\)/);
+});
+
+test('position_closed replaces the deals channel as the history refresh signal', () => {
+  const brokerRealtimeSource = source();
+
+  assert.match(
+    brokerRealtimeSource,
+    /isHistoryChangingPositionEvent\(eventName\) \|\|[\s\S]*isHistoryPayloadEvent\(channel, eventName, statusName\)[\s\S]*this\.scheduleHistoryQueryInvalidation\(identity\)/,
+  );
+  assert.match(
+    brokerRealtimeSource,
+    /positionEventKind === 'closed'[\s\S]*this\.handlePositionClosed\(closedRow, identity\)/,
+  );
+  const closedStart = brokerRealtimeSource.indexOf('private handlePositionClosed(');
+  const closedEnd = brokerRealtimeSource.indexOf('private handleProtectionTriggered(', closedStart);
+  const closed = brokerRealtimeSource.slice(closedStart, closedEnd);
+  assert.match(closed, /closeReason !== 'netting_close' && closeReason !== 'netting_reverse'/);
+  assert.match(closed, /finishOptimisticClose\(ticket\)/);
+  assert.match(closed, /this\.invalidateLifecycleQueryRoots\(identity\)/);
+  assert.match(
+    brokerRealtimeSource,
+    /positionEventKind === 'partial_close' \|\| positionEventKind === 'account'[\s\S]*schedulePositionsReconciliation\(identity\)/,
+  );
+  // The lifecycle refresh reaches the history roots the queries actually use.
+  assert.match(
+    brokerRealtimeSource,
+    /private invalidateLifecycleQueryRoots\([\s\S]*?this\.scheduleHistoryQueryInvalidation\(identity\)/,
+  );
+  assert.match(
+    brokerRealtimeSource,
+    /const HISTORY_CACHE_KEYS = \[\s*'positionHistory',\s*'deals',\s*'accountDeals',\s*\] as const/,
+  );
+  const readQuery = (name: string) =>
+    readFileSync(resolve(process.cwd(), 'src/query', `${name}.ts`), 'utf8');
+  assert.match(readQuery('positions'), /export const POSITION_HISTORY_KEY = 'positionHistory'/);
+  assert.match(readQuery('deals'), /export const DEALS_KEY = 'deals'/);
+  assert.match(readQuery('deals'), /export const ACCOUNT_DEALS_KEY = 'accountDeals'/);
+  assert.match(readQuery('dealsHistory'), /\['accountDeals', cacheNamespace,/);
+});
+
+test('trade socket reconnects with the rotated token after every credential refresh', () => {
+  const brokerRealtimeSource = source();
+  const brokerApiSource = readFileSync(resolve(process.cwd(), 'src/api/brokerApi.ts'), 'utf8');
+
+  // The refresh path commits every rotated token through the active-session
+  // store, which emits `credentials_updated` to subscribers.
+  assert.match(brokerApiSource, /updateActiveBrokerSessionCredentials\(identity,/);
+  assert.match(
+    brokerRealtimeSource,
+    /subscribeActiveBrokerSession\(\(event\) => \{[\s\S]*shouldCycleTradeSocketForSessionEvent\(event, this\.shouldReconnect\)[\s\S]*this\.reconnect\(\);/,
+  );
+  assert.match(brokerRealtimeSource, /if \(this\.isOpening\) \{\s*this\.pendingCredentialCycle = true;/);
+  assert.match(brokerRealtimeSource, /this\.consumePendingCredentialCycle\(\) \|\|/);
+  // The URL (and its token) is resolved fresh for every open.
+  assert.match(brokerRealtimeSource, /const wsUrl = await brokerApi\.getWebSocketUrl\(\)/);
 });
 
 test('broker realtime position batches are filtered, hint-only for SL/TP, and never replace by absence', () => {

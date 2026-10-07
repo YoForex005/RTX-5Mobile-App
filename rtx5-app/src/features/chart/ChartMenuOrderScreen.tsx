@@ -21,7 +21,7 @@ export function ChartMenuOrderScreen() {
 
   return (
     <Screen style={styles.screen}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <View style={styles.headerRow}>
           <Pressable
             onPress={() => safeRouterBack(router, '/(tabs)/chart')}
@@ -77,7 +77,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 17,
-      fontWeight: '700',
+      fontWeight: '500',
       letterSpacing: 0.3,
     },
     content: {

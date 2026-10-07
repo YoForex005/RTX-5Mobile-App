@@ -7,17 +7,17 @@ import {
 } from './feedHealthPresentation';
 import { initialFeedHealthState, reduceFeedHealth } from './feedHealthState';
 
-const identity = { brokerId: 'myprop-trade', accountLogin: '1001', sessionEpoch: 7 } as const;
+const identity = { brokerId: 'trivanta-markets', accountLogin: '200074', sessionEpoch: 7 } as const;
+
+const bound = () => reduceFeedHealth(initialFeedHealthState, {
+  type: 'BIND_SESSION',
+  identity,
+  transportConfigured: true,
+  credentialApproved: true,
+});
 
 test('provider outage presentation is broker-scoped, critical, and retryable', () => {
-  const bound = reduceFeedHealth(initialFeedHealthState, {
-    type: 'BIND_SESSION',
-    identity,
-    transportConfigured: true,
-    credentialApproved: true,
-    thresholds: { localTickStaleAfterMs: 1_000, serverStatusStaleAfterMs: 2_000 },
-  });
-  const withTick = reduceFeedHealth(bound, {
+  const withTick = reduceFeedHealth(bound(), {
     type: 'LOCAL_TICK',
     identity,
     receivedAt: 1_000,
@@ -25,106 +25,77 @@ test('provider outage presentation is broker-scoped, critical, and retryable', (
     ask: 2,
     transport: 'websocket',
   });
+  // Ticks have stopped (evaluated long after) and /ws/feed/status says down.
   const providerDown = reduceFeedHealth(withTick, {
     type: 'SERVER_STATUS',
     identity,
-    health: {
-      observedAt: 1_100,
-      feedConfigured: true,
-      authAccepted: true,
-      providerConnected: false,
-      upstreamConnected: true,
-      marketAvailable: true,
-      scheduledMarketClosed: false,
-      stale: false,
-      degraded: false,
-    },
+    health: { observedAt: 100_000, verdict: 'down', symbolsFresh: 0, providerConnected: false },
   });
 
-  const providerBanner = buildFeedHealthBannerModel(providerDown, 'myprop-trade');
+  const providerBanner = buildFeedHealthBannerModel(providerDown, 'trivanta-markets');
   // UI banners are suppressed on all surfaces; model still carries copy for diagnostics.
   assert.equal(providerBanner.visible, false);
   assert.equal(providerBanner.tone, 'critical');
   assert.equal(providerBanner.title, 'Market Data Unavailable');
-  assert.equal(providerBanner.brokerLabel, 'Myprop Trade');
+  assert.equal(providerBanner.brokerLabel, 'Trivanta Markets');
   assert.equal(providerBanner.reasonLabel, 'Broker market-data provider is offline');
   assert.equal(providerBanner.lastSuccessAt, 1_000);
   assert.equal(providerBanner.canRetry, true);
 });
 
-test('auth failure is unavailable but deliberately has no unsafe retry', () => {
-  const authFailed = reduceFeedHealth(
-    reduceFeedHealth(initialFeedHealthState, {
-      type: 'BIND_SESSION',
-      identity,
-      transportConfigured: true,
-      credentialApproved: true,
-    }),
-    { type: 'SOCKET_CLOSED', identity, authFailure: true },
-  );
-  const banner = buildFeedHealthBannerModel(authFailed, 'myprop-trade');
+test('a socket close is a retryable reconnect, never an auth failure', () => {
+  const closed = reduceFeedHealth(bound(), { type: 'SOCKET_CLOSED', identity });
+  const banner = buildFeedHealthBannerModel(closed, 'trivanta-markets');
 
+  assert.equal(closed.status, 'reconnecting');
   assert.equal(banner.visible, false);
-  assert.equal(banner.title, 'Market Data Unavailable');
-  assert.equal(banner.reasonLabel, 'Broker rejected feed authentication');
-  assert.equal(banner.canRetry, false);
+  assert.equal(banner.title, 'Prices Delayed');
+  assert.equal(banner.reasonLabel, 'Live connection was interrupted');
+  assert.equal(banner.canRetry, true);
 });
 
 test('healthy feed does not render an outage banner', () => {
-  const syntheticHealthy = {
-    ...initialFeedHealthState,
-    identity,
-    status: 'healthy' as const,
-    reasonCategory: 'awaiting_live_tick' as const,
-    transportConfigured: true,
-    credentialApproved: true,
-  };
-
-  assert.equal(buildFeedHealthBannerModel(syntheticHealthy, 'myprop-trade').visible, false);
-});
-
-test('disabled feed auth contract keeps diagnostic reason but never shows UI banner', () => {
-  const unconfigured = reduceFeedHealth(initialFeedHealthState, {
-    type: 'BIND_SESSION',
-    identity,
-    transportConfigured: false,
-    credentialApproved: false,
-  });
-  const missingContract = buildFeedHealthBannerModel(unconfigured, 'myprop-trade', {
-    mode: 'disabled_unconfigured',
-    reason: 'missing_contract',
-  });
-  const missingCredential = buildFeedHealthBannerModel(unconfigured, 'myprop-trade', {
-    mode: 'disabled_unconfigured',
-    reason: 'missing_credential',
-  });
-
-  assert.equal(missingContract.visible, false);
-  assert.match(missingContract.reasonLabel, /feed_auth_context/);
-  assert.equal(missingCredential.visible, false);
-  assert.match(missingCredential.reasonLabel, /Feed token missing/);
-});
-
-test('health_policy_unconfigured never shows the Prices Delayed banner', () => {
-  const bound = reduceFeedHealth(initialFeedHealthState, {
-    type: 'BIND_SESSION',
-    identity,
-    transportConfigured: true,
-    credentialApproved: true,
-    // thresholds omitted → health_policy_unconfigured after tick
-  });
-  const withTick = reduceFeedHealth(bound, {
+  const healthy = reduceFeedHealth(bound(), {
     type: 'LOCAL_TICK',
     identity,
-    receivedAt: 1_000,
+    receivedAt: Date.now(),
     bid: 1,
     ask: 2,
     transport: 'websocket',
   });
-  const banner = buildFeedHealthBannerModel(withTick, 'myprop-trade');
-  assert.equal(withTick.reasonCategory, 'health_policy_unconfigured');
+
+  assert.equal(healthy.status, 'healthy');
+  assert.equal(healthy.reasonCategory, 'live_ticks');
+  const banner = buildFeedHealthBannerModel(healthy, 'trivanta-markets');
   assert.equal(banner.visible, false);
-  assert.equal(banner.reasonLabel, 'Feed health policy is awaiting approval');
+  assert.equal(banner.reasonLabel, 'Live prices are streaming');
+});
+
+test('an unconfigured feed URL keeps a diagnostic reason and ignores legacy feed-auth input', () => {
+  const unconfigured = reduceFeedHealth(initialFeedHealthState, {
+    type: 'BIND_SESSION',
+    identity,
+    transportConfigured: false,
+    credentialApproved: true,
+  });
+  const banner = buildFeedHealthBannerModel(unconfigured, 'trivanta-markets');
+
+  assert.equal(banner.visible, false);
+  assert.equal(banner.reasonLabel, 'Broker feed is not configured');
+  assert.doesNotMatch(banner.reasonLabel, /feed_auth_context|Feed token/);
+});
+
+test('ticks without any health_policy are healthy, not "policy awaiting approval"', () => {
+  const withTick = reduceFeedHealth(bound(), {
+    type: 'LOCAL_TICK',
+    identity,
+    receivedAt: Date.now(),
+    bid: 1,
+    ask: 2,
+    transport: 'websocket',
+  });
+  assert.notEqual(withTick.reasonCategory, 'health_policy_unconfigured');
+  assert.equal(withTick.status, 'healthy');
 });
 
 test('compact feed status reports terminal states instead of endless connecting', () => {
@@ -134,5 +105,14 @@ test('compact feed status reports terminal states instead of endless connecting'
   assert.equal(resolveCompactFeedStatusLabel('provider_down', false), 'Unavailable');
   assert.equal(resolveCompactFeedStatusLabel('market_unavailable', false), 'Unavailable');
   assert.equal(resolveCompactFeedStatusLabel('connecting', false), 'Connecting...');
+  assert.equal(resolveCompactFeedStatusLabel('healthy', true), 'LIVE');
+});
+
+test('an established feed reports reconnecting or delayed without reverting to initial connecting', () => {
+  assert.equal(resolveCompactFeedStatusLabel('reconnecting', false), 'Reconnecting...');
+  assert.equal(resolveCompactFeedStatusLabel('reconnecting', true), 'Reconnecting...');
+  assert.equal(resolveCompactFeedStatusLabel('stale_or_degraded', false), 'Delayed');
+  assert.equal(resolveCompactFeedStatusLabel('stale_or_degraded', true), 'Delayed');
+  assert.equal(resolveCompactFeedStatusLabel('healthy', false), 'Delayed');
   assert.equal(resolveCompactFeedStatusLabel('healthy', true), 'LIVE');
 });

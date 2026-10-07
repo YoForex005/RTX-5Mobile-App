@@ -8,7 +8,10 @@ import { CandlesWebSocketService } from '../../domain/candles/ws/candlesSocket/C
 const TEST_SYMBOLS = ['EURUSD', 'GBPUSD', 'XAUUSD', 'BTCUSD'];
 const ENABLE_DATA_ANALYZER_ENV = 'true';
 
+/** Opt-in developer tool: requires a dev build AND the env flag, never runs in production. */
 const isDataAnalyzerEnabled = () =>
+  typeof __DEV__ !== 'undefined' &&
+  __DEV__ &&
   process.env.EXPO_PUBLIC_ENABLE_DATA_ANALYZER === ENABLE_DATA_ANALYZER_ENV;
 
 export function useDataAnalyzer() {

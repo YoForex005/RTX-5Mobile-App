@@ -39,6 +39,8 @@ import {
   scheduleBackNavigationAfterVisualFrame,
 } from '../../../utils/navigation';
 import { useBrokerDirectory } from '../../../query/broker';
+import { selectGuestBroker } from '../../../services/selectGuestBroker';
+import type { ValidatedBrokerServer } from '../../../api/broker';
 import {
   brokersLaunchController,
   hideBrokersLaunch,
@@ -105,6 +107,22 @@ function hasBrokerPressMovedBeyondThreshold(start: BrokerPressPoint, end: Broker
  * Screen for searching and selecting a broker from a predefined list or remote API directory.
  */
 export function BrokersScreen() {
+  const isScreenFocused = useIsFocused();
+  return <BrokerDirectoryScreen isScreenFocused={isScreenFocused} />;
+}
+
+type GuestBrokerPickerProps = {
+  onSelectBroker: (broker: ValidatedBrokerServer) => void;
+  onBack: () => void;
+  selectionError?: string;
+};
+
+/** The existing directory presentation can also run inside the root guest modal. */
+export function GuestBrokerPicker(props: GuestBrokerPickerProps) {
+  return <BrokerDirectoryScreen {...props} isScreenFocused />;
+}
+
+function BrokerDirectoryScreen({ isScreenFocused, onSelectBroker, onBack, selectionError }: Partial<GuestBrokerPickerProps> & { isScreenFocused: boolean }) {
   const setBrokerConnection = useUserPreferences((state) => state.setBrokerConnection);
   const [search, setSearch] = useState('');
   const [logoFailed, setLogoFailed] = useState<Record<string, boolean>>({});
@@ -113,7 +131,6 @@ export function BrokersScreen() {
   const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const routerInstance = useRouter();
-  const isScreenFocused = useIsFocused();
   const brokerPickerFocusedRef = useRef(isScreenFocused);
   brokerPickerFocusedRef.current = isScreenFocused;
   const brokerPressGestureRef = useRef<BrokerPressGesture>({
@@ -149,6 +166,7 @@ export function BrokersScreen() {
     if (!isScreenFocused) {
       return;
     }
+    if (onSelectBroker) return;
     const launchSnapshot = brokersLaunchController.getSnapshot();
     if (
       !launchSnapshot.visible
@@ -162,7 +180,7 @@ export function BrokersScreen() {
     // loader/error instead of a blank list for the request timeout window.
     hideSidebarDestination();
     scheduleBrokersLaunchCoverRemoval(launchSnapshot.revision);
-  }, [isScreenFocused]);
+  }, [isScreenFocused, onSelectBroker]);
 
   const trimmedQuery = search.trim().toLowerCase();
   const isSearching = trimmedQuery.length > 0;
@@ -188,18 +206,13 @@ export function BrokersScreen() {
    * Navigates to the Broker Detail (login) screen for the chosen broker.
    */
   const openBrokerDetail = (selection: BrokerDetailLaunchSelection) => {
-    const launchRevision = showBrokerDetailLaunch(selection);
-    // Install the next cover before removing this one so no native frame can
-    // expose Quotes/Accounts between the two route layers.
-    if (brokersLaunchController.isVisible()) {
-      hideBrokersLaunch();
-    }
-    scheduleBrokerDetailLaunchNavigation(launchRevision, () => {
-      routerInstance.push({
-        pathname: '/settings/broker-detail',
-        params: selection,
-      });
-    });
+    const record = brokerDirectory?.selectableServers.find(row => row.broker_id === selection.brokerId);
+    if (!record) return;
+    if (onSelectBroker) { onSelectBroker(record); return; }
+    void selectGuestBroker(record).then(() => {
+      hideBrokersLaunch(); hideSidebarDestination();
+      routerInstance.replace('/(tabs)/quotes');
+    }).catch(error => Alert.alert('Broker unavailable', error.message));
   };
 
   const recordBrokerRowPressStart = (broker: BrokerRow, event: GestureResponderEvent) => {
@@ -289,10 +302,7 @@ export function BrokersScreen() {
       serverUrl: broker.serverUrl,
       onAvailable: () => {
         if (!brokerPickerFocusedRef.current) return;
-        // Persist the exact directory selection for the next login. Logged-out
-        // Quotes and Chart continue using the public Orrnn market independently
-        // of this candidate broker selection.
-        setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl);
+        // Activate only the exact verified directory record for guest browsing.
         openBrokerDetail(selection);
       },
       onUnavailable: () => {
@@ -306,6 +316,7 @@ export function BrokersScreen() {
    * Returns to the Accounts management screen.
    */
   const handleBack = useCallback(() => {
+    if (onBack) { onBack(); return; }
     // Restore the already-mounted Accounts pixels immediately, while its
     // focus/query work waits until after the native Brokers pop.
     showSidebarDestination('accounts', 'route-sync');
@@ -315,16 +326,16 @@ export function BrokersScreen() {
     scheduleBackNavigationAfterVisualFrame(() => {
       safeRouterBack(routerInstance, '/(tabs)/quotes');
     });
-  }, [routerInstance]);
+  }, [routerInstance, onBack]);
 
   useEffect(() => {
-    if (!isScreenFocused) return undefined;
+    if (!isScreenFocused || onSelectBroker) return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       handleBack();
       return true;
     });
     return () => subscription.remove();
-  }, [handleBack, isScreenFocused]);
+  }, [handleBack, isScreenFocused, onSelectBroker]);
 
   return (
     <Screen>
@@ -376,6 +387,7 @@ export function BrokersScreen() {
         </View>
 
         {/* ── Results ── */}
+        {selectionError ? <View style={styles.contractWarning} accessibilityRole="alert"><Text style={styles.contractWarningText}>{selectionError}</Text></View> : null}
         {isIdentityOnlyDirectory && (
           <View style={styles.contractWarning} accessibilityRole="alert">
             <Ionicons name="warning-outline" size={18} color="#F59E0B" />
@@ -620,6 +632,7 @@ function BrokerDirectoryHealthBadge({
   enabled: boolean;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const T = useTheme({ active: enabled });
   const [health, setHealth] = useState<BrokerDirectoryHealthResult | null>(null);
 
   useEffect(() => {
@@ -671,12 +684,10 @@ function BrokerDirectoryHealthBadge({
 
   const label = health?.label ?? (broker.feedStatusUrl ? 'Checking market data…' : 'Status not configured');
   const dotColor = health?.state === 'healthy'
-    ? '#10B981'
-    : health?.state === 'provider_down' || health?.state === 'auth_failed'
+    ? T.trading.profit
+    : health?.state === 'provider_down'
       ? '#F87171'
-      : health?.state === 'market_closed'
-        ? '#94A3B8'
-        : '#F59E0B';
+      : '#F59E0B';
 
   return (
     <View
@@ -723,7 +734,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       flex: 1,
       color: T.text,
       fontSize: 20,
-      fontWeight: '700',
+      fontWeight: '500',
     },
     searchRow: {
       flexDirection: 'row',

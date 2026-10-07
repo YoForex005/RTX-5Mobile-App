@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
@@ -44,11 +45,16 @@ test('recoverChartSurface can recreate chart when chart or series is missing', (
   assertSourceContains(body, /lastRawSeriesData\.slice\(\)/, 'surface recovery must reuse the last raw series snapshot');
 });
 
-test('native WebView ERROR messages are warning-only so watchdog can continue recovery', () => {
+test('native WebView ERROR messages are dev-only logs so watchdog can continue recovery', () => {
   assertSourceContains(
     source,
-    /msg\.type === 'ERROR'[\s\S]*console\.warn\('\[CHART WEBVIEW ERROR\]'/,
-    'native handler must log WebView errors without alerting or throwing',
+    /msg\.type === 'ERROR'[\s\S]*?if \(typeof __DEV__ !== 'undefined' && __DEV__\) \{\s*console\.log\('\[CHART WEBVIEW ERROR\]'/,
+    'native handler must log recoverable WebView errors in dev only, without alerting or throwing',
+  );
+  assert.doesNotMatch(
+    source,
+    /console\.(?:warn|error)\('\[CHART WEBVIEW ERROR\]'/,
+    'recoverable WebView errors must not raise LogBox toasts',
   );
 });
 

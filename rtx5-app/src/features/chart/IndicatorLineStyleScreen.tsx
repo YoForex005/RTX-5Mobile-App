@@ -46,7 +46,7 @@ export function IndicatorLineStyleScreen() {
   if (!line || !lineKey) {
     return (
       <Screen style={styles.screen}>
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
           <Pressable
             onPress={() => safeRouterBack(router, '/chart/indicators')}
             activateOnPressIn
@@ -66,7 +66,7 @@ export function IndicatorLineStyleScreen() {
 
   return (
     <Screen style={styles.screen}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <Pressable
           onPress={() => safeRouterBack(router, '/chart/indicators')}
           activateOnPressIn
@@ -214,7 +214,7 @@ function makeStyles(bgColor: string, isDark: boolean, textColor: string) {
     headerTitle: {
       color: textColor,
       fontSize: 17,
-      fontWeight: '700',
+      fontWeight: '500',
       letterSpacing: 0.3,
     },
     previewRow: {

@@ -25,6 +25,9 @@ import {
   resetQuoteLatencyMetrics,
 } from '../../market/quoteLatencyMetrics';
 import { subscribeQuoteSnapshotReconcile } from '../../market/quoteSnapshotReconcileRuntime';
+import { subscribePublicBrokerContext } from '../../state/publicBrokerContext';
+import { subscribePublicQuoteInvalidation } from '../../state/publicQuoteAvailability';
+import { markQuoteSnapshotUnavailable, QuoteSnapshotContinuity } from './quoteSnapshotContinuity';
 import {
   applyLiveQuoteTickToSnapshot,
   buildInitialLiveQuoteSnapshot,
@@ -36,6 +39,7 @@ import {
 type SnapshotListener = () => void;
 
 const snapshotsBySymbol = new Map<string, LiveQuoteSnapshot | undefined>();
+const quoteSnapshotContinuity = new QuoteSnapshotContinuity();
 const listenersBySymbol = new Map<string, Set<SnapshotListener>>();
 const pendingNotifySymbols = new Set<string>();
 let updateSeq = 0;
@@ -68,7 +72,18 @@ const getQuoteCacheNamespace = (): string =>
     return '';
   })();
 
+const getQuoteDisplayScope = () => ({
+  // The active namespace is unique to an activation; rotating its token is the
+  // only boundary allowed to retain display prices. Public configuration has
+  // its own generation-scoped namespace and never shares authenticated data.
+  sessionKey: isOrrnnDemoPublicMarketSelection(useUserPreferences.getState())
+    ? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE
+    : captureActiveBrokerSession()?.session.cacheNamespace ?? '',
+  credentialKey: getQuoteCacheNamespace(),
+});
+
 const subscribeQuoteCacheNamespace = (listener: () => void): (() => void) => {
+  const unsubscribePublic = subscribePublicBrokerContext(listener);
   const unsubscribeSession = subscribeActiveBrokerSession(() => listener());
   const unsubscribePreferences = useUserPreferences.subscribe((state, previous) => {
     if (
@@ -81,6 +96,7 @@ const subscribeQuoteCacheNamespace = (listener: () => void): (() => void) => {
   return () => {
     unsubscribeSession();
     unsubscribePreferences();
+    unsubscribePublic();
   };
 };
 
@@ -178,6 +194,19 @@ const notifySymbolImmediately = (symbol: string): void => {
   notifySymbol(symbol);
 };
 
+subscribePublicQuoteInvalidation(symbol => {
+  if (!isOrrnnDemoPublicMarketSelection(useUserPreferences.getState())) return;
+  for (const key of getSnapshotKeys(symbol)) {
+    const scopedKey = scopeQuoteSnapshotKey(key);
+    const retained = markQuoteSnapshotUnavailable(
+      snapshotsBySymbol.get(scopedKey) ?? getStateQuote(key),
+    );
+    snapshotsBySymbol.set(scopedKey, retained);
+    quoteSnapshotContinuity.retain(getQuoteDisplayScope(), key, retained);
+    notifySymbolImmediately(scopedKey);
+  }
+});
+
 const scheduleSymbolNotification = (symbol: string, immediate = false): void => {
   if (snapshotNotificationPauseDepth > 0) {
     pendingNotifySymbols.add(symbol);
@@ -217,10 +246,14 @@ const ensureSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
   if (!normalizedSymbol || !scopedKey) return undefined;
 
   if (!snapshotsBySymbol.has(scopedKey)) {
+    const displayScope = getQuoteDisplayScope();
+    const snapshot = quoteSnapshotContinuity.read(displayScope, normalizedSymbol)
+      ?? getStateQuote(normalizedSymbol);
     snapshotsBySymbol.set(
       scopedKey,
-      getStateQuote(normalizedSymbol),
+      snapshot,
     );
+    quoteSnapshotContinuity.retain(displayScope, normalizedSymbol, snapshot);
   }
 
   return snapshotsBySymbol.get(scopedKey);
@@ -311,6 +344,7 @@ export const ingestLiveQuoteTick = (tick: QuoteTickEvent, notifyImmediately = tr
   const nextUpdateSeq = ++updateSeq;
   const next = applyLiveQuoteTickToSnapshot(symbol, previous, tick, nextUpdateSeq);
   snapshotsBySymbol.set(scopedKey, next);
+  quoteSnapshotContinuity.retain(getQuoteDisplayScope(), symbol, next);
   if (tick.transport === 'websocket' && next?.updateSeq === nextUpdateSeq) {
     recordQuoteCacheCommit({
       sessionKey: getQuoteCacheNamespace(),
@@ -341,6 +375,7 @@ const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boo
 
   const { update } = normalized;
   const timestamp = update.timestamp ?? now;
+  const feedTickAt = update.timestampSource === 'feed' ? timestamp : undefined;
   ingestLiveQuoteTick(
     {
       symbol: update.symbol,
@@ -360,7 +395,7 @@ const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boo
       transport: 'rest_snapshot',
       tradable: false,
       degraded: true,
-      feedTickAt: timestamp,
+      feedTickAt,
       receivedAt: now,
       timestamp,
     },
@@ -371,7 +406,7 @@ const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boo
     ask: update.ask,
     lastTickAt: timestamp,
     lastReceivedAt: now,
-    feedTickAt: timestamp,
+    feedTickAt,
     ...(update.last !== undefined ? { close: update.last } : {}),
     ...(update.high !== undefined ? { high: update.high } : {}),
     ...(update.low !== undefined ? { low: update.low } : {}),
@@ -560,8 +595,9 @@ const useRestQuoteSnapshotRepair = (
       try {
         await fetchRestQuoteSnapshots(symbolsNeedingFallback, requestGeneration);
       } catch (error) {
-        if (!cancelled) {
-          console.warn(
+        // Expected when offline; the socket or the next pass repairs it.
+        if (!cancelled && typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.log(
             '[Quotes REST] One-shot snapshot repair failed',
             redactDiagnosticValue(error),
           );
@@ -609,7 +645,7 @@ export function useLiveQuoteSubscription(symbol: string, active: boolean): void 
       ? orrnnDemoPublicMarketSocket
       : quotesWsService;
     return socket.subscribeToSymbol(symbol, (tick) => {
-      ingestLiveQuoteTick({ ...tick, transport: 'websocket' });
+      ingestLiveQuoteTick({ ...tick, transport: tick.transport ?? 'websocket' });
     });
   }, [active, cacheNamespace, symbol, symbolKeysKey]);
 }
@@ -646,7 +682,7 @@ export function useWatchlistLiveQuotes(
         return;
       }
 
-      ingestLiveQuoteTick({ ...tick, transport: 'websocket' }, true);
+      ingestLiveQuoteTick({ ...tick, transport: tick.transport ?? 'websocket' }, true);
     };
 
     if (cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE) {
@@ -814,6 +850,7 @@ export const resetLiveQuoteSnapshotRuntimeState = (): void => {
   snapshotPauseTimers.forEach((timer) => clearTimeout(timer));
   snapshotPauseTimers.clear();
   snapshotsBySymbol.clear();
+  quoteSnapshotContinuity.clear();
   listenersBySymbol.clear();
   pendingNotifySymbols.clear();
   snapshotNotificationPauseDepth = 0;

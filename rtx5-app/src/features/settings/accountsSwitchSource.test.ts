@@ -170,9 +170,11 @@ test('accounts screen uses broker branding and opens long-press delete for other
   const otherRowEnd = source.indexOf('{isExpanded && (', otherRowStart);
   const otherRow = source.slice(otherRowStart, otherRowEnd);
   assert.match(otherRow, /<BrokerLogoAvatar[\s\S]*logoUri=\{row\.logoUrl\}/);
-  assert.match(otherRow, /row\.accountType === 'contest' &&/);
+  assert.match(otherRow, /const environment = resolveSavedAccountEnvironmentForDisplay\(row\)/);
+  assert.match(otherRow, /SETTINGS_ACCOUNT_ENVIRONMENT_BADGES\[environment\]/);
   assert.match(otherRow, /\{!!ribbonLabel && \(/);
-  assert.doesNotMatch(otherRow, /: 'Real'/);
+  assert.match(otherRow, /const ribbonLabel = t\(environmentBadge\.label\)/);
+  assert.match(otherRow, /color: environmentBadge\.color/);
   assert.match(otherRow, /onLongPress=\{\(\) => openOtherAccountOptions\(row\)\}/);
   assert.doesNotMatch(otherRow, /secondaryDeleteButton/);
 
@@ -236,9 +238,11 @@ test('accounts screen backfill normalizes optional metadata before saved-account
 test('auth login errors preserve HTTP status for account switch decisions', () => {
   const source = readSource('src/api/auth.ts');
 
-  assert.match(source, /const extractBackendErrorMessage = \(payload: any, fallback: string\): string => \{/);
-  assert.match(source, /const error = new Error\(extractBackendErrorMessage\(errorBody, 'Login failed'\)\) as Error & \{/);
+  assert.match(source, /export const extractBackendErrorMessage = \(payload: any, fallback: string\): string => \{/);
+  assert.match(source, /const error = createBackendAuthError\(errorBody, response\.status, 'Login failed'\)/);
   assert.match(source, /statusCode\?: number/);
-  assert.match(source, /error\.statusCode = response\.status/);
+  assert.match(source, /error\.statusCode = status/);
+  // Contract v3: the gateway {"error":"<CODE>"} code is kept on the error.
+  assert.match(source, /if \(code\) error\.code = code/);
   assert.match(source, /throw error/);
 });

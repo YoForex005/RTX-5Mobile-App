@@ -126,7 +126,7 @@ export const LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT = String.raw`
         };
       }
 
-      function applyPreviewTradeLabelText(label, item) {
+      function applyPreviewTradeLabelText(label, item, chartBackground) {
         var hasSplitLabel = !!(item.labelSideText && item.labelValueText);
         if (!hasSplitLabel) {
           label.textContent = item.title || '';
@@ -150,12 +150,38 @@ export const LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT = String.raw`
           label.appendChild(separator);
           label.appendChild(value);
         }
+        var isOpenPositionValue = isPreviewOpenPositionLine(item);
         side.textContent = item.labelSideText;
-        side.style.color = item.labelSideColor || item.color;
+        side.style.color = isOpenPositionValue
+          ? (item.labelValueColor || item.color)
+          : (item.labelSideColor || item.color);
         separator.textContent = ', ';
-        separator.style.color = item.labelSideColor || item.color;
+        separator.style.color = side.style.color;
         value.textContent = item.labelValueText;
         value.style.color = item.labelValueColor || item.color;
+        side.style.backgroundColor = separator.style.backgroundColor = isOpenPositionValue
+          ? chartBackground
+          : 'transparent';
+        side.style.padding = isOpenPositionValue ? '0 2px' : '0';
+        side.style.borderRadius = isOpenPositionValue ? '2px' : '0';
+        side.style.fontVariantNumeric = 'tabular-nums';
+        value.style.backgroundColor = isOpenPositionValue ? chartBackground : 'transparent';
+        value.style.padding = isOpenPositionValue ? '0 2px' : '0';
+        value.style.borderRadius = isOpenPositionValue ? '2px' : '0';
+        value.style.fontVariantNumeric = 'tabular-nums';
+        var tradeSpans = [side, separator, value];
+        for (var tradeSpanIndex = 0; tradeSpanIndex < tradeSpans.length; tradeSpanIndex += 1) {
+          tradeSpans[tradeSpanIndex].style.display = isOpenPositionValue ? 'block' : 'inline';
+          tradeSpans[tradeSpanIndex].style.height = isOpenPositionValue ? '100%' : 'auto';
+          tradeSpans[tradeSpanIndex].style.boxSizing = 'border-box';
+        }
+        side.style.flex = separator.style.flex = '0 0 auto';
+        side.style.textAlign = isOpenPositionValue ? 'left' : 'inherit';
+        value.style.flex = '0 1 auto';
+        value.style.minWidth = '0';
+        value.style.textAlign = isOpenPositionValue ? 'left' : 'inherit';
+        value.style.overflow = isOpenPositionValue ? 'hidden' : 'visible';
+        value.style.textOverflow = 'ellipsis';
       }
 
       function renderPreviewTradeOverlays() {
@@ -233,6 +259,8 @@ export const LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT = String.raw`
           lineNode.style.top = Math.round(rowCenter) + 'px';
           lineNode.style.width = Math.max(0, Math.round(metrics.axisLeft - 2)) + 'px';
           lineNode.style.height = '0px';
+          lineNode.style.transformOrigin = 'top left';
+          lineNode.style.transform = isPreviewOpenPositionLine(item) ? 'scaleY(0.5)' : 'none';
           lineNode.style.borderTopWidth = Math.max(1, Number(item.lineWidth) || 1) + 'px';
           lineNode.style.borderTopStyle = item.lineStyle === 1 || item.lineStyle === 4
             ? 'dotted'
@@ -244,8 +272,11 @@ export const LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT = String.raw`
             liveKeys.push(labelKey);
             var label = upsertPreviewTradeOverlayNode(layer, labelKey, 'rtx5-preview-trade-label');
             var isOpenPositionLabel = isPreviewOpenPositionLine(item);
-            applyPreviewTradeLabelText(label, item);
+            applyPreviewTradeLabelText(label, item, colors.background);
             label.style.position = 'absolute';
+            label.style.display = isOpenPositionLabel && item.labelSideText && item.labelValueText ? 'flex' : 'block';
+            label.style.alignItems = 'stretch';
+            label.style.justifyContent = 'flex-start';
             label.style.left = (isOpenPositionLabel ? openPositionLabelLane.left : labelLeft) + 'px';
             label.style.top = Math.round(rows[renderIndex].top) + 'px';
             label.style.width = (isOpenPositionLabel ? openPositionLabelLane.width : labelWidth) + 'px';

@@ -14,7 +14,6 @@ import {
   type CandleParams,
 } from '../stream/liveCandleStream';
 import { quotesWsService } from '../../../api/ws/quotesSocket';
-import { candlesWsService } from '../ws/candlesSocket';
 import {
   normalizeSymbol,
   normalizeTimeframeStrict,
@@ -22,7 +21,6 @@ import {
 import { normalizeTimestampToMs } from '../core/timeframeUtils';
 import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
-import { shouldUseServerCandleStream } from '../ws/liveCandlesEnginePolicy';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../../../market/quotePolicy';
 import {
@@ -147,7 +145,6 @@ export function useLiveCandles(
     isPublicDemoActive,
   );
   const isLiveActive = active && isLoggedIn;
-  const useServerCandleStream = shouldUseServerCandleStream();
   const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
 
   const subscribe = useCallback(
@@ -156,25 +153,39 @@ export function useLiveCandles(
         return () => { };
       }
 
-      const unsubscribeCandleDemand = useServerCandleStream
-        ? (() => {
-          candlesWsService.subscribe(normalizedSymbol, normalizedTimeframe);
-          return () => candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
-        })()
-        : null;
-      // Keep the quote socket on for this chart. In the default mode, quote
-      // ticks are the only active-candle body source; server candles are opt-in
-      // only after runtime compatibility has been proven.
+      // Contract v3: live candles come from the same /ws/feed socket
+      // (subscribe_candles). They append to REST history, which can lag hours
+      // behind. Quote ticks keep extending the active candle as well.
+      const unsubscribeCandleDemand = quotesWsService.subscribeToCandles(
+        normalizedSymbol,
+        normalizedTimeframe,
+      );
       const unsubscribeQuoteDemand = quotesWsService.subscribeToSymbol(symbol, () => { });
       let lastNotificationAt = 0;
       let notificationTimer: ReturnType<typeof setTimeout> | null = null;
+      let lastNotifiedLoadStateKey = '';
+      const readLoadStateKey = () => {
+        const state = liveCandlesEngine.getState(normalizedSymbol, normalizedTimeframe);
+        return state ? `${state.loading ? 1 : 0}|${state.error ?? ''}` : '';
+      };
       const notifyReact = () => {
+        if (notificationTimer !== null) {
+          clearTimeout(notificationTimer);
+        }
         notificationTimer = null;
         lastNotificationAt = Date.now();
+        lastNotifiedLoadStateKey = readLoadStateKey();
         listener();
       };
       const scheduleReactNotification = () => {
         if (safeCommitIntervalMs === 0) {
+          notifyReact();
+          return;
+        }
+        // History arriving (loading -> false) or failing is what removes the
+        // loading cover; it must not wait up to a full live-tick throttle
+        // window behind an unrelated tick notification.
+        if (readLoadStateKey() !== lastNotifiedLoadStateKey) {
           notifyReact();
           return;
         }
@@ -202,7 +213,7 @@ export function useLiveCandles(
         }
         unsubscribeQuoteDemand();
         unsubscribeEngine();
-        unsubscribeCandleDemand?.();
+        unsubscribeCandleDemand();
       };
     },
     [
@@ -211,7 +222,6 @@ export function useLiveCandles(
       normalizedTimeframe,
       safeCommitIntervalMs,
       symbol,
-      useServerCandleStream,
     ],
   );
 

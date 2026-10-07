@@ -7,7 +7,8 @@
  * pipeline in `flushPipeline.ts`. The class below owns connection state,
  * subscription bookkeeping, reconnect strategy, and listener fan-out.
  */
-import { AppState, NativeEventSubscription } from 'react-native';
+import { AppState, NativeEventSubscription, Platform } from 'react-native';
+import { createFeedWebSocket } from '../feedWebSocket';
 import NetInfo from '@react-native-community/netinfo';
 
 import { brokerApi } from '../../brokerApi';
@@ -40,29 +41,29 @@ import {
   processIncomingPayload,
   type TickProcessorBridge,
 } from './tickProcessor';
-import { isQuoteSocketAuthenticationFailure } from './quoteSocketFailurePolicy';
 import {
-  buildCandleChannelSubscriptionMessages,
+  QUOTE_WS_SILENT_RECONNECT_MS,
+  decideQuoteSocketSilenceAction,
+  isMarketOpenForSymbols,
+} from './quoteSocketFailurePolicy';
+import {
+  buildFeedCandleSubscriptionMessages,
   createCandleFeedSubscription,
   type CandleFeedSubscription,
 } from './candleSubscriptions';
+import { fetchAllMarketStatuses } from '../../marketStatus';
 import type { GlobalTickListener, SymbolTickListener } from './types';
 import {
   evaluateQuoteStreamTick,
   type QuoteOrderCursor,
 } from '../../../market/quoteStreamIntegrity';
 import {
-  getFeedHealthSnapshot,
   reportFeedConnecting,
   reportFeedCredentialsRefreshed,
   reportFeedLocalTick,
+  reportFeedSilence,
   reportFeedSocketClosed,
 } from '../../../market/feedHealthRuntime';
-import {
-  feedHealthBlocksSocketConnection,
-  feedHealthCanSafelyRetry,
-  feedHealthStateMatchesIdentity,
-} from '../../../market/feedHealthState';
 import {
   redactDiagnosticValue,
 } from '../../../utils/securityRedaction';
@@ -77,7 +78,7 @@ import {
   setLiveQuoteSocketConnected,
 } from '../../../market/marketDataTelemetry';
 import { resolveNextReconnectAttempt } from '../reconnectBackoff';
-import { resetQuoteMarketData } from '../../../state/tradingState';
+import { markQuoteMarketDataUnavailable } from '../../../state/tradingState';
 import { redactMarketSocketUrl } from './quoteSocketDiagnostics';
 
 const shouldLogCandleDiagnostics = (): boolean =>
@@ -91,12 +92,21 @@ const QUOTE_WS_MAX_RECONNECT_ATTEMPTS = 20;
 const QUOTE_WS_RECONNECT_BASE_DELAY_MS = 750;
 const QUOTE_WS_RECONNECT_MAX_DELAY_MS = 5_000;
 const QUOTE_WS_RECONNECT_COOLDOWN_MS = 10_000;
-const QUOTE_WS_SILENT_STALE_MS = 8_000;
+// Watchdog (contract v3): 8 s silence => prices stale, socket kept open;
+// 60 s silence while /market/status shows the market open => reconnect.
+// Dead sockets are detected through onclose/onerror. No app-level ping is
+// sent: /ws/feed answers {"type":"ping"} with an unsupported_request error and
+// the server's own protocol pings are answered by React Native.
 const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000;
 const QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS = 2_500;
 const QUOTE_WS_PREOPEN_ERROR_CLOSE_WAIT_MS = 1_500;
+// Demand drops to zero for a moment on every chart symbol switch: React runs
+// all effect cleanups (old symbol) before the new effects subscribe. Closing
+// right then forced a new socket + handshake per switch, so an idle socket is
+// only torn down once demand has stayed at zero for this long.
+const QUOTE_WS_IDLE_TEARDOWN_GRACE_MS = 1_500;
 
-type BrokerMarketBlockReason = 'logged_out' | 'auth_session' | 'broker_domain' | null;
+type BrokerMarketBlockReason = 'logged_out' | 'feed_url' | 'broker_domain' | null;
 
 const resolveQuoteListenerKeys = (symbol: string): string[] => {
   const rawKey = normalizeQuoteSymbolKey(symbol);
@@ -127,6 +137,34 @@ const extractSymbolFromTickChannel = (channel: string): string => {
   return trimmed.toLowerCase().startsWith('ticks.')
     ? trimmed.slice('ticks.'.length).trim()
     : '';
+};
+
+/** `{"type":"subscribed_candles","symbols":["EURUSD"],"tf":"1m"}` */
+const extractCandleSubscriptionAck = (
+  payload: unknown,
+): { type: 'subscribed_candles' | 'unsubscribed_candles'; symbols: string[]; tf: string } | null => {
+  const record = asRecord(payload);
+  const type = String(record?.type ?? '').trim().toLowerCase();
+  if (!record || (type !== 'subscribed_candles' && type !== 'unsubscribed_candles')) {
+    return null;
+  }
+  return {
+    type,
+    symbols: extractSymbolList(record.symbols).concat(extractSymbolList(record.symbol)),
+    tf: String(record.tf ?? '').trim(),
+  };
+};
+
+/** `{"type":"error","code":"unsupported_request",...}` leaves the socket open. */
+const extractFeedError = (payload: unknown): { code: string; request: string } | null => {
+  const record = asRecord(payload);
+  if (!record || String(record.type ?? '').trim().toLowerCase() !== 'error') {
+    return null;
+  }
+  return {
+    code: String(record.code ?? '').trim(),
+    request: String(record.request ?? '').trim(),
+  };
 };
 
 const extractSubscriptionAck = (
@@ -182,11 +220,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   public flushAnimationFrame: number | null = null;
   /** @internal Used by the flush pipeline. */
   public flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private heartbeatInterval: NodeJS.Timeout | null = null;
   private appStateSubscription: NativeEventSubscription | null = null;
   private sessionSubscription: (() => void) | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private healthProbeTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDeferredUntil = 0;
   private netInfoUnsubscribe: (() => void) | null = null;
   private lastMessageAt: number = Date.now();
@@ -201,9 +237,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private diagnosticLogCounts: Map<string, number> = new Map();
   private socketIdentity: ActiveBrokerSessionIdentity | null = null;
   private socketOwnerStamp: ActiveBrokerSessionOwnerStamp | null = null;
-  private authRefreshAttemptedCredentialIdentity: string | null = null;
-  private rejectedSocketUrl: string | null = null;
+  private silenceStaleReported = false;
+  private silenceCheckInFlight = false;
+  private lastSilenceCheckAt = 0;
   private preOpenErrorTimer: ReturnType<typeof setTimeout> | null = null;
+  private idleTeardownTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly lastAcceptedTickBySymbol = new Map<string, QuoteOrderCursor>();
   private isAppActive = AppState.currentState === 'active';
   private connectedAt = 0;
@@ -214,7 +252,6 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       this.isAppActive = nextAppState === 'active';
       if (!this.isAppActive) {
         cancelActiveFeedHealthProbe();
-        this.clearHealthProbeTimer();
         this.clearReconnectTimer();
         this.clearNetInfoListener();
         this.teardownSocket(false);
@@ -240,14 +277,13 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       // A credential refresh advances the feed generation while keeping the
       // account/session cache namespace. Old websocket quotes must become
       // immediately ineligible until the replacement socket proves itself.
-      resetQuoteMarketData();
-      this.authRefreshAttemptedCredentialIdentity = null;
+      // Keep their last prices and timestamps painted during that handoff.
+      markQuoteMarketDataUnavailable();
       this.socketResolutionGeneration += 1;
       this.isResolvingSocketUrl = false;
       this.pendingBrokerMarketBlockReason = null;
       this.reconnectAttempts = 0;
       this.clearReconnectTimer();
-      this.clearHealthProbeTimer();
       this.clearNetInfoListener();
       this.teardownSocket(false);
       this.lastAcceptedTickBySymbol.clear();
@@ -322,19 +358,6 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     return Math.max(0, this.reconnectDeferredUntil - now);
   }
 
-  private shouldPauseForConfirmedHealth(identity: ActiveBrokerSessionIdentity): boolean {
-    const health = getFeedHealthSnapshot();
-    return feedHealthBlocksSocketConnection(health, identity);
-  }
-
-  private stopForHealthBlock(): void {
-    this.shouldReconnect = false;
-    this.clearReconnectTimer();
-    this.clearHealthProbeTimer();
-    this.clearNetInfoListener();
-    this.teardownSocket(false);
-  }
-
   private async resolveSocketUrlAsync(): Promise<{
     url: string;
     identity: ActiveBrokerSessionIdentity;
@@ -351,6 +374,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.socketOwnerStamp = owner;
 
     try {
+      // Contract v3: the plain feed_wss_url (at most ?broker_id=), no token.
       const socketUrl = await brokerApi.getQuoteWebSocketUrl();
       if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
         throw new Error('Broker session changed while resolving the quote socket.');
@@ -362,7 +386,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       if (isActiveBrokerSessionOwnerStampCurrent(owner)) {
         this.pendingBrokerMarketBlockReason = /domain is missing|domain unavailable|backend domain/i.test(message)
           ? 'broker_domain'
-          : 'auth_session';
+          : 'feed_url';
       }
       throw error;
     }
@@ -379,10 +403,12 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
   private markBrokerSocketUnavailable(socketUrl: string, reason: string): boolean {
     if (this.shouldStayOnBrokerMarketSocket(socketUrl)) {
-      console.warn(
-        `[Quotes WS] Broker market socket unavailable (${reason}). Retrying the selected broker market socket.`,
-        { socketUrl: redactMarketSocketUrl(socketUrl) },
-      );
+      if (shouldLogQuotesWsLifecycle()) {
+        console.log(
+          `[Quotes WS] Broker market socket unavailable (${reason}). Retrying the selected broker market socket.`,
+          { socketUrl: redactMarketSocketUrl(socketUrl) },
+        );
+      }
       this.clearReconnectTimer();
       this.teardownSocket(false);
       this.attemptReconnect();
@@ -473,7 +499,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       try {
         listener(tick);
       } catch (error) {
-        console.warn('[Quotes WS] Symbol listener error', redactDiagnosticValue(error));
+        console.error('[Quotes WS] Symbol listener error', redactDiagnosticValue(error));
       }
     });
   }
@@ -579,71 +605,26 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.isResolvingSocketUrl = true;
     const resolutionGeneration = ++this.socketResolutionGeneration;
     void this.resolveSocketUrlAsync()
-      .then(async (resolved) => {
+      .then((resolved) => {
         if (resolutionGeneration !== this.socketResolutionGeneration) return;
         this.isResolvingSocketUrl = false;
         if (!isActiveBrokerSessionOwnerStampCurrent(resolved.owner)) {
           return;
         }
 
-        // Open the market socket immediately after URL resolve so first ticks
-        // are not blocked behind the status probe (up to ~3s). Health still
-        // runs in parallel and can hard-stop the socket on confirmed blocks.
-        this.openResolvedSocket(resolved);
-        this.scheduleHealthProbe(resolved.owner);
-
-        const healthBeforeProbe = getFeedHealthSnapshot();
-        const boundedRecoveryProbe = Boolean(
-          feedHealthStateMatchesIdentity(healthBeforeProbe, resolved.identity) &&
-          feedHealthCanSafelyRetry(healthBeforeProbe)
-        );
-        const healthConfirmed = await probeActiveFeedHealth(resolved.owner);
-        if (resolutionGeneration !== this.socketResolutionGeneration) return;
-        if (!isActiveBrokerSessionOwnerStampCurrent(resolved.owner)) {
-          return;
-        }
-        if (!healthConfirmed) {
-          // Probe timeout/failure: keep a live socket if already streaming.
-          // Only tear down when nothing connected, or a user-visible retry owns
-          // the failed probe and must preserve the outage affordance.
-          if (boundedRecoveryProbe) {
-            this.clearHealthProbeTimer();
-            this.teardownSocket(false);
-            this.shouldReconnect = false;
-            return;
-          }
-          if (!this.isConnected && this.ws?.readyState !== WebSocket.OPEN) {
-            this.clearHealthProbeTimer();
-            this.teardownSocket(false);
-            reportFeedSocketClosed(resolved.identity, false);
-            this.attemptReconnect();
-          }
-          return;
-        }
-        if (this.shouldPauseForConfirmedHealth(resolved.identity)) {
-          // Explicit provider/market/auth failures remain broker-scoped and
-          // stopped until the visible safe-retry path requests one new probe.
-          this.stopForHealthBlock();
-          return;
-        }
-        // Probe ok after open — ensure socket is up (no-op if already open).
+        // Open right away. /ws/feed needs no token and /ws/feed/status is only
+        // an on-demand diagnostic, so nothing gates or stops the socket here.
         this.openResolvedSocket(resolved);
       })
       .catch((error) => {
         if (resolutionGeneration !== this.socketResolutionGeneration) return;
         this.isResolvingSocketUrl = false;
-        const message = error instanceof Error ? error.message : String(error ?? '');
-        if (/authentication contract is not configured|credential is unavailable/i.test(message)) {
-          this.shouldReconnect = false;
-          this.clearReconnectTimer();
-          this.clearHealthProbeTimer();
-          console.warn('[Quotes WS] Broker feed is disabled until its authentication contract is configured.');
-          return;
+        if (shouldLogQuotesWsLifecycle()) {
+          console.log(
+            '[Quotes WS] Failed to resolve broker socket URL. Will retry.',
+            redactDiagnosticValue(error),
+          );
         }
-        console.warn(
-          '[Quotes WS] Failed to resolve broker socket URL. Will retry.',
-          redactDiagnosticValue(error),
-        );
         this.attemptReconnect();
       });
   }
@@ -663,13 +644,6 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return;
     }
 
-    // A refresh that returns the exact credential just rejected by the broker
-    // must not create a new deterministic auth loop.
-    if (this.rejectedSocketUrl && this.rejectedSocketUrl === nextUrl) {
-      this.shouldReconnect = false;
-      return;
-    }
-
     const deferredMs = this.getInteractionReconnectDelay();
     if (deferredMs > 0) {
       this.scheduleReconnect(deferredMs);
@@ -682,13 +656,15 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         this.teardownSocket();
       }
       const reason = this.pendingBrokerMarketBlockReason;
-      console.warn(
-        reason === 'logged_out'
-          ? '[Quotes WS] Market data requires a logged-in broker session. Skipping public feed fallback.'
-          : reason === 'auth_session'
-            ? '[Quotes WS] Authenticated broker market socket unavailable. Waiting for a valid access token.'
-            : '[Quotes WS] No broker market WebSocket URL available for logged-in session. Waiting for broker domain.',
-      );
+      if (shouldLogQuotesWsLifecycle()) {
+        console.log(
+          reason === 'logged_out'
+            ? '[Quotes WS] Market data requires a logged-in broker session. Skipping public feed fallback.'
+            : reason === 'feed_url'
+              ? '[Quotes WS] Broker feed WebSocket URL is unavailable. Retrying with backoff.'
+              : '[Quotes WS] No broker market WebSocket URL available for logged-in session. Waiting for broker domain.',
+        );
+      }
       this.attemptReconnect();
       return;
     }
@@ -708,7 +684,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       this.socketIdentity = identity;
       this.socketOwnerStamp = owner;
       reportFeedConnecting(identity);
-      const socket = new WebSocket(socketUrl);
+      const socket = createFeedWebSocket(socketUrl, Platform.OS);
       this.ws = socket;
 
       socket.onopen = () => {
@@ -726,7 +702,6 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         });
         didOpen = true;
         this.clearPreOpenErrorTimer();
-        this.rejectedSocketUrl = null;
         if (shouldLogQuotesWsLifecycle()) {
           console.log('[Quotes WS] Connected to', redactMarketSocketUrl(socketUrl));
         }
@@ -734,10 +709,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         this.connectedAt = Date.now();
         this.acceptedTicksSinceOpen = 0;
         this.lastMessageAt = Date.now();
+        this.silenceStaleReported = false;
+        this.lastSilenceCheckAt = 0;
         this.clearNetInfoListener();
         this.resetTransportSubscriptionState();
 
-        this.startHeartbeat();
         this.startWatchdog();
 
         if (this.activeSymbols.size > 0) {
@@ -761,6 +737,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           const now = Date.now();
           const feedGapMs = now - this.lastMessageAt;
           this.lastMessageAt = now;
+          this.silenceStaleReported = false;
           this.recordFeedGapIfNeeded(feedGapMs);
           const payload = JSON.parse(event.data as string);
           this.handleSubscriptionAckPayload(payload);
@@ -768,7 +745,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
             scheduleFlush(this);
           }
         } catch (e) {
-          console.warn('[Quotes WS] Parse error', redactDiagnosticValue(e));
+          if (shouldLogQuotesWsLifecycle()) {
+            console.log('[Quotes WS] Parse error', redactDiagnosticValue(e));
+          }
         }
       };
 
@@ -781,41 +760,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           this.disposeStaleSocket(socket);
           return;
         }
-        if (
-          this.isBrokerMarketAuthFailure(
-            socketUrl,
-            event?.code,
-            event?.reason,
-            didOpen,
-          )
-        ) {
-          recordMarketDataEvent('socket_close', {
-            transport: 'quotes_ws',
-            category: 'authentication',
-            code: event?.code,
-            brokerId: identity.brokerId,
-            sessionEpoch: identity.sessionEpoch,
-          });
-          console.warn('[Quotes WS] Broker market socket auth rejected. Stopping reconnect until a fresh token is available.', {
-            code: event?.code,
-            socketUrl: redactMarketSocketUrl(socketUrl),
-          });
-          this.shouldReconnect = false;
-          this.rejectedSocketUrl = socketUrl;
-          this.reconnectAttempts = 0;
-          this.clearReconnectTimer();
-          this.clearHealthProbeTimer();
-          reportFeedSocketClosed(identity, true);
-          this.teardownSocket(false);
-          this.attemptSingleAuthRefresh(owner);
-          return;
-        }
-        if (!didOpen && this.markBrokerSocketUnavailable(socketUrl, 'closed before open')) {
-          return;
-        }
-        if (shouldLogQuotesWsLifecycle()) {
-          console.log('[Quotes WS] Closed');
-        }
+        // Contract v3: /ws/feed has no auth and no special close codes. Any
+        // close, including an HTTP 503 while the server restarts, reconnects
+        // with the normal backoff.
         recordMarketDataEvent('socket_close', {
           transport: 'quotes_ws',
           category: 'transport',
@@ -823,55 +770,38 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           brokerId: identity.brokerId,
           sessionEpoch: identity.sessionEpoch,
         });
-        reportFeedSocketClosed(identity, false);
+        reportFeedSocketClosed(identity);
+        if (!didOpen && this.markBrokerSocketUnavailable(socketUrl, 'closed before open')) {
+          return;
+        }
+        if (shouldLogQuotesWsLifecycle()) {
+          console.log('[Quotes WS] Closed');
+        }
         this.teardownSocket(false);
         this.attemptReconnect();
       };
 
       socket.onerror = () => {
         if (!didOpen) {
-          // React Native follows a failed handshake error with a close event
-          // containing the HTTP rejection detail. Let onclose classify it so
-          // a 401/403 is not hidden by teardown and retried forever.
+          // React Native follows a failed handshake error with a close event.
+          // Let onclose own the retry; the fallback covers a missing close.
           this.schedulePreOpenErrorFallback(socket, owner, identity);
           return;
         }
-        console.warn('[Quotes WS] Connection error (will auto-reconnect)');
+        if (shouldLogQuotesWsLifecycle()) {
+          console.log('[Quotes WS] Connection error (will auto-reconnect)');
+        }
       };
     } catch (e) {
-      console.warn(
-        '[Quotes WS] Connection failed during initialization. Will retry.',
-        redactDiagnosticValue(e),
-      );
+      if (shouldLogQuotesWsLifecycle()) {
+        console.log(
+          '[Quotes WS] Connection failed during initialization. Will retry.',
+          redactDiagnosticValue(e),
+        );
+      }
       this.teardownSocket();
       this.attemptReconnect();
     }
-  }
-
-  private isBrokerMarketAuthFailure(
-    socketUrl: string,
-    code: number | undefined,
-    reason: string | undefined,
-    didOpen: boolean,
-  ): boolean {
-    return (
-      isQuoteSocketAuthenticationFailure({ code, reason, didOpen }) &&
-      this.shouldStayOnBrokerMarketSocket(socketUrl)
-    );
-  }
-
-  private attemptSingleAuthRefresh(owner: ActiveBrokerSessionOwnerStamp): void {
-    if (
-      !isActiveBrokerSessionOwnerStampCurrent(owner) ||
-      this.authRefreshAttemptedCredentialIdentity === owner.credentialIdentity
-    ) {
-      return;
-    }
-    this.authRefreshAttemptedCredentialIdentity = owner.credentialIdentity;
-    void brokerApi.getValidAccessToken(true).catch(() => {
-      // Authentication remains latched for this credential generation. A new
-      // validated login/refresh handoff is the only event allowed to reconnect.
-    });
   }
 
   private schedulePreOpenErrorFallback(
@@ -889,8 +819,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         this.disposeStaleSocket(socket);
         return;
       }
-      console.warn('[Quotes WS] Broker market socket closed without handshake details. Retrying with transport backoff.');
-      reportFeedSocketClosed(identity, false);
+      if (shouldLogQuotesWsLifecycle()) {
+        console.log('[Quotes WS] Broker market socket closed without handshake details. Retrying with transport backoff.');
+      }
+      reportFeedSocketClosed(identity);
       this.teardownSocket(false);
       this.attemptReconnect();
     }, QUOTE_WS_PREOPEN_ERROR_CLOSE_WAIT_MS);
@@ -920,12 +852,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.socketResolutionGeneration += 1;
     this.isResolvingSocketUrl = false;
     this.pendingBrokerMarketBlockReason = null;
-    this.authRefreshAttemptedCredentialIdentity = null;
-    this.rejectedSocketUrl = null;
     this.shouldReconnect = false;
     this.reconnectAttempts = 0;
+    this.silenceCheckInFlight = false;
     this.clearReconnectTimer();
-    this.clearHealthProbeTimer();
     this.clearNetInfoListener();
     this.activeSymbols.clear();
     this.resetTransportSubscriptionState();
@@ -941,22 +871,6 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.teardownSocket();
   }
 
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-    this.heartbeatInterval = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'ping' }));
-      }
-    }, 15000);
-  }
-
-  private stopHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-  }
-
   private startWatchdog(): void {
     this.stopWatchdog();
     this.watchdogInterval = setInterval(() => {
@@ -970,79 +884,78 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         return;
       }
 
-      const staleFor = Date.now() - this.lastMessageAt;
-      if (staleFor > QUOTE_WS_SILENT_STALE_MS) {
-        const socketUrl = this.url;
-        // In logged-in broker mode, reconnect only to the selected broker
-        // /ws/v2 market socket so mobile stays in parity with the web terminal.
-        if (this.markBrokerSocketUnavailable(socketUrl, 'silent after open')) {
-          return;
-        }
+      const now = Date.now();
+      const silentFor = now - this.lastMessageAt;
+      const action = decideQuoteSocketSilenceAction(silentFor);
+      if (action === 'none') {
+        return;
+      }
 
-        console.warn(`[Quotes WS] Silent TCP drop detected (${Math.round(staleFor / 1000)}s). Healing invisibly...`);
-        this.triggerInvisibleReconnect();
+      // > 8 s (QUOTE_WS_SILENT_STALE_MS): grey prices out, keep the socket open.
+      // Quiet symbols / closed markets legitimately stop sending frames.
+      if (!this.silenceStaleReported && this.socketIdentity) {
+        this.silenceStaleReported = true;
+        reportFeedSilence(this.socketIdentity, now);
+      }
+
+      if (action === 'check_market_then_reconnect') {
+        this.checkMarketThenReconnectAfterSilence(now);
       }
     }, QUOTE_WS_WATCHDOG_INTERVAL_MS);
+  }
+
+  /**
+   * QUOTE_WS_SILENT_RECONNECT_MS without any frame: reconnect only when
+   * /market/status shows a subscribed symbol open (unknown counts as open).
+   * The feed status endpoint is probed at the same moment for diagnostics
+   * only; its verdict never stops or restarts the socket.
+   */
+  private checkMarketThenReconnectAfterSilence(now: number): void {
+    if (
+      this.silenceCheckInFlight ||
+      (this.lastSilenceCheckAt > 0 && now - this.lastSilenceCheckAt < QUOTE_WS_SILENT_RECONNECT_MS)
+    ) {
+      return;
+    }
+    const socket = this.ws;
+    const owner = this.socketOwnerStamp;
+    if (!socket || !owner) {
+      return;
+    }
+    this.silenceCheckInFlight = true;
+    this.lastSilenceCheckAt = now;
+    void probeActiveFeedHealth(owner);
+    const symbols = Array.from(this.activeSymbols);
+    void fetchAllMarketStatuses()
+      .then((statuses) => isMarketOpenForSymbols(statuses, symbols))
+      .catch(() => true)
+      .then((marketOpen) => {
+        this.silenceCheckInFlight = false;
+        if (
+          this.ws !== socket ||
+          !isActiveBrokerSessionOwnerStampCurrent(owner) ||
+          Date.now() - this.lastMessageAt < QUOTE_WS_SILENT_RECONNECT_MS
+        ) {
+          return;
+        }
+        if (!marketOpen) {
+          // Market closed: silence is expected. Keep the socket and the stale
+          // marking; the next check runs after another silence window.
+          return;
+        }
+        if (shouldLogQuotesWsLifecycle()) {
+          console.log(
+            `[Quotes WS] No frames for ${Math.round(QUOTE_WS_SILENT_RECONNECT_MS / 1000)}s while the market is open. Reconnecting.`,
+          );
+        }
+        this.triggerInvisibleReconnect();
+      });
   }
 
   private stopWatchdog(): void {
     if (this.watchdogInterval) {
       clearInterval(this.watchdogInterval);
       this.watchdogInterval = null;
-    }
-  }
-
-  /**
-   * Refresh server-authoritative health only when an approved broker policy
-   * supplies its aging window. The probe cadence is derived from that window;
-   * no mobile health threshold is invented and background polling stays off.
-   */
-  private scheduleHealthProbe(owner: ActiveBrokerSessionOwnerStamp): void {
-    this.clearHealthProbeTimer();
-    const identity: ActiveBrokerSessionIdentity = {
-      brokerId: owner.brokerId,
-      accountLogin: owner.accountLogin,
-      sessionEpoch: owner.sessionEpoch,
-    };
-    const health = getFeedHealthSnapshot();
-    if (
-      !this.isAppActive ||
-      !this.shouldReconnect ||
-      !this.hasActiveDemand() ||
-      !isActiveBrokerSessionOwnerStampCurrent(owner) ||
-      !feedHealthStateMatchesIdentity(health, identity) ||
-      !health.thresholds
-    ) {
-      return;
-    }
-
-    const delayMs = Math.max(1_000, Math.floor(health.thresholds.serverStatusStaleAfterMs / 2));
-    this.healthProbeTimer = setTimeout(() => {
-      this.healthProbeTimer = null;
-      if (
-        !this.isAppActive ||
-        !this.shouldReconnect ||
-        !this.hasActiveDemand() ||
-        !isActiveBrokerSessionOwnerStampCurrent(owner)
-      ) {
-        return;
-      }
-
-      void probeActiveFeedHealth(owner).then((confirmed) => {
-        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
-        if (confirmed && this.shouldPauseForConfirmedHealth(identity)) {
-          this.stopForHealthBlock();
-          return;
-        }
-        this.scheduleHealthProbe(owner);
-      });
-    }, delayMs);
-  }
-
-  private clearHealthProbeTimer(): void {
-    if (this.healthProbeTimer) {
-      clearTimeout(this.healthProbeTimer);
-      this.healthProbeTimer = null;
     }
   }
 
@@ -1144,20 +1057,17 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         this.sendSubscriptionDiff(new Set());
       }
       if (this.hasActiveDemand()) {
+        this.cancelIdleTeardown();
         if (!this.isConnected) {
           this.connect();
         }
         return;
       }
-      this.shouldReconnect = false;
-      this.reconnectAttempts = 0;
-      this.clearReconnectTimer();
-      this.clearHealthProbeTimer();
-      this.clearNetInfoListener();
-      this.teardownSocket();
+      this.scheduleIdleTeardown();
       return;
     }
 
+    this.cancelIdleTeardown();
     if (this.isConnected) {
       this.sendSubscription();
       return;
@@ -1172,22 +1082,48 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         this.sendCandleSubscriptionDiff();
       }
       if (!this.hasActiveDemand()) {
-        this.shouldReconnect = false;
-        this.reconnectAttempts = 0;
-        this.clearReconnectTimer();
-        this.clearHealthProbeTimer();
-        this.clearNetInfoListener();
-        this.teardownSocket();
+        this.scheduleIdleTeardown();
       }
       return;
     }
 
+    this.cancelIdleTeardown();
     if (this.isConnected) {
       this.sendCandleSubscriptionDiff();
       return;
     }
 
     this.connect();
+  }
+
+  /**
+   * Tears the socket down only if demand is still zero after the grace period
+   * (see QUOTE_WS_IDLE_TEARDOWN_GRACE_MS). While waiting, the socket stays
+   * open but unsubscribed, and a closed socket is not reconnected because
+   * reconnect paths require active demand.
+   */
+  private scheduleIdleTeardown(): void {
+    if (this.idleTeardownTimer !== null) {
+      return;
+    }
+    this.idleTeardownTimer = setTimeout(() => {
+      this.idleTeardownTimer = null;
+      if (this.hasActiveDemand()) {
+        return;
+      }
+      this.shouldReconnect = false;
+      this.reconnectAttempts = 0;
+      this.clearReconnectTimer();
+      this.clearNetInfoListener();
+      this.teardownSocket();
+    }, QUOTE_WS_IDLE_TEARDOWN_GRACE_MS);
+  }
+
+  private cancelIdleTeardown(): void {
+    if (this.idleTeardownTimer !== null) {
+      clearTimeout(this.idleTeardownTimer);
+      this.idleTeardownTimer = null;
+    }
   }
 
   private send(msg: any): void {
@@ -1238,20 +1174,22 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       .filter(([key]) => !this.sentCandleSubscriptions.has(key))
       .map(([, subscription]) => subscription);
 
-    for (const message of buildCandleChannelSubscriptionMessages('unsubscribe', unsubscribeSubscriptions)) {
+    for (const message of buildFeedCandleSubscriptionMessages('unsubscribe', unsubscribeSubscriptions)) {
       this.send(message);
-      this.logCandleFeed('unsubscribe_candle_channels_diff_sent', {
-        channels: message.channels,
+      this.logCandleFeed('unsubscribe_candles_sent', {
+        symbol: message.symbol,
+        tf: message.tf,
       }, 20);
     }
     unsubscribeSubscriptions.forEach((subscription) => {
       this.sentCandleSubscriptions.delete(subscription.key);
     });
 
-    for (const message of buildCandleChannelSubscriptionMessages('subscribe', subscribeSubscriptions)) {
+    for (const message of buildFeedCandleSubscriptionMessages('subscribe', subscribeSubscriptions)) {
       this.send(message);
-      this.logCandleFeed('subscribe_candle_channels_diff_sent', {
-        channels: message.channels,
+      this.logCandleFeed('subscribe_candles_sent', {
+        symbol: message.symbol,
+        tf: message.tf,
       }, 20);
     }
     subscribeSubscriptions.forEach((subscription) => {
@@ -1262,6 +1200,20 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private handleSubscriptionAckPayload(payload: unknown): void {
     if (Array.isArray(payload)) {
       payload.forEach((item) => this.handleSubscriptionAckPayload(item));
+      return;
+    }
+
+    const feedError = extractFeedError(payload);
+    if (feedError) {
+      // e.g. {"type":"error","code":"unsupported_request","request":"ping"}.
+      // The server keeps the socket open, so this is informational only.
+      this.logCandleFeed('feed_error_frame', feedError, 5);
+      return;
+    }
+
+    const candleAck = extractCandleSubscriptionAck(payload);
+    if (candleAck) {
+      this.logCandleFeed('candle_subscription_ack', candleAck, 20);
       return;
     }
 
@@ -1389,9 +1341,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       capMs: QUOTE_WS_RECONNECT_MAX_DELAY_MS,
     });
     if (decision.exhausted) {
-      console.warn(
-        `[Quotes WS] Reconnect budget exhausted. Cooling down for ${Math.round(this.reconnectCooldownMs / 1000)}s before retrying.`,
-      );
+      if (shouldLogQuotesWsLifecycle()) {
+        console.log(
+          `[Quotes WS] Reconnect budget exhausted. Cooling down for ${Math.round(this.reconnectCooldownMs / 1000)}s before retrying.`,
+        );
+      }
       recordMarketDataEvent('reconnect_scheduled', {
         transport: 'quotes_ws',
         trigger,
@@ -1483,7 +1437,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private teardownSocket(resetDemand: boolean = false): void {
     const currentSocket = this.ws;
 
-    this.stopHeartbeat();
+    this.cancelIdleTeardown();
     this.stopWatchdog();
     this.clearPreOpenErrorTimer();
     cancelFlush(this);
@@ -1501,7 +1455,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       try {
         currentSocket.close();
       } catch (error) {
-        console.warn('[Quotes WS] Socket close failed', redactDiagnosticValue(error));
+        if (shouldLogQuotesWsLifecycle()) {
+          console.log('[Quotes WS] Socket close failed', redactDiagnosticValue(error));
+        }
       }
     }
 
@@ -1529,7 +1485,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       try {
         listener(tick);
       } catch (error) {
-        console.warn('[Quotes WS] Tick listener error', redactDiagnosticValue(error));
+        console.error('[Quotes WS] Tick listener error', redactDiagnosticValue(error));
       }
     });
   }

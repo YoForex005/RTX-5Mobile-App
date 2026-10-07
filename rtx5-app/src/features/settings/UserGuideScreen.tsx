@@ -5,6 +5,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { AppMenuIcon } from '../../ui/components/AppMenuIcon';
 import { useIsFocused } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { memo, useCallback, useMemo } from 'react';
@@ -13,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { Screen } from '../../ui/components/Screen';
-import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
+import { useRetainedRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { AppLogo } from '../../ui/components/AppLogo';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
@@ -42,8 +43,8 @@ export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScree
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const styles = useMemo(() => makeUserGuideStyles(isDark), [isDark]);
   const summary = useMemo(() => buildGuideSummary(), []);
-  const routeBodyReady = useDeferredRouteContentReady(
-    isScreenFocused ? 0 : USER_GUIDE_BODY_PREWARM_DELAY_MS,
+  const routeBodyReady = useRetainedRouteContentReady(
+    isScreenFocused, USER_GUIDE_BODY_PREWARM_DELAY_MS,
   );
   const visibleSections = GUIDE_MANUAL_SECTIONS;
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
@@ -56,7 +57,7 @@ export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScree
 
   return (
     <Screen noBottomInset style={styles.screen}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 14 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <FastPressable
           onPress={handleOpenMenu}
           activateOnTouchStart
@@ -66,7 +67,7 @@ export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScree
           accessibilityRole="button"
           accessibilityLabel="Open menu"
         >
-          <Ionicons name="menu" size={32} color={menuIconColor} />
+          <AppMenuIcon color={menuIconColor} />
         </FastPressable>
         <Text style={styles.headerTitle} numberOfLines={1}>{t('User Guide')}</Text>
       </View>

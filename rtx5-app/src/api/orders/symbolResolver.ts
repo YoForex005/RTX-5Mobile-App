@@ -66,10 +66,13 @@ async function fetchInstrumentsCached(cacheNamespace: string): Promise<readonly 
   } catch (err) {
     // Never turn an epoch mismatch into a symbol fallback for a new broker.
     getCurrentCacheEntry(cacheNamespace);
-    console.warn(
-      '[RTX5 Order] instruments fetch failed:',
-      redactSensitiveString(err instanceof Error ? err.message : String(err ?? 'Unknown error')),
-    );
+    // Expected when offline; the caller falls back to the raw symbol.
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(
+        '[RTX5 Order] instruments fetch failed:',
+        redactSensitiveString(err instanceof Error ? err.message : String(err ?? 'Unknown error')),
+      );
+    }
   }
   return getCurrentCacheEntry(cacheNamespace)?.symbols ?? [];
 }
@@ -113,9 +116,6 @@ export async function resolveBrokerSymbol(
   const instruments = await fetchInstrumentsCached(cacheNamespace);
   const match = matchBrokerSymbolFromList(raw, instruments);
   if (match) {
-    if (match !== raw) {
-      console.log('[RTX5 Order] symbol resolved via /instruments:', raw, '->', match);
-    }
     return match;
   }
   return raw;

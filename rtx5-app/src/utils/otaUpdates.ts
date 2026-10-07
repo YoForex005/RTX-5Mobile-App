@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
 import { APP_DISPLAY_VERSION } from '../config/appDisplayVersion';
-import { logStartupDiagnostic, logStartupError } from './startupDiagnostics';
+import { logStartupDiagnostic, serializeStartupError } from './startupDiagnostics';
 
 const OTA_CHECK_DELAY_MS = 1500;
 const OTA_ACTIVE_RETRY_MS = 1000;
@@ -88,7 +88,8 @@ export function useOtaUpdateOnLaunch(): OtaUpdatePromptController {
         setVisible(true);
       }
     } catch (error) {
-      logStartupError('updates.check.failed', error, { reason });
+      // Expected when offline: informational, not a console.error.
+      logStartupDiagnostic('updates.check.failed', { reason, error: serializeStartupError(error) });
     } finally {
       isCheckingRef.current = false;
     }
@@ -135,7 +136,8 @@ export function useOtaUpdateOnLaunch(): OtaUpdatePromptController {
       setStatus('error');
       setErrorMessage('The update was not downloaded. Please try again.');
     } catch (error) {
-      logStartupError('updates.fetch.failed', error);
+      // Expected when offline; the prompt shows the failure to the user.
+      logStartupDiagnostic('updates.fetch.failed', { error: serializeStartupError(error) });
       if (!isMountedRef.current) return;
       isInstallingRef.current = false;
       setStatus('error');

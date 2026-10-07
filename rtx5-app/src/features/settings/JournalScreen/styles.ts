@@ -48,7 +48,7 @@ export function makeJournalStyles(T: ThemeColors) {
     headerTitle: {
       color: text,
       fontSize: 22,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     headerSub: {
@@ -109,6 +109,10 @@ export function makeJournalStyles(T: ThemeColors) {
     content: {
       paddingHorizontal: 10,
       paddingTop: 10,
+    },
+    summaryWrap: {
+      paddingHorizontal: 10,
+      paddingVertical: 10,
     },
     summaryCard: {
       borderRadius: 12,
@@ -613,9 +617,9 @@ export function makeJournalStyles(T: ThemeColors) {
     mutedText: { color: textMuted },
     profitText: { color: buy },
     lossText: { color: sell },
-    buyPill: { backgroundColor: 'rgba(16, 185, 129, 0.12)' },
+    buyPill: { backgroundColor: T.upGlow },
     sellPill: { backgroundColor: 'rgba(239, 68, 68, 0.12)' },
-    profitPill: { backgroundColor: 'rgba(16, 185, 129, 0.12)' },
+    profitPill: { backgroundColor: T.upGlow },
     lossPill: { backgroundColor: 'rgba(239, 68, 68, 0.12)' },
     neutralPill: { backgroundColor: 'rgba(203, 213, 225, 0.12)' },
     notePill: { backgroundColor: 'rgba(56, 189, 248, 0.12)' },

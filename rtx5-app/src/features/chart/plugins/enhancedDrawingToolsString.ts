@@ -303,6 +303,21 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return String(time || '');
   }
 
+  function formatInspectionTime(time, timeframe) {
+    var date = isFiniteNumber(time) ? new Date(time * 1000) : null;
+    if (!date && time && typeof time === 'object' && time.year && time.month && time.day) {
+      date = new Date(Date.UTC(Number(time.year), Number(time.month) - 1, Number(time.day)));
+    }
+    if (!date || !isFinite(date.getTime())) return formatCrosshairTime(time, timeframe);
+    var weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var text = weekdays[date.getUTCDay()] + ' ' + date.getUTCDate() + ' ' + months[date.getUTCMonth()]
+      + " '" + String(date.getUTCFullYear()).slice(-2);
+    var frame = normalizeCrosshairTimeframe(timeframe);
+    if (/^(?:1D|D1|D|DAY|1W|W1|W|WEEK|1M|MN1|MN|MONTH)$/.test(frame)) return text;
+    return text + ' ' + String(date.getUTCHours()).padStart(2, '0') + ':' + String(date.getUTCMinutes()).padStart(2, '0');
+  }
+
   function timeToComparableValue(time) {
     if (isFiniteNumber(time)) {
       return time;
@@ -352,6 +367,20 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     if (safe >= 3600) return Math.round(safe / 3600) + 'h';
     if (safe >= 60) return Math.max(1, Math.round(safe / 60)) + 'm';
     return safe + 's';
+  }
+
+  function formatInspectionDuration(seconds) {
+    var safe = Math.max(0, Math.round(clampNumber(seconds, 0)));
+    if (safe < 60) return safe === 0 ? '0m' : safe + 's';
+    var minutes = Math.floor(safe / 60);
+    var days = Math.floor(minutes / 1440);
+    var hours = Math.floor((minutes % 1440) / 60);
+    var remainingMinutes = minutes % 60;
+    var parts = [];
+    if (days) parts.push(days + 'd');
+    if (hours) parts.push(hours + 'h');
+    if (remainingMinutes) parts.push(remainingMinutes + 'm');
+    return parts.join(' ');
   }
 
   function formatDelta(value) {
@@ -1694,6 +1723,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       upColor: '#2962FF',
       downColor: '#EF5350',
       areaSeriesInspector: false,
+      pointSize: null,
       snapEnabled: false,
       snapType: 'ohlc-nearest',
       snapThresholdPx: 18
@@ -1702,6 +1732,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._lastCrosshairState = null;
     this._pendingCrosshairState = null;
     this._areaInspectorSeedPending = false;
+    this._regularCrosshairSeedPending = false;
+    this._crosshairRulerAnchor = null;
+    this._regularCrosshairGestureOrigin = null;
     this._lastNotifiedCrosshairSignature = '';
     this._ignoreCrosshairClickUntil = 0;
     this._drawingCounter = {};
@@ -1807,6 +1840,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return hasTouchSupport();
   };
 
+  AdvancedDrawingToolsManager.prototype._isRegularCrosshairInspector = function () {
+    return this._activeTool === 'crosshair' && this._crosshairConfig.areaSeriesInspector !== true;
+  };
+
   // A pinch/zoom is in progress, or just ended within the suppression window.
   AdvancedDrawingToolsManager.prototype._isPinchActive = function () {
     return this._gestureHadMultitouch || Date.now() < this._multiTouchSuppressUntil;
@@ -1820,6 +1857,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._multiTouchSuppressUntil = Date.now() + 450;
     this._activeTouchId = null;
     this._touchDidMove = false;
+    this._regularCrosshairGestureOrigin = null;
     this._rollbackPinchStartedDrawing();
   };
 
@@ -1952,6 +1990,14 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     var center = document.createElement('div');
     var tooltip = document.createElement('div');
     var lockBadge = document.createElement('div');
+    var rulerRectangle = document.createElement('div');
+    var rulerAnchor = document.createElement('div');
+    var rulerPriceLabel = document.createElement('div');
+    var rulerTimeLabel = document.createElement('div');
+    var rulerLabel = document.createElement('div');
+    var rulerVertical = document.createElement('div');
+    var rulerHorizontal = document.createElement('div');
+    var centerArms = [];
 
     root.setAttribute('data-rtx5-crosshair-overlay', 'true');
     this._applyElementStyles(root, {
@@ -2017,6 +2063,19 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       border: '1px solid rgba(148, 163, 184, 0.9)',
       background: 'rgba(255, 255, 255, 0.92)'
     });
+    [
+      { left: '10.4px', top: '0', width: '1.2px', height: '8px' },
+      { left: '10.4px', top: '14px', width: '1.2px', height: '8px' },
+      { left: '0', top: '10.4px', width: '8px', height: '1.2px' },
+      { left: '14px', top: '10.4px', width: '8px', height: '1.2px' }
+    ].forEach(function (geometry) {
+      var arm = document.createElement('div');
+      this._applyElementStyles(arm, Object.assign({
+        position: 'absolute', display: 'none', background: '#2962FF'
+      }, geometry));
+      center.appendChild(arm);
+      centerArms.push(arm);
+    }, this);
     this._applyElementStyles(tooltip, {
       position: 'absolute',
       minWidth: '148px',
@@ -2042,6 +2101,72 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       lineHeight: '11px',
       letterSpacing: '0'
     });
+    this._applyElementStyles(rulerRectangle, {
+      position: 'absolute',
+      display: 'none',
+      boxSizing: 'border-box',
+      border: '0',
+      background: 'rgba(0, 122, 204, 0.20)',
+      zIndex: '0'
+    });
+    this._applyElementStyles(rulerAnchor, {
+      position: 'absolute',
+      display: 'none',
+      width: '8px',
+      height: '8px',
+      marginLeft: '-4px',
+      marginTop: '-4px',
+      boxSizing: 'border-box',
+      border: '1.5px solid #D3D3D3',
+      borderRadius: '999px',
+      background: 'transparent',
+      zIndex: '2'
+    });
+    this._applyElementStyles(rulerPriceLabel, {
+      position: 'absolute',
+      display: 'none',
+      right: '0',
+      minWidth: '60px',
+      padding: '3px 7px',
+      borderRadius: '4px',
+      font: '700 11px Arial, sans-serif',
+      lineHeight: '14px',
+      textAlign: 'center',
+      whiteSpace: 'nowrap',
+      transform: 'translateY(-50%)',
+      zIndex: '2'
+    });
+    this._applyElementStyles(rulerTimeLabel, {
+      position: 'absolute',
+      display: 'none',
+      padding: '3px 8px',
+      borderRadius: '4px',
+      font: '700 11px Arial, sans-serif',
+      lineHeight: '14px',
+      whiteSpace: 'nowrap',
+      transform: 'translateX(-50%)',
+      zIndex: '2'
+    });
+    this._applyElementStyles(rulerLabel, {
+      position: 'absolute',
+      display: 'none',
+      font: '400 13px Arial, sans-serif',
+      lineHeight: '15px',
+      padding: '1px 3px',
+      background: '#D3D3D3',
+      color: '#000000',
+      textAlign: 'left',
+      whiteSpace: 'pre',
+      zIndex: '2'
+    });
+    this._applyElementStyles(rulerVertical, {
+      position: 'absolute', display: 'none', top: '0', width: '0',
+      borderLeft: '1px dashed #D3D3D3'
+    });
+    this._applyElementStyles(rulerHorizontal, {
+      position: 'absolute', display: 'none', left: '0', height: '0',
+      borderTop: '1px dashed #D3D3D3'
+    });
 
     root.appendChild(vertical);
     root.appendChild(horizontal);
@@ -2050,6 +2175,13 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     root.appendChild(center);
     root.appendChild(tooltip);
     root.appendChild(lockBadge);
+    root.appendChild(rulerRectangle);
+    root.appendChild(rulerAnchor);
+    root.appendChild(rulerPriceLabel);
+    root.appendChild(rulerTimeLabel);
+    root.appendChild(rulerLabel);
+    root.appendChild(rulerVertical);
+    root.appendChild(rulerHorizontal);
     this._chartHost.appendChild(root);
     this._crosshairOverlay = {
       root: root,
@@ -2058,8 +2190,16 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       priceLabel: priceLabel,
       timeLabel: timeLabel,
       center: center,
+      centerArms: centerArms,
       tooltip: tooltip,
-      lockBadge: lockBadge
+      lockBadge: lockBadge,
+      rulerRectangle: rulerRectangle,
+      rulerAnchor: rulerAnchor,
+      rulerPriceLabel: rulerPriceLabel,
+      rulerTimeLabel: rulerTimeLabel,
+      rulerLabel: rulerLabel,
+      rulerVertical: rulerVertical,
+      rulerHorizontal: rulerHorizontal
     };
 
     return this._crosshairOverlay;
@@ -2068,6 +2208,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   AdvancedDrawingToolsManager.prototype._hideCrosshairOverlay = function () {
     this._crosshairVisible = false;
     this._lastCrosshairParam = null;
+    // A render queued before a toolbar toggle or drawing replay must not
+    // resurrect the old cursor on the next animation frame.
+    this._pendingCrosshairState = null;
+    this._regularCrosshairSeedPending = false;
+    this._crosshairRulerAnchor = null;
+    this._regularCrosshairGestureOrigin = null;
     if (this._crosshairOverlay && this._crosshairOverlay.root) {
       this._crosshairOverlay.root.style.display = 'none';
     }
@@ -2090,6 +2236,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._lastCrosshairParam = null;
     this._lastCrosshairState = null;
     this._pendingCrosshairState = null;
+    this._regularCrosshairSeedPending = false;
+    this._crosshairRulerAnchor = null;
+    this._regularCrosshairGestureOrigin = null;
     this._notifyCrosshairCandle(null);
   };
 
@@ -2268,19 +2417,42 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return null;
     }
     var metrics = this._getCrosshairMetrics();
+    var regularCrosshairInspector = this._isRegularCrosshairInspector()
+      && !(options && options.areaSeriesInspector === false);
+    var inset = regularCrosshairInspector ? 2 : 0;
     var rawX = clampNumber(param.point.x, 0);
     var rawY = clampNumber(param.point.y, 0);
     if (metrics.paneWidth > 1) {
-      rawX = Math.max(0, Math.min(metrics.paneWidth, rawX));
+      rawX = Math.max(inset, Math.min(metrics.paneWidth - inset, rawX));
     }
     if (metrics.paneHeight > 1) {
-      rawY = Math.max(0, Math.min(metrics.paneHeight, rawY));
+      rawY = Math.max(inset, Math.min(metrics.paneHeight - inset, rawY));
     }
 
     var timeScale = this._chart && typeof this._chart.timeScale === 'function' ? this._chart.timeScale() : null;
-    var time = param.time;
+    var x = rawX;
+    if (regularCrosshairInspector && timeScale) {
+      try {
+        var pointerLogical = typeof timeScale.coordinateToLogical === 'function'
+          ? timeScale.coordinateToLogical(rawX) : null;
+        if (isFiniteNumber(pointerLogical) && typeof timeScale.logicalToCoordinate === 'function') {
+          var snappedLogical = Math.round(pointerLogical);
+          var firstVisible = timeScale.coordinateToLogical(inset);
+          var lastVisible = timeScale.coordinateToLogical(metrics.paneWidth - inset);
+          if (isFiniteNumber(firstVisible) && isFiniteNumber(lastVisible)
+            && Math.ceil(firstVisible) <= Math.floor(lastVisible)) {
+            snappedLogical = Math.max(Math.ceil(firstVisible), Math.min(Math.floor(lastVisible), snappedLogical));
+          }
+          var snappedX = timeScale.logicalToCoordinate(snappedLogical);
+          if (isFiniteNumber(snappedX)) x = Math.max(0, Math.min(metrics.paneWidth, snappedX));
+        }
+      } catch (_inspectionSnapError) {}
+    }
+    var time = regularCrosshairInspector && timeScale
+      ? resolveTimeFromCoordinate(timeScale, this._series, x)
+      : param.time;
     if ((time === null || time === undefined) && timeScale) {
-      time = resolveTimeFromCoordinate(timeScale, this._series, rawX);
+      time = resolveTimeFromCoordinate(timeScale, this._series, x);
     }
     if (time === null || time === undefined) {
       return null;
@@ -2293,10 +2465,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return null;
     }
 
-    var nearest = this._resolveNearestCandle(time, rawX);
+    var nearest = this._resolveNearestCandle(time, x);
     var candle = nearest.candle;
     var dataIndex = nearest.index;
-    var x = rawX;
     var areaSeriesInspector = !!(
       !(options && options.areaSeriesInspector === false) &&
       this._activeTool === 'crosshair' &&
@@ -2315,6 +2486,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       if (isFiniteNumber(areaX)) {
         x = Math.max(0, Math.min(metrics.paneWidth, areaX));
       }
+    } else if (regularCrosshairInspector) {
+      // The axis value is the inspected price. Ruler statistics use these
+      // same digit-rounded values instead of an invisible sub-point price.
+      price = Number(formatCrosshairPrice(this._series, price));
     } else {
       price = this._resolveCrosshairPrice(price, candle, rawY);
     }
@@ -2326,6 +2501,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         y = Math.max(0, Math.min(metrics.paneHeight, priceY));
       }
     }
+    var logicalIndex = null;
+    try {
+      logicalIndex = timeScale && typeof timeScale.coordinateToLogical === 'function'
+        ? timeScale.coordinateToLogical(x)
+        : null;
+    } catch (_crosshairLogicalError) {}
 
     return {
       visible: true,
@@ -2340,9 +2521,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       timestamp: isFiniteNumber(time) ? time : undefined,
       paneId: 'main',
       priceLabel: formatCrosshairPrice(this._series, price),
-      timeLabel: formatCrosshairTime(time, this._crosshairConfig.timeframe),
+      timeLabel: regularCrosshairInspector
+        ? formatInspectionTime(time, this._crosshairConfig.timeframe)
+        : formatCrosshairTime(time, this._crosshairConfig.timeframe),
       candle: candle,
       dataIndex: dataIndex,
+      logicalIndex: isFiniteNumber(logicalIndex) ? logicalIndex : null,
       areaSeriesInspector: areaSeriesInspector
     };
   };
@@ -2434,6 +2618,66 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     });
   };
 
+  AdvancedDrawingToolsManager.prototype._styleCrosshairAxisLabel = function (element, regularInspector, isTime) {
+    element.style.background = regularInspector ? '#D3D3D3' : this._crosshairConfig.labelBackground;
+    element.style.color = regularInspector ? '#000000' : this._crosshairConfig.labelText;
+    element.style.font = regularInspector ? '400 13px Arial, sans-serif' : '700 11px Arial, sans-serif';
+    element.style.lineHeight = regularInspector ? '15px' : '14px';
+    element.style.padding = regularInspector ? '0 3px' : (isTime ? '3px 8px' : '3px 7px');
+    element.style.borderRadius = regularInspector ? '0' : '4px';
+    element.style.boxShadow = regularInspector ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.25)';
+    if (!isTime) element.style.minWidth = regularInspector ? '0' : '60px';
+  };
+
+  AdvancedDrawingToolsManager.prototype._styleCrosshairGuide = function (element, vertical, regularInspector, color, solid) {
+    var ratio = 1;
+    try {
+      if (typeof window !== 'undefined' && isFiniteNumber(window.devicePixelRatio) && window.devicePixelRatio > 0) {
+        ratio = window.devicePixelRatio;
+      }
+    } catch (_guideRatioError) {}
+    element.style.borderLeft = '0';
+    element.style.borderTop = '0';
+    element.style.marginLeft = '0';
+    element.style.marginTop = '0';
+    element.style.background = 'none';
+    if (regularInspector) {
+      var thickness = 2 / ratio;
+      var dash = 12 / ratio;
+      var period = 21 / ratio;
+      element.style[vertical ? 'width' : 'height'] = thickness + 'px';
+      element.style[vertical ? 'marginLeft' : 'marginTop'] = (-thickness / 2) + 'px';
+      element.style.background = 'repeating-linear-gradient(to ' + (vertical ? 'bottom' : 'right')
+        + ', ' + color + ' 0px, ' + color + ' ' + dash + 'px, transparent ' + dash + 'px, transparent ' + period + 'px)';
+      return;
+    }
+    element.style[vertical ? 'width' : 'height'] = '0';
+    element.style[vertical ? 'borderLeft' : 'borderTop'] = '1px ' + (solid ? 'solid ' : 'dashed ') + color;
+  };
+
+  AdvancedDrawingToolsManager.prototype._resolveCrosshairBackground = function () {
+    var opaque = function (color) {
+      if (typeof color !== 'string' || !color.trim() || /^(transparent|none)$/i.test(color.trim())) return null;
+      var alpha = color.match(/^rgba\\([^,]+,[^,]+,[^,]+,\\s*([\\d.]+)\\s*\\)$/i);
+      if (alpha && Number(alpha[1]) < 1) return null;
+      if (/^#[0-9a-f]{8}$/i.test(color) && color.slice(-2).toLowerCase() !== 'ff') return null;
+      return color;
+    };
+    try {
+      var options = this._chart && typeof this._chart.options === 'function' ? this._chart.options() : null;
+      var background = options && options.layout && options.layout.background;
+      var chartColor = opaque(background && background.color);
+      if (chartColor) return chartColor;
+    } catch (_chartBackgroundError) {}
+    try {
+      var computed = typeof window !== 'undefined' && typeof window.getComputedStyle === 'function' && this._chartHost
+        ? window.getComputedStyle(this._chartHost) : null;
+      var hostColor = opaque(computed && computed.backgroundColor);
+      if (hostColor) return hostColor;
+    } catch (_hostBackgroundError) {}
+    return '#000000';
+  };
+
   AdvancedDrawingToolsManager.prototype._renderCrosshairOverlay = function (state) {
     var overlay = this._ensureCrosshairOverlay();
     if (!overlay || !state) {
@@ -2441,41 +2685,54 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
 
     var metrics = state.metrics;
-    var lineColor = this._crosshairConfig.lineColor;
     var areaSeriesInspector = state.areaSeriesInspector === true;
+    var regularCrosshairInspector = this._isRegularCrosshairInspector();
+    var lineColor = regularCrosshairInspector ? '#D3D3D3' : this._crosshairConfig.lineColor;
     overlay.root.style.display = 'block';
     overlay.vertical.style.display = 'block';
-    overlay.vertical.style.borderLeft = (areaSeriesInspector ? '1px solid ' : '1px dashed ') + lineColor;
+    this._styleCrosshairGuide(overlay.vertical, true, regularCrosshairInspector, lineColor, areaSeriesInspector);
     overlay.horizontal.style.display = areaSeriesInspector ? 'none' : 'block';
-    overlay.horizontal.style.borderTop = '1px dashed ' + lineColor;
+    this._styleCrosshairGuide(overlay.horizontal, false, regularCrosshairInspector, lineColor, false);
     overlay.vertical.style.left = Math.round(state.x) + 'px';
     overlay.vertical.style.top = '0px';
     overlay.vertical.style.height = Math.round(metrics.paneHeight) + 'px';
     overlay.horizontal.style.left = '0px';
     overlay.horizontal.style.top = Math.round(state.y) + 'px';
     overlay.horizontal.style.width = Math.round(metrics.paneWidth) + 'px';
+    overlay.vertical.style.zIndex = regularCrosshairInspector ? '1' : '';
+    overlay.horizontal.style.zIndex = regularCrosshairInspector ? '1' : '';
     overlay.center.style.left = Math.round(state.x) + 'px';
     overlay.center.style.top = Math.round(state.y) + 'px';
     overlay.center.style.display = 'block';
-    overlay.center.style.borderColor = areaSeriesInspector ? lineColor : 'rgba(148, 163, 184, 0.9)';
-    overlay.center.style.background = areaSeriesInspector ? lineColor : 'rgba(255, 255, 255, 0.92)';
+    overlay.centerArms.forEach(function (arm) { arm.style.display = regularCrosshairInspector ? 'block' : 'none'; });
+    overlay.center.style.width = regularCrosshairInspector ? '22px' : '6px';
+    overlay.center.style.height = regularCrosshairInspector ? '22px' : '6px';
+    overlay.center.style.marginLeft = regularCrosshairInspector ? '-11px' : '-3px';
+    overlay.center.style.marginTop = regularCrosshairInspector ? '-11px' : '-3px';
+    overlay.center.style.borderRadius = regularCrosshairInspector ? '0' : '999px';
+    overlay.center.style.border = regularCrosshairInspector ? '0' : '1px solid ' + (areaSeriesInspector ? lineColor : 'rgba(148, 163, 184, 0.9)');
+    overlay.center.style.background = regularCrosshairInspector ? 'transparent' : (areaSeriesInspector ? lineColor : 'rgba(255, 255, 255, 0.92)');
+    overlay.center.style.color = '#2962FF';
+    overlay.center.style.font = '400 26px Arial, sans-serif';
+    overlay.center.style.lineHeight = '22px';
+    overlay.center.style.textAlign = 'center';
+    overlay.center.style.zIndex = '3';
 
     overlay.priceLabel.textContent = state.priceLabel;
     overlay.priceLabel.style.display = areaSeriesInspector ? 'none' : 'block';
-    overlay.priceLabel.style.background = this._crosshairConfig.labelBackground;
-    overlay.priceLabel.style.color = this._crosshairConfig.labelText;
+    this._styleCrosshairAxisLabel(overlay.priceLabel, regularCrosshairInspector, false);
     overlay.priceLabel.style.top = Math.round(Math.max(10, Math.min(metrics.paneHeight - 10, state.y))) + 'px';
 
     overlay.timeLabel.textContent = state.timeLabel;
     overlay.timeLabel.style.display = areaSeriesInspector ? 'none' : 'block';
-    overlay.timeLabel.style.background = this._crosshairConfig.labelBackground;
-    overlay.timeLabel.style.color = this._crosshairConfig.labelText;
+    this._styleCrosshairAxisLabel(overlay.timeLabel, regularCrosshairInspector, true);
     overlay.timeLabel.style.top = Math.round(metrics.paneHeight) + 'px';
     var timeLabelWidth = overlay.timeLabel.offsetWidth || Math.max(68, state.timeLabel.length * 7 + 18);
     var clampedTimeX = Math.max(timeLabelWidth / 2 + 2, Math.min(metrics.paneWidth - timeLabelWidth / 2 - 2, state.x));
     overlay.timeLabel.style.left = Math.round(clampedTimeX) + 'px';
 
-    overlay.tooltip.innerHTML = this._buildTooltipHtml(state);
+    overlay.tooltip.style.display = regularCrosshairInspector ? 'none' : 'block';
+    overlay.tooltip.innerHTML = regularCrosshairInspector ? '' : this._buildTooltipHtml(state);
     overlay.tooltip.style.background = this._crosshairConfig.tooltipBackground;
     overlay.tooltip.style.borderColor = this._crosshairConfig.tooltipBorder;
     overlay.tooltip.style.color = this._crosshairConfig.tooltipText;
@@ -2496,11 +2753,148 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     overlay.tooltip.style.left = Math.round(tooltipLeft) + 'px';
     overlay.tooltip.style.top = Math.round(tooltipTop) + 'px';
 
-    overlay.lockBadge.style.display = state.locked ? 'block' : 'none';
-    overlay.lockBadge.textContent = 'LOCK';
+    overlay.lockBadge.style.display = !regularCrosshairInspector && state.locked ? 'block' : 'none';
+    overlay.lockBadge.textContent = regularCrosshairInspector ? '' : 'LOCK';
     overlay.lockBadge.style.left = Math.round(Math.max(4, Math.min(metrics.paneWidth - 36, state.x + 8))) + 'px';
     overlay.lockBadge.style.top = Math.round(Math.max(4, Math.min(metrics.paneHeight - 18, state.y - 18))) + 'px';
+    this._renderCrosshairRuler(overlay, state);
     this._notifyCrosshairCandle(state);
+  };
+
+  AdvancedDrawingToolsManager.prototype._resolveCrosshairPointSize = function () {
+    if (isFiniteNumber(this._crosshairConfig.pointSize) && this._crosshairConfig.pointSize > 0) {
+      return this._crosshairConfig.pointSize;
+    }
+    try {
+      var options = this._series && typeof this._series.options === 'function' ? this._series.options() : null;
+      var format = options && options.priceFormat;
+      if (format && isFiniteNumber(format.precision) && format.precision >= 0 && format.precision <= 12) {
+        return Math.pow(10, -Math.round(format.precision));
+      }
+    } catch (_pointSizeError) {}
+    return null;
+  };
+
+  AdvancedDrawingToolsManager.prototype._buildCrosshairRulerLabel = function (anchor, endpoint) {
+    var delta = endpoint.price - anchor.price;
+    var pointSize = this._resolveCrosshairPointSize();
+    var amount = pointSize ? Math.round(Math.abs(delta) / pointSize) + ' points' : 'Price change';
+    var deltaLabel = (delta >= 0 ? '+' : '') + formatCrosshairPrice(this._series, delta);
+    var values = [];
+    if (anchor.price !== 0) {
+      values.push((delta > 0 ? '+' : '') + ((delta / Math.abs(anchor.price)) * 100).toFixed(2) + '%');
+    }
+    values.push(deltaLabel);
+    var firstLine = amount + ' (' + values.join(', ') + ')';
+    var secondLine = '';
+    var anchorIndex = isFiniteNumber(anchor.logicalIndex) ? anchor.logicalIndex : anchor.dataIndex;
+    var endpointIndex = isFiniteNumber(endpoint.logicalIndex) ? endpoint.logicalIndex : endpoint.dataIndex;
+    if (isFiniteNumber(anchorIndex) && isFiniteNumber(endpointIndex)) {
+      secondLine = Math.abs(Math.round(endpointIndex - anchorIndex)) + ' bars';
+    }
+    // Broker candle timestamps own elapsed time; bar counts must not invent it
+    // across weekends, session breaks, or a sparse historical series.
+    if (isFiniteNumber(anchor.time) && isFiniteNumber(endpoint.time)) {
+      var elapsed = Math.abs(endpoint.time - anchor.time);
+      secondLine += (secondLine ? ', ' : '') + formatInspectionDuration(elapsed);
+    }
+    return firstLine + (secondLine ? '\\n' + secondLine : '');
+  };
+
+  AdvancedDrawingToolsManager.prototype._renderCrosshairRuler = function (overlay, endpoint) {
+    var anchor = this._isRegularCrosshairInspector() ? this._crosshairRulerAnchor : null;
+    var nodes = [overlay.rulerRectangle, overlay.rulerAnchor, overlay.rulerPriceLabel, overlay.rulerTimeLabel, overlay.rulerLabel, overlay.rulerVertical, overlay.rulerHorizontal];
+    nodes.forEach(function (node) { node.style.display = anchor ? 'block' : 'none'; });
+    if (!anchor) return;
+
+    var metrics = endpoint.metrics;
+    var negative = endpoint.price < anchor.price;
+    var left = Math.min(anchor.x, endpoint.x);
+    var top = Math.min(anchor.y, endpoint.y);
+    var width = Math.abs(endpoint.x - anchor.x);
+    var height = Math.abs(endpoint.y - anchor.y);
+    overlay.rulerRectangle.style.left = Math.round(left) + 'px';
+    overlay.rulerRectangle.style.top = Math.round(top) + 'px';
+    overlay.rulerRectangle.style.width = Math.round(width) + 'px';
+    overlay.rulerRectangle.style.height = Math.round(height) + 'px';
+    overlay.rulerRectangle.style.background = negative ? 'rgba(244, 67, 54, 0.20)' : 'rgba(33, 150, 243, 0.20)';
+    overlay.rulerAnchor.style.background = this._resolveCrosshairBackground();
+    overlay.rulerAnchor.style.left = Math.round(anchor.x) + 'px';
+    overlay.rulerAnchor.style.top = Math.round(anchor.y) + 'px';
+    this._styleCrosshairGuide(overlay.rulerVertical, true, true, '#D3D3D3', false);
+    this._styleCrosshairGuide(overlay.rulerHorizontal, false, true, '#D3D3D3', false);
+    overlay.rulerVertical.style.left = Math.round(anchor.x) + 'px';
+    overlay.rulerVertical.style.height = Math.round(metrics.paneHeight) + 'px';
+    overlay.rulerVertical.style.zIndex = '1';
+    overlay.rulerHorizontal.style.top = Math.round(anchor.y) + 'px';
+    overlay.rulerHorizontal.style.width = Math.round(metrics.paneWidth) + 'px';
+    overlay.rulerHorizontal.style.zIndex = '1';
+
+    overlay.rulerPriceLabel.textContent = anchor.priceLabel;
+    this._styleCrosshairAxisLabel(overlay.rulerPriceLabel, true, false);
+    overlay.rulerPriceLabel.style.top = Math.round(Math.max(10, Math.min(metrics.paneHeight - 10, anchor.y))) + 'px';
+    overlay.rulerTimeLabel.textContent = anchor.timeLabel;
+    this._styleCrosshairAxisLabel(overlay.rulerTimeLabel, true, true);
+    overlay.rulerTimeLabel.style.top = Math.round(metrics.paneHeight) + 'px';
+    var timeWidth = overlay.rulerTimeLabel.offsetWidth || Math.max(68, anchor.timeLabel.length * 7 + 18);
+    overlay.rulerTimeLabel.style.left = Math.round(Math.max(timeWidth / 2 + 2, Math.min(metrics.paneWidth - timeWidth / 2 - 2, anchor.x))) + 'px';
+
+    overlay.rulerLabel.textContent = this._buildCrosshairRulerLabel(anchor, endpoint);
+    var lines = overlay.rulerLabel.textContent.split('\\n');
+    var labelWidth = overlay.rulerLabel.offsetWidth || Math.max.apply(Math, lines.map(function (line) { return line.length * 6.5 + 6; }));
+    var labelHeight = overlay.rulerLabel.offsetHeight || lines.length * 15 + 2;
+    var gap = 4;
+    var labelLeft = endpoint.x + gap;
+    if (labelLeft + labelWidth > metrics.paneWidth - 4) labelLeft = endpoint.x - labelWidth - gap;
+    var positive = endpoint.price > anchor.price;
+    var labelTop = positive ? endpoint.y - labelHeight - gap : endpoint.y + gap;
+    if (labelTop < 4) labelTop = endpoint.y + gap;
+    if (labelTop + labelHeight > metrics.paneHeight - 4) labelTop = endpoint.y - labelHeight - gap;
+    overlay.rulerLabel.style.left = Math.round(Math.max(4, Math.min(metrics.paneWidth - labelWidth - 4, labelLeft))) + 'px';
+    overlay.rulerLabel.style.top = Math.round(Math.max(4, Math.min(metrics.paneHeight - labelHeight - 4, labelTop))) + 'px';
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleRegularCrosshairTap = function (param, origin) {
+    if (this._crosshairRulerAnchor) {
+      this.setActiveTool('none');
+      return;
+    }
+    var anchor = origin || this._resolveCrosshairState(this._lastCrosshairParam);
+    if (!anchor || !this._resolveCrosshairState(param)) return;
+    this._crosshairRulerAnchor = anchor;
+    this._updateCrosshairOverlay(param, true);
+  };
+
+  AdvancedDrawingToolsManager.prototype._buildRegularCrosshairDragParam = function (touch) {
+    var origin = this._regularCrosshairGestureOrigin;
+    if (!origin || !touch) return null;
+    var param = {
+      point: {
+        x: origin.x + touch.clientX - (isFiniteNumber(origin.dragClientX) ? origin.dragClientX : this._touchStartX),
+        y: origin.y + touch.clientY - (isFiniteNumber(origin.dragClientY) ? origin.dragClientY : this._touchStartY)
+      },
+      time: null
+    };
+    // At a pane edge discard outward overshoot so reversing the finger moves
+    // the visible cursor immediately. Away from edges retain the full delta;
+    // rebasing every bar snap would lose slow sub-bar motion.
+    var metrics = this._getCrosshairMetrics();
+    var clippedX = param.point.x < 2 || param.point.x > metrics.paneWidth - 2;
+    var clippedY = param.point.y < 2 || param.point.y > metrics.paneHeight - 2;
+    if (clippedX || clippedY) {
+      var clippedState = this._resolveCrosshairState(param);
+      if (clippedState) {
+        if (clippedX) {
+          origin.x = clippedState.x;
+          origin.dragClientX = touch.clientX;
+        }
+        if (clippedY) {
+          origin.y = clippedState.y;
+          origin.dragClientY = touch.clientY;
+        }
+      }
+    }
+    return param;
   };
 
   AdvancedDrawingToolsManager.prototype._scheduleCrosshairRender = function (state) {
@@ -2533,33 +2927,39 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype._updateCrosshairOverlay = function (param, force) {
     if (this._crosshairLocked && !force) {
-      return;
+      return false;
     }
     var state = this._resolveCrosshairState(param);
     if (!state) {
-      if (!this._crosshairLocked) {
+      if (!this._crosshairLocked && !this._isRegularCrosshairInspector()) {
         this._hideCrosshairOverlay();
       }
-      return;
+      return false;
     }
     this._lastCrosshairParam = {
-      point: { x: state.rawX, y: state.rawY },
+      point: this._isRegularCrosshairInspector()
+        ? { x: state.x, y: state.y }
+        : { x: state.rawX, y: state.rawY },
       time: state.time
     };
     this._scheduleCrosshairRender(state);
+    return true;
   };
 
   AdvancedDrawingToolsManager.prototype._handleCrosshairMove = function (param) {
+    // The direct bridge owns mobile relative movement. Library hover events
+    // contain absolute finger coordinates and must not jump this cursor.
+    if (this._isRegularCrosshairInspector() && this.shouldUseDirectTouchInput()) return;
     if (this._isPinchActive()) {
       // Pinch/zoom: lightweight-charts still emits crosshairMove for the moving
       // fingers. Do not show the crosshair overlay from a zoom gesture.
-      if (!this._crosshairLocked) {
+      if (!this._crosshairLocked && !this._isRegularCrosshairInspector()) {
         this._hideCrosshairOverlay();
       }
       return;
     }
     if (!param || !param.point) {
-      if (!this._crosshairLocked) {
+      if (!this._crosshairLocked && !this._isRegularCrosshairInspector()) {
         this._hideCrosshairOverlay();
       }
       this._setHoveredRecord(null);
@@ -2604,6 +3004,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
     if (this._selectedRecordId) {
       this._selectRecord(null);
+      return;
+    }
+    if (this._isRegularCrosshairInspector()) {
+      this._crosshairLocked = false;
+      this._handleRegularCrosshairTap(param);
       return;
     }
     if (this._crosshairLocked) {
@@ -2673,6 +3078,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   AdvancedDrawingToolsManager.prototype.refreshCrosshairData = function () {
     // Live data changed → autoscale may have shifted price coordinates.
     this._refreshDrawingBadges();
+    if (this._regularCrosshairSeedPending && this._showCenteredCrosshair()) {
+      return;
+    }
     if (
       this._areaInspectorSeedPending === true &&
       this._activeTool === 'crosshair' &&
@@ -2681,10 +3089,44 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     ) {
       return;
     }
-    if (!this._lastCrosshairParam || (!this._crosshairVisible && !this._crosshairLocked)) {
+    var pendingRegularCursor = this._isRegularCrosshairInspector() && !!this._pendingCrosshairState;
+    if (!this._lastCrosshairParam || (!this._crosshairVisible && !this._crosshairLocked && !pendingRegularCursor)) {
+      return;
+    }
+    if (this._isRegularCrosshairInspector()) {
+      // Regular inspection retains screen positions. Resolve both ruler ends
+      // against the current scale so live autoscale cannot detach a label or
+      // measurement from the price/time drawn under its guide.
+      if (this._crosshairRulerAnchor) {
+        var anchor = this._crosshairRulerAnchor;
+        var refreshedAnchor = this._resolveCrosshairState({
+          point: { x: anchor.x, y: anchor.y }, time: null
+        });
+        if (refreshedAnchor) this._crosshairRulerAnchor = refreshedAnchor;
+      }
+      this._updateCrosshairOverlay({ point: this._lastCrosshairParam.point, time: null }, true);
       return;
     }
     this._updateCrosshairOverlay(this._lastCrosshairParam, true);
+  };
+
+  AdvancedDrawingToolsManager.prototype._showCenteredCrosshair = function () {
+    if (!this._isRegularCrosshairInspector()) {
+      this._regularCrosshairSeedPending = false;
+      return false;
+    }
+    var data = getSeriesData(this._series);
+    var metrics = this._getCrosshairMetrics();
+    if (!Array.isArray(data) || data.length === 0 || metrics.paneWidth <= 1 || metrics.paneHeight <= 1) {
+      this._regularCrosshairSeedPending = true;
+      return false;
+    }
+    var shown = this._updateCrosshairOverlay({
+      point: { x: metrics.paneWidth / 2, y: metrics.paneHeight / 2 },
+      time: null
+    }, true);
+    this._regularCrosshairSeedPending = !shown;
+    return shown;
   };
 
   AdvancedDrawingToolsManager.prototype._showLatestAreaSeriesPoint = function () {
@@ -2746,6 +3188,13 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     if (snap && snap.enabled === false) {
       snapType = 'none';
     }
+    var hasPointSize = Object.prototype.hasOwnProperty.call(config, 'pointSize');
+    var nextPointSize = hasPointSize
+      ? (isFiniteNumber(config.pointSize) && config.pointSize > 0 ? config.pointSize : null)
+      : this._crosshairConfig.pointSize;
+    if (!hasPointSize && typeof config.symbol === 'string' && config.symbol !== this._crosshairConfig.symbol) {
+      nextPointSize = null;
+    }
     this._crosshairConfig = Object.assign({}, this._crosshairConfig, {
       symbol: typeof config.symbol === 'string' ? config.symbol : this._crosshairConfig.symbol,
       timeframe: typeof config.timeframe === 'string' ? config.timeframe : this._crosshairConfig.timeframe,
@@ -2759,12 +3208,18 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       upColor: typeof config.upColor === 'string' ? config.upColor : this._crosshairConfig.upColor,
       downColor: typeof config.downColor === 'string' ? config.downColor : this._crosshairConfig.downColor,
       areaSeriesInspector: typeof config.areaSeriesInspector === 'boolean' ? config.areaSeriesInspector : this._crosshairConfig.areaSeriesInspector,
+      pointSize: nextPointSize,
       snapEnabled: snapEnabled === true,
       snapType: snapType,
       snapThresholdPx: snap && isFiniteNumber(snap.thresholdPx) ? snap.thresholdPx : (isFiniteNumber(config.snapThresholdPx) ? config.snapThresholdPx : this._crosshairConfig.snapThresholdPx)
     });
     if (this._crosshairConfig.areaSeriesInspector !== true) {
       this._areaInspectorSeedPending = false;
+      if (this._isRegularCrosshairInspector()) this._crosshairLocked = false;
+    } else {
+      this._crosshairRulerAnchor = null;
+      this._regularCrosshairGestureOrigin = null;
+      this._regularCrosshairSeedPending = false;
     }
     if (
       this._activeTool === 'crosshair' &&
@@ -2916,7 +3371,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return this._resolveNearestOhlcSnapPrice(nearest.candle, rawY);
   };
 
-  AdvancedDrawingToolsManager.prototype._buildSyntheticPointerParam = function (touch) {
+  AdvancedDrawingToolsManager.prototype._buildSyntheticPointerParam = function (touch, options) {
     if (!touch || !this._chartHost || !this._chart || !this._series) {
       return null;
     }
@@ -2948,7 +3403,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return null;
     }
 
-    var snappedPrice = this._snapPriceToSeriesBar(timeScale, time, price, x, y);
+    var snappedPrice = options && options.snap === false
+      ? null
+      : this._snapPriceToSeriesBar(timeScale, time, price, x, y);
     if (snappedPrice !== null) {
       price = snappedPrice;
       if (typeof this._series.priceToCoordinate === 'function') {
@@ -3322,7 +3779,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       // any crosshair the first finger transiently showed (unless the user had
       // already locked it on purpose). Kept true until all fingers lift.
       this._markPinch();
-      if (!this._crosshairLocked) {
+      if (!this._crosshairLocked && !this._isRegularCrosshairInspector()) {
         this._hideCrosshairOverlay();
       }
     } else {
@@ -3395,6 +3852,14 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         this._crosshairLocked = false;
         this._hideCrosshairOverlay();
         this._consumeTouchEvent(event);
+        return;
+      }
+      if (this._isRegularCrosshairInspector()) {
+        if (!this._lastCrosshairParam) this._showCenteredCrosshair();
+        this._regularCrosshairGestureOrigin = this._lastCrosshairParam
+          ? this._resolveCrosshairState({ point: this._lastCrosshairParam.point, time: null })
+          : null;
+        this._lastTouchParam = this._lastCrosshairParam;
         return;
       }
       if (crosshairParam) {
@@ -3523,6 +3988,17 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       if (!crosshairTouch) {
         return;
       }
+      if (this._isRegularCrosshairInspector()) {
+        var relativeDx = crosshairTouch.clientX - this._touchStartX;
+        var relativeDy = crosshairTouch.clientY - this._touchStartY;
+        if (relativeDx * relativeDx + relativeDy * relativeDy > 36) this._touchDidMove = true;
+        var relativeParam = this._buildRegularCrosshairDragParam(crosshairTouch);
+        if (relativeParam) {
+          this._lastTouchParam = relativeParam;
+          this._updateCrosshairOverlay(relativeParam, true);
+        }
+        return;
+      }
       var crosshairParam = this._buildSyntheticPointerParam(crosshairTouch);
       if (crosshairParam) {
         var dx = crosshairTouch.clientX - this._touchStartX;
@@ -3568,7 +4044,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._lastTouchParam = null;
       this._touchDidMove = false;
       this._touchGestureMode = 'idle';
-      if (this._activeTool === 'crosshair' && !this._crosshairLocked) {
+      if (this._activeTool === 'crosshair' && !this._crosshairLocked && !this._isRegularCrosshairInspector()) {
         this._hideCrosshairOverlay();
       }
       if (remainingTouches === 0) {
@@ -3625,6 +4101,29 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     if (this._activeTool === 'crosshair' && this.shouldUseDirectTouchInput()) {
       var crosshairTouch = this._findTrackedTouch(event.changedTouches || event.touches);
       var crosshairParam = crosshairTouch ? this._buildSyntheticPointerParam(crosshairTouch) : this._lastTouchParam;
+      if (this._isRegularCrosshairInspector()) {
+        this._ignoreCrosshairClickUntil = Date.now() + 650;
+        this._suppressHostTapMenu();
+        if (crosshairTouch) {
+          var endDx = crosshairTouch.clientX - this._touchStartX;
+          var endDy = crosshairTouch.clientY - this._touchStartY;
+          if (endDx * endDx + endDy * endDy > 36) this._touchDidMove = true;
+        }
+        if (this._touchDidMove) {
+          var endParam = crosshairTouch ? this._buildRegularCrosshairDragParam(crosshairTouch) : this._lastTouchParam;
+          if (endParam) this._updateCrosshairOverlay(endParam, true);
+        } else if (crosshairParam) {
+          var tapParam = crosshairTouch
+            ? this._buildSyntheticPointerParam(crosshairTouch, { snap: false })
+            : crosshairParam;
+          this._handleRegularCrosshairTap(tapParam, this._regularCrosshairGestureOrigin);
+        }
+        this._activeTouchId = null;
+        this._lastTouchParam = null;
+        this._touchDidMove = false;
+        this._regularCrosshairGestureOrigin = null;
+        return;
+      }
       if (crosshairParam) {
         this._lastTouchParam = crosshairParam;
         this._updateCrosshairOverlay(crosshairParam, true);
@@ -3676,6 +4175,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._touchDidMove = false;
     this._activeTouchId = null;
     this._lastTouchParam = null;
+    this._regularCrosshairGestureOrigin = null;
     this._consumeTouchEvent(event);
   };
 
@@ -3694,7 +4194,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._gestureToolActed = false;
     }
     if (this._activeTool === 'crosshair') {
-      if (!this._crosshairLocked) {
+      if (!this._crosshairLocked && !this._isRegularCrosshairInspector()) {
         this._hideCrosshairOverlay();
       }
       return;
@@ -3711,6 +4211,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     // An in-progress drag-edit of an existing drawing owns the gesture just
     // like drawing-tool creation does — the chart must not pan beneath it.
     var drawingMode = this._isDrawingToolActive() || !!this._lineEditState;
+    var interactionLocked = drawingMode || this._activeTool === 'crosshair';
 
     if (this._chartHost && !this._lineEditState) {
       // Never rewrite touch-action while a drag-edit gesture is live: the
@@ -3719,7 +4220,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       // 'manipulation' the WebView claims drawing drag-edits as a native
       // gesture and fires pointercancel mid-drag.
       try {
-        var lockedTouchMode = drawingMode || this._activeTool === 'crosshair';
+        var lockedTouchMode = interactionLocked;
         // RTX5 owns both the normal chart-body pan stream and drawing drags.
         // Keeping touch-action at "none" before pointerdown prevents Android
         // WebView from claiming a vertical gesture and firing pointercancel
@@ -3733,7 +4234,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     try {
       this._chart.applyOptions({
-        handleScroll: drawingMode
+        handleScroll: interactionLocked
           ? {
               mouseWheel: false,
               pressedMouseMove: false,
@@ -3750,7 +4251,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
               // through the parallel touch-event stream with stale axis labels.
               vertTouchDrag: false
             },
-        handleScale: drawingMode
+        handleScale: interactionLocked
           ? {
               mouseWheel: false,
               pinch: false,
@@ -4700,14 +5201,22 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
     if (this._activeTool !== 'crosshair') {
       this._crosshairLocked = false;
+      this._regularCrosshairSeedPending = false;
       this._hideCrosshairOverlay();
     }
     this._refreshRecordPresentationVisibility();
     this._applyChartInteractionMode();
     if (this._activeTool === 'crosshair' && this._crosshairConfig.areaSeriesInspector === true) {
+      this._regularCrosshairSeedPending = false;
       this._showLatestAreaSeriesPoint();
     } else {
       this._areaInspectorSeedPending = false;
+      if (this._isRegularCrosshairInspector()) {
+        this._crosshairLocked = false;
+        if (!this._lastCrosshairParam) {
+          this._showCenteredCrosshair();
+        }
+      }
     }
     if (!silent) {
       safeNotify('TOOL_ACTIVE_CHANGED', { tool: this._activeTool, drawingActive: this._isDrawingToolActive() });

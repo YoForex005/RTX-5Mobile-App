@@ -123,7 +123,8 @@ test('normalizeQuoteTickPayload accepts explicit millisecond timestamp fields', 
 
   assert.equal(result.update.symbol, 'EURUSD');
   assert.equal(result.update.timestamp, 1780000000123);
-  assert.equal(result.update.sequence, '100');
+  // Decimal sequence strings are parsed to numbers for the ordering gate.
+  assert.equal(result.update.sequence, 100);
   assert.equal(result.update.tickId, 'example');
 });
 

@@ -1,3 +1,4 @@
+import { GDark, GLight } from '../../../../ui/theme/glass';
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -309,7 +310,7 @@ function makePalette(isDark: boolean) {
     subText: isDark ? '#94A3B8' : '#64748B',
     muted: isDark ? '#64748B' : '#94A3B8',
     accent: '#2563EB',
-    positive: '#10B981',
+    positive: (isDark ? GDark : GLight).trading.profit,
     negative: '#EF4444',
     warning: '#F59E0B',
     neutral: isDark ? '#CBD5E1' : '#334155',
@@ -336,7 +337,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     title: {
       color: colors.text,
       fontSize: 20,
-      fontWeight: '600',
+      fontWeight: '500',
       marginTop: 2,
     },
     livePill: {
@@ -384,7 +385,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
       justifyContent: 'center',
       marginBottom: 8,
     },
-    positiveIcon: { backgroundColor: 'rgba(16,185,129,0.12)' },
+    positiveIcon: { backgroundColor: `${colors.positive}1F` },
     negativeIcon: { backgroundColor: 'rgba(239,68,68,0.12)' },
     warningIcon: { backgroundColor: 'rgba(245,158,11,0.14)' },
     neutralIcon: { backgroundColor: 'rgba(37,99,235,0.12)' },

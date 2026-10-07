@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import { LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT } from './liveChartPreviewTradeOverlayScript';
+import { LIVE_CHART_PNL_COLORS, resolveLiveChartPnlColor } from '../chartOverlays/livePnlColors';
 
 type Listener = () => void;
 
@@ -90,6 +91,7 @@ const DEFAULT_PREVIEW_TRADE_OVERLAY_METRICS: PreviewTradeOverlayMetrics = {
 
 const evaluateTradeOverlayRuntime = (
   metrics: PreviewTradeOverlayMetrics = DEFAULT_PREVIEW_TRADE_OVERLAY_METRICS,
+  background = '#FFFFFF',
 ) => {
   const chartHost = new FakeElement();
   const callbacks: Array<() => void> = [];
@@ -124,7 +126,7 @@ const evaluateTradeOverlayRuntime = (
       return nextRaf++;
     },
     resolvePreviewRightPriceAxisColors: () => ({
-      background: '#FFFFFF',
+      background,
       text: '#0F172A',
     }),
     resolvePreviewRightPriceAxisPlotMetrics: () => metrics,
@@ -153,7 +155,7 @@ const openPositionLine = (valueText: string) => ({
   labelSideText: 'BUY 0.03',
   labelValueText: valueText,
   labelSideColor: '#2962FF',
-  labelValueColor: '#F23645',
+  labelValueColor: resolveLiveChartPnlColor(Number.parseFloat(valueText), '#FFFFFF', '#2962FF'),
   labelPlacement: 'line',
 });
 
@@ -171,16 +173,32 @@ test('preview runtime renders a keyed split trade label, DOM line, and price box
   );
   assert.ok(layer);
   assert.equal(layer.style.pointerEvents, 'none');
-  assert.ok(layer.children.some((child) => child.className === 'rtx5-preview-trade-line'));
+  const tradeLine = layer.children.find((child) => child.className === 'rtx5-preview-trade-line');
+  assert.ok(tradeLine);
+  assert.equal(tradeLine.style.borderTopWidth, '1px');
+  assert.equal(tradeLine.style.borderTopStyle, 'dotted');
+  assert.equal(tradeLine.style.transform, 'scaleY(0.5)');
+  assert.equal(tradeLine.style.transformOrigin, 'top left');
   const label = layer.children.find(
     (child) => child.className === 'rtx5-preview-trade-label',
   );
   assert.ok(label);
   assert.equal(label.children[0].textContent, 'BUY 0.03');
+  assert.equal(label.children[0].style.color, LIVE_CHART_PNL_COLORS.lightCanvas.loss);
+  assert.equal(label.children[0].style.backgroundColor, '#FFFFFF');
   assert.equal(label.children[2].textContent, '-0.31 USD');
+  assert.equal(label.children[2].style.color, LIVE_CHART_PNL_COLORS.lightCanvas.loss);
+  assert.equal(label.children[2].style.backgroundColor, '#FFFFFF');
+  assert.equal(label.children[2].style.padding, '0 2px');
   assert.equal(label.style.left, '41px');
   assert.equal(label.style.width, '164px');
   assert.equal(label.style.textAlign, 'center');
+  assert.equal(label.style.display, 'flex');
+  assert.equal(label.children[0].style.textAlign, 'left');
+  assert.equal(label.children[0].style.height, '100%');
+  assert.equal(label.children[2].style.textAlign, 'left');
+  assert.equal(label.children[2].style.flex, '0 1 auto');
+  assert.equal(label.style.justifyContent, 'flex-start');
   const box = layer.children.find(
     (child) => child.className === 'rtx5-preview-position-price-box',
   );
@@ -228,6 +246,10 @@ test('preview keeps non-position order labels in their existing lane', () => {
 
   assert.equal(label?.style.left, '98px');
   assert.equal(label?.style.textAlign, 'initial');
+  assert.equal(label?.children[2].style.backgroundColor, 'transparent');
+  assert.equal(label?.children[0].style.color, '#2962FF');
+  assert.equal(label?.children[0].style.backgroundColor, 'transparent');
+  assert.equal(label?.style.display, 'block');
 });
 
 test('preview runtime patches the same keyed label and prunes a closed trade', () => {
@@ -239,6 +261,8 @@ test('preview runtime patches the same keyed label and prunes a closed trade', (
     (child) => child.className === 'rtx5-preview-trade-label',
   );
   assert.ok(firstLabel);
+  assert.equal(firstLabel.children[2].style.color, LIVE_CHART_PNL_COLORS.lightCanvas.loss);
+  assert.equal(firstLabel.children[0].style.color, LIVE_CHART_PNL_COLORS.lightCanvas.loss);
 
   harness.window.setPreviewTradeOverlayLines([openPositionLine('+0.25 USD')]);
   harness.flush();
@@ -247,10 +271,62 @@ test('preview runtime patches the same keyed label and prunes a closed trade', (
   );
   assert.equal(updatedLabel, firstLabel);
   assert.equal(updatedLabel?.children[2].textContent, '+0.25 USD');
+  assert.equal(updatedLabel?.children[2].style.color, LIVE_CHART_PNL_COLORS.lightCanvas.profit);
+  assert.equal(updatedLabel?.children[2].style.backgroundColor, '#FFFFFF');
+  assert.equal(updatedLabel?.children[0].style.color, LIVE_CHART_PNL_COLORS.lightCanvas.profit);
+  assert.equal(updatedLabel?.children[0].textContent, 'BUY 0.03');
 
   harness.window.setPreviewTradeOverlayLines([]);
   harness.flush();
   assert.equal(layer.children.length, 0);
+});
+
+test('50-60 overlapping trades keep stable, opaque Buy/Sell, lot and P/L rows in both themes', () => {
+  for (const [background, tradeCount] of [['#121212', 50], ['#FFFFFF', 60]] as const) {
+    const harness = evaluateTradeOverlayRuntime(DEFAULT_PREVIEW_TRADE_OVERLAY_METRICS, background);
+    const lines = Array.from({ length: tradeCount }, (_, index) => {
+      const pnl = index % 2 === 0 ? 0.25 : -0.31;
+      return {
+        ...openPositionLine(`${pnl > 0 ? '+' : ''}${pnl.toFixed(2)} USD`),
+        id: `open-cluster-${index}`,
+        labelSideText: `${index % 3 === 0 ? 'SELL' : 'BUY'} ${(0.01 + index / 100).toFixed(2)}`,
+        labelValueColor: resolveLiveChartPnlColor(pnl, background, '#2962FF'),
+      };
+    });
+    harness.window.setPreviewTradeOverlayLines(lines);
+    harness.flush();
+    const labels = harness.chartHost.children[0].children.filter(
+      (child) => child.className === 'rtx5-preview-trade-label',
+    );
+    assert.equal(labels.length, tradeCount);
+    labels.forEach((label, index) => {
+      assert.equal(label.children[2].textContent, lines[index].labelValueText);
+      assert.equal(label.children[2].style.color, lines[index].labelValueColor);
+      assert.equal(label.children[2].style.backgroundColor, background);
+      assert.equal(label.children[0].textContent, lines[index].labelSideText);
+      assert.equal(label.children[0].style.color, lines[index].labelValueColor);
+      assert.equal(label.children[0].style.backgroundColor, background);
+      assert.equal(label.children[1].style.color, lines[index].labelValueColor);
+      assert.equal(label.children[1].style.backgroundColor, background);
+      assert.equal(label.style.display, 'flex');
+      assert.equal(label.children[0].style.flex, '0 0 auto');
+      assert.equal(label.children[0].style.textAlign, 'left');
+      assert.equal(label.children[2].style.flex, '0 1 auto');
+      assert.equal(label.children[2].style.textAlign, 'left');
+      assert.equal(label.style.justifyContent, 'flex-start');
+      label.children.forEach((span) => assert.equal(span.style.height, '100%'));
+    });
+    const originalPrefix = labels[labels.length - 1].children[0];
+    harness.window.setPreviewTradeOverlayLines(lines.map((line) => ({
+      ...line,
+      labelValueText: '+12345.678 USD',
+      labelValueColor: resolveLiveChartPnlColor(12345.678, background, '#2962FF'),
+    })));
+    harness.flush();
+    assert.equal(labels[labels.length - 1].children[0], originalPrefix);
+    assert.equal(originalPrefix.textContent, lines[lines.length - 1].labelSideText);
+    assert.equal(originalPrefix.style.textAlign, 'left');
+  }
 });
 
 test('native preview keeps trade overlays out of autoscaling price-line creation', () => {

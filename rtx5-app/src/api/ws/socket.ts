@@ -22,6 +22,13 @@ type SubscriptionMessage = {
 
 type WsMessage = SubscriptionMessage | { type: 'ping' | 'get_channels' };
 
+/** Recoverable transport diagnostics: dev builds only, console.log (no LogBox toast). */
+const logTradingSocketDiagnostic = (...args: unknown[]): void => {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log(...args.map(redactDiagnosticValue));
+  }
+};
+
 const sameIdentity = (
   left: ActiveBrokerSessionIdentity | null,
   right: ActiveBrokerSessionIdentity,
@@ -68,7 +75,7 @@ export class WebSocketService {
     const capture = captureActiveBrokerSession();
     if (!capture?.session.tradeWsBase) {
       this.shouldReconnect = false;
-      console.warn('[WebSocket] Active broker has no validated trading WebSocket endpoint.');
+      logTradingSocketDiagnostic('[WebSocket] Active broker has no validated trading WebSocket endpoint.');
       return;
     }
     this.shouldReconnect = true;
@@ -99,10 +106,7 @@ export class WebSocketService {
     } catch (error) {
       this.isResolvingSocketUrl = false;
       if (!this.isSuspended && this.shouldReconnect && isActiveBrokerSessionCurrent(identity)) {
-        console.warn(
-          '[WebSocket] Trading WebSocket URL unavailable.',
-          redactDiagnosticValue(error),
-        );
+        logTradingSocketDiagnostic('[WebSocket] Trading WebSocket URL unavailable.', error);
         this.attemptReconnect(identity);
       }
       return;
@@ -137,7 +141,7 @@ export class WebSocketService {
         try {
           this.handleMessage(JSON.parse(event.data as string), identity);
         } catch (error) {
-          console.warn('[WebSocket] Error parsing message', redactDiagnosticValue(error));
+          logTradingSocketDiagnostic('[WebSocket] Error parsing message', error);
         }
       };
 
@@ -155,14 +159,11 @@ export class WebSocketService {
 
       socket.onerror = () => {
         if (this.ws === socket && isActiveBrokerSessionCurrent(identity)) {
-          console.warn('[WebSocket] Trading connection error.');
+          logTradingSocketDiagnostic('[WebSocket] Trading connection error.');
         }
       };
     } catch (error) {
-      console.warn(
-        '[WebSocket] Connection initialization failed.',
-        redactDiagnosticValue(error),
-      );
+      logTradingSocketDiagnostic('[WebSocket] Connection initialization failed.', error);
       this.attemptReconnect(identity);
     }
   }
@@ -196,7 +197,7 @@ export class WebSocketService {
   public subscribe(channel: string): void {
     const normalized = String(channel ?? '').trim();
     if (normalized === 'prices' || normalized.startsWith('quotes.')) {
-      console.warn('[WebSocket] Quote channels are disabled; executable quotes use /ws/feed only.');
+      console.error('[WebSocket] Quote channels are disabled; executable quotes use /ws/feed only.');
       return;
     }
     if (!normalized || this.activeSubscriptions.has(normalized)) return;

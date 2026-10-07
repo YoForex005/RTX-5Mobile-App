@@ -118,6 +118,18 @@ const collectScrollResponderIssues = (file: string, source: string) => {
   return issues;
 };
 
+test('perf monitors are dev-only and warn only above a user-perceptible threshold', () => {
+  const apiLatencySource = readSource('src/utils/apiLatency.ts');
+
+  assert.match(apiLatencySource, /const shouldLogApiLatency = [\s\S]*?typeof __DEV__ !== 'undefined' &&\s*__DEV__ &&/);
+  assert.match(
+    apiLatencySource,
+    /if \(sample\.durationMs >= API_FETCH_TIMEOUT_MS\) \{\s*console\.warn\(message\);\s*\} else \{\s*console\.log\(message\);/,
+    'only requests that reach the fetch timeout may raise a LogBox warning',
+  );
+  assert.equal((apiLatencySource.match(/console\.warn\(/g) ?? []).length, 1);
+});
+
 test('shared press action budget is capped without touch-down activation by default', () => {
   const latencySource = readSource('src/utils/actionLatency.ts');
   const fastPressSource = readSource('src/ui/components/FastPressable.tsx');
@@ -126,6 +138,12 @@ test('shared press action budget is capped without touch-down activation by defa
   assert.match(latencySource, /export const FAST_PRESS_GUARD_RESET_MS = 120/);
   assert.match(latencySource, /requestAnimationFrame/);
   assert.match(latencySource, /first frame took/);
+  assert.match(latencySource, /if \(typeof __DEV__ === 'undefined' \|\| !__DEV__\) \{\s*return;/);
+  assert.match(
+    latencySource,
+    /if \(elapsedMs > PERCEPTIBLE_ACTION_LATENCY_MS\) \{\s*console\.warn\(message\);\s*\} else \{\s*console\.log\(message\);/,
+    'only a perceptible (>100ms) overrun may raise a LogBox warning',
+  );
   assert.match(latencySource, /const STALE_ACTION_LATENCY_SAMPLE_MS = 5000/);
   assert.match(latencySource, /if \(elapsedMs > STALE_ACTION_LATENCY_SAMPLE_MS\) \{/);
   assert.match(latencySource, /export function runImmediateAction/);
@@ -431,7 +449,9 @@ test('action destination modules warm without boot-time route prefetch', () => {
   assert.match(warmupSource, /ACTION_DEFERRED_MODULE_WARMUPS/);
   assert.match(warmupSource, /JOURNAL_ROUTE_CACHE_KEY/);
   assert.match(warmupSource, /preloadDeferredRouteModule\(module\.cacheKey, module\.load\)/);
-  assert.match(warmupSource, /requestAnimationFrame/);
+  assert.match(warmupSource, /createStartupWorkQueue\(/);
+  assert.match(warmupSource, /canRun: isStartupBackgroundWorkAllowed/);
+  assert.match(warmupSource, /scheduleIdleWork\(work/);
   assert.doesNotMatch(
     warmupSource,
     /ACTION_ROUTE_WARMUP_PATHS|PrefetchRouter|router\.prefetch|\.prefetch\?\.\(/,
@@ -448,7 +468,7 @@ test('action destination modules warm without boot-time route prefetch', () => {
   assert.match(rootSource, /import \{ BrokerDetailLaunchHost \} from/);
   assert.match(rootSource, /import \{ RegisterLaunchHost \} from/);
   assert.match(rootSource, /import \{ QuoteInfoLaunchHost \} from/);
-  assert.match(rootSource, /<\/Stack>[\s\S]*<SidebarDestinationHost \/>[\s\S]*<AboutDetailDestinationHost \/>[\s\S]*<BrokersLaunchHost \/>[\s\S]*<BrokerDetailLaunchHost \/>[\s\S]*<RegisterLaunchHost \/>[\s\S]*<QuoteInfoLaunchHost \/>[\s\S]*<HistoryFilterHost \/>[\s\S]*<TradePositionActionHost \/>[\s\S]*<ChartSettingsHost \/>[\s\S]*<ChartConfigDestinationHost \/>[\s\S]*<SidebarDrawer \/>/);
+  assert.match(rootSource, /<\/Stack>[\s\S]*<SidebarDestinationHost \/>[\s\S]*<AboutDetailDestinationHost \/>[\s\S]*<BrokersLaunchHost \/>[\s\S]*<QuoteInfoLaunchHost \/>[\s\S]*<HistoryFilterHost \/>[\s\S]*<TradePositionActionHost \/>[\s\S]*<ChartSettingsHost \/>[\s\S]*<ChartConfigDestinationHost \/>[\s\S]*<SidebarDrawer \/>/);
   assert.match(tabsSource, /lazy: false/);
   assert.doesNotMatch(tabsSource, /lazy: true/);
   assert.match(rootSource, /<Stack\.Screen name='trade\/order-ticket' options=\{\{ headerShown: false, animation: 'none' \}\}/);
@@ -484,8 +504,8 @@ test('action destination modules warm without boot-time route prefetch', () => {
   assert.match(brokersRouteSource, /showSidebarDestination\('accounts', 'route-sync'\);[\s\S]*if \(brokersLaunchController\.isVisible\(\)\) \{\s*hideBrokersLaunch\(\);\s*\}[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/quotes'\)/);
   assert.equal(
     (brokersRouteSource.match(/if \(brokersLaunchController\.isVisible\(\)\) \{\s*hideBrokersLaunch\(\);\s*\}/g) ?? []).length,
-    2,
-    'both Brokers route-fallback exits must avoid redundant hidden-layer writes',
+    1,
+    'the Brokers back action avoids redundant hidden-layer writes',
   );
   assert.doesNotMatch(brokersRouteSource, /import \{ BrokersScreen \}/);
   assert.match(brokersPreloadSource, /BROKERS_ROUTE_MODULE_CACHE_KEY = 'settings\/brokers'/);
@@ -499,33 +519,11 @@ test('action destination modules warm without boot-time route prefetch', () => {
   assert.match(brokersLaunchHostSource, /if \(pathname !== '\/settings\/brokers'\) return;[\s\S]*const pendingRevision = pendingBackRevisionRef\.current;[\s\S]*if \(pendingRevision === null\) return;[\s\S]*finishCommittedBack\(pendingRevision\)/);
   assert.match(brokersLaunchHostSource, /const closeLaunch = useCallback\(\(\) => \{[\s\S]*if \(!navigationStarted\) \{[\s\S]*showSidebarDestination\('accounts', 'route-sync'\);[\s\S]*brokersLaunchController\.hide\(currentSnapshot\.revision\);[\s\S]*return;[\s\S]*if \(pathnameRef\.current !== '\/settings\/brokers'\) \{[\s\S]*pendingBackRevisionRef\.current = currentSnapshot\.revision;[\s\S]*return;[\s\S]*finishCommittedBack\(currentSnapshot\.revision\)/);
   assert.doesNotMatch(brokersLaunchHostSource, /router\.canGoBack\(\)|popRouteWhenReady/);
-  assert.match(brokersLaunchHostSource, /const selectBroker = useCallback\(\(broker: BrokerDirectoryRow\) => \{[\s\S]*if \(!broker\.selectable\) \{[\s\S]*return;[\s\S]*showBrokerDetailLaunch\(selection\)[\s\S]*const pushBrokerDetailRoute = \(\) => \{[\s\S]*pathname: '\/settings\/broker-detail'[\s\S]*scheduleBrokerDetailLaunchNavigation\(detailRevision, pushBrokerDetailRoute\)/);
-  const brokersHostSelectStart = brokersLaunchHostSource.indexOf('const selectBroker =');
-  const brokersHostSelectEnd = brokersLaunchHostSource.indexOf('\n  useEffect(', brokersHostSelectStart);
-  const brokersHostSelectSource = brokersLaunchHostSource.slice(brokersHostSelectStart, brokersHostSelectEnd);
-  assert.notEqual(brokersHostSelectStart, -1);
-  assert.notEqual(brokersHostSelectEnd, -1);
-  assert.ok(
-    brokersHostSelectSource.indexOf('showBrokerDetailLaunch(selection)')
-      < brokersHostSelectSource.indexOf('brokersLaunchController.hide(current.revision)'),
-    'Broker Detail cover must be visible before the Brokers cover is removed',
-  );
-  assert.match(
-    brokersHostSelectSource,
-    /if \(current\.visible && !current\.navigationStarted\) \{\s*scheduleBackNavigationAfterVisualFrame\(\(\) => \{\s*router\.push\('\/settings\/brokers'\);\s*hideSidebarDestination\(\);\s*scheduleBrokerDetailLaunchNavigation\(detailRevision, pushBrokerDetailRoute\);\s*\}\);\s*return;/,
-    'a rapid broker selection must dismiss retained Accounts before opening Broker Detail',
-  );
-  const brokersRouteSelectStart = brokersRouteSource.indexOf('const handleSelectBroker =');
-  const brokersRouteSelectEnd = brokersRouteSource.indexOf('\n\n  return (', brokersRouteSelectStart);
-  const brokersRouteSelectSource = brokersRouteSource.slice(brokersRouteSelectStart, brokersRouteSelectEnd);
-  assert.notEqual(brokersRouteSelectStart, -1);
-  assert.notEqual(brokersRouteSelectEnd, -1);
-  assert.match(brokersRouteSelectSource, /if \(!broker\.selectable\) \{[\s\S]*return;[\s\S]*showBrokerDetailLaunch\(selection\)[\s\S]*if \(brokersLaunchController\.isVisible\(\)\) \{\s*hideBrokersLaunch\(\);\s*\}/);
-  assert.ok(
-    brokersRouteSelectSource.indexOf('showBrokerDetailLaunch(selection)')
-      < brokersRouteSelectSource.indexOf('hideBrokersLaunch()'),
-    'the route fallback must reveal Broker Detail before removing Brokers',
-  );
+  for (const source of [brokersLaunchHostSource, brokersRouteSource]) {
+    assert.match(source, /selectGuestBrokerById\(broker\.brokerId/);
+    assert.match(source, /replace\('\/\(tabs\)\/quotes'\)/);
+    assert.doesNotMatch(source, /showBrokerDetailLaunch\(selection\)/);
+  }
   assert.match(brokersLaunchHostSource, /<BrokersLaunchShell[\s\S]*onSelectBroker=\{selectBroker\}/);
   assert.match(brokersLaunchHostSource, /testID="brokers-launch-host"/);
   assert.match(brokersLaunchHostSource, /testID="brokers-launch-animated-host"/);
@@ -553,15 +551,15 @@ test('action destination modules warm without boot-time route prefetch', () => {
   assert.match(warmupSource, /prefetchBrokerServers\(\)\.catch\(\(\) => undefined\)/);
   assert.match(brokersLaunchControllerSource, /BROKERS_LAUNCH_CONTROLLER_VERSION = 3/);
   assert.match(brokersLaunchControllerSource, /__rtx5BrokersLaunchControllerVersion/);
-  assert.match(brokersLaunchControllerSource, /setTimeout\(runIfCurrent, 32\)/);
-  assert.match(brokersLaunchControllerSource, /requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, 0\)/);
+  assert.match(brokersLaunchControllerSource, /import \{ scheduleAfterVisualFrames \} from/);
+  assert.match(brokersLaunchControllerSource, /scheduleAfterVisualFrames\(runIfCurrent\)/);
   const brokersNavigationStart = brokersLaunchControllerSource.indexOf('export function scheduleBrokersLaunchNavigation');
   const brokersCoverRemovalStart = brokersLaunchControllerSource.indexOf('export function scheduleBrokersLaunchCoverRemoval');
   assert.match(
     brokersLaunchControllerSource.slice(brokersNavigationStart, brokersCoverRemovalStart),
-    /requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame/,
+    /scheduleAfterVisualFrames\(runIfCurrent\)/,
   );
-  assert.match(brokersLaunchControllerSource, /export function scheduleBrokersLaunchCoverRemoval\(revision: number\)[\s\S]*brokersLaunchController\.hide\(revision\)[\s\S]*requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(hideIfCurrent, 0\)/);
+  assert.match(brokersLaunchControllerSource, /export function scheduleBrokersLaunchCoverRemoval\(revision: number\)[\s\S]*brokersLaunchController\.hide\(revision\)[\s\S]*scheduleAfterVisualFrames\(hideIfCurrent\)/);
   assert.match(brokerDetailRouteSource, /cacheKey=\{BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY\}/);
   assert.match(brokerDetailRouteSource, /load=\{loadBrokerDetailScreenRoute\}/);
   assert.match(brokerDetailRouteSource, /mountDelayMs=\{0\}/);
@@ -613,7 +611,11 @@ test('action destination modules warm without boot-time route prefetch', () => {
       < rapidDemoSource.indexOf("pathname: '/register-entry'"),
     'a rapid Demo tap must preserve Broker Detail underneath Register Entry',
   );
-  assert.equal((brokerDetailLaunchHostSource.match(/onOpenDemo=\{openDemoAccount\}/g) ?? []).length, 1);
+  // Contract v3: the demo entry exists only when the broker allows demo sign-up.
+  assert.equal((brokerDetailLaunchHostSource.match(/onOpenDemo=\{signUpGate\.demo \? openDemoAccount : undefined\}/g) ?? []).length, 1);
+  assert.match(brokerDetailLaunchHostSource, /useBrokerSignUpGate\(renderVisible \? selection\.brokerServerUrl : null\)/);
+  assert.match(brokerDetailLaunchHostSource, /showDemoSignUp=\{signUpGate\.demo\}[\s\S]*showRealSignUp=\{signUpGate\.real\}/);
+  assert.match(brokerDetailLaunchShellSource, /if \(!showDemo && !showReal\) return null/);
   assert.match(brokerDetailLaunchShellSource, /testID="broker-detail-launch-shell"/);
   assert.match(brokerDetailLaunchShellSource, /selection\.brokerName[\s\S]*selection\.brokerServer/);
   assert.match(brokerDetailLaunchShellSource, /pointerEvents=\{onOpenDemo \? 'auto' : 'none'\}/);
@@ -630,15 +632,15 @@ test('action destination modules warm without boot-time route prefetch', () => {
   assert.match(brokerDetailLaunchControllerSource, /BROKER_DETAIL_LAUNCH_FALLBACK_MS = 5_000/);
   assert.match(brokerDetailLaunchControllerSource, /BROKER_DETAIL_LAUNCH_CONTROLLER_VERSION = 3/);
   assert.match(brokerDetailLaunchControllerSource, /__rtx5BrokerDetailLaunchControllerVersion/);
-  assert.match(brokerDetailLaunchControllerSource, /setTimeout\(runIfCurrent, 32\)/);
-  assert.match(brokerDetailLaunchControllerSource, /requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, 0\)/);
+  assert.match(brokerDetailLaunchControllerSource, /import \{ scheduleAfterVisualFrames \} from/);
+  assert.match(brokerDetailLaunchControllerSource, /scheduleAfterVisualFrames\(runIfCurrent\)/);
   const brokerDetailNavigationStart = brokerDetailLaunchControllerSource.indexOf('export function scheduleBrokerDetailLaunchNavigation');
   const brokerDetailCoverRemovalStart = brokerDetailLaunchControllerSource.indexOf('export function scheduleBrokerDetailLaunchCoverRemoval');
   assert.match(
     brokerDetailLaunchControllerSource.slice(brokerDetailNavigationStart, brokerDetailCoverRemovalStart),
-    /requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame/,
+    /scheduleAfterVisualFrames\(runIfCurrent\)/,
   );
-  assert.match(brokerDetailLaunchControllerSource, /export function scheduleBrokerDetailLaunchCoverRemoval\(revision: number\)[\s\S]*brokerDetailLaunchController\.hide\(revision\)[\s\S]*requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(hideIfCurrent, 0\)/);
+  assert.match(brokerDetailLaunchControllerSource, /export function scheduleBrokerDetailLaunchCoverRemoval\(revision: number\)[\s\S]*brokerDetailLaunchController\.hide\(revision\)[\s\S]*scheduleAfterVisualFrames\(hideIfCurrent\)/);
   assert.doesNotMatch(registerLaunchHostSource, /react-native-reanimated|Animated\.View|animatedProps|useAnimatedStyle/);
   assert.match(registerLaunchHostSource, /function writeRegisterLaunchVisibilityNow\(layer: View \| null, visible: boolean\)[\s\S]*layer\?\.setNativeProps\(\{[\s\S]*pointerEvents: visible \? 'auto' : 'none'[\s\S]*REGISTER_LAUNCH_VISIBLE_STYLE : REGISTER_LAUNCH_HIDDEN_STYLE/);
   assert.match(registerLaunchHostSource, /const hostLayerRef = useRef<View>\(null\)/);
@@ -674,8 +676,8 @@ test('action destination modules warm without boot-time route prefetch', () => {
     /clearFallbackTimer\(\)/,
     'starting native navigation must keep the route-commit watchdog armed until mount',
   );
-  assert.match(registerLaunchControllerSource, /export function scheduleRegisterLaunchNavigation[\s\S]*requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, 0\)/);
-  assert.match(registerLaunchControllerSource, /export function scheduleRegisterLaunchCoverRemoval[\s\S]*registerLaunchController\.hide\(revision\)[\s\S]*requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame/);
+  assert.match(registerLaunchControllerSource, /export function scheduleRegisterLaunchNavigation[\s\S]*scheduleAfterVisualFrames\(runIfCurrent\)/);
+  assert.match(registerLaunchControllerSource, /export function scheduleRegisterLaunchCoverRemoval[\s\S]*registerLaunchController\.hide\(revision\)[\s\S]*scheduleAfterVisualFrames\(hideIfCurrent\)/);
   assert.match(quoteInfoLaunchHostSource, /hostAnimatedStyle = useAnimatedStyle\([\s\S]*elevation: visible \? 48 : 0/);
   assert.match(quoteInfoLaunchHostSource, /hostRoot: \{[\s\S]*elevation: 47,[\s\S]*zIndex: 47/);
   assert.match(quoteInfoLaunchHostSource, /if \(navigationStarted\) \{[\s\S]*scheduleBackNavigationAfterVisualFrame\(popRouteWhenReady\)/);
@@ -703,7 +705,7 @@ test('action destination modules warm without boot-time route prefetch', () => {
   const quoteInfoLaunchControllerSource = readSource('src/features/quotes/quoteInfoLaunchController.ts');
   assert.match(
     quoteInfoLaunchControllerSource,
-    /export function scheduleQuoteInfoLaunchNavigation[\s\S]*requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, 0\)/,
+    /export function scheduleQuoteInfoLaunchNavigation[\s\S]*scheduleAfterVisualFrame\(runIfCurrent\)/,
   );
   assert.match(
     quoteInfoLaunchControllerSource,
@@ -711,7 +713,7 @@ test('action destination modules warm without boot-time route prefetch', () => {
   );
   assert.match(
     quoteInfoLaunchControllerSource,
-    /export function scheduleQuoteInfoBackCoverRemoval[\s\S]*requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(hideIfCurrent\)/,
+    /export function scheduleQuoteInfoBackCoverRemoval[\s\S]*scheduleAfterVisualFrames\(hideIfCurrent\)/,
   );
   const quoteInfoLaunchHostSourceForBody = readSource('src/features/quotes/QuoteInfoLaunchHost.tsx');
   // Host must only keep lightweight shells — never mount full interactive bodies.
@@ -1105,7 +1107,7 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.doesNotMatch(registerEntrySource, /fontSize: 34|width: 68|minHeight: 84|useOrrnnDemoStatus|useOrrnnDemoGroups|useBrokerServers|ActionSheet|TextInput|useDeferredActiveFlag/);
   assert.match(registerPreviewSource, /<Text style=\{styles\.headerTitle\} numberOfLines=\{1\}>Demo Account<\/Text>[\s\S]*<PasswordPreview[\s\S]*label=\{t\('Master password'\)\}/);
   assert.doesNotMatch(registerPreviewSource, /heroSection|stats-chart-outline|Open Demo Account/);
-  assert.match(registerPreviewSource, /<SelectPreview[\s\S]*label=\{t\('Group'\)\}[\s\S]*value=\{t\('Demo groups unavailable'\)\}/);
+  assert.doesNotMatch(registerPreviewSource, /label=\{t\('Group'\)\}/);
   assert.doesNotMatch(registerPreviewSource, /fontSize: 34|width: 68|minHeight: 84|useOrrnnDemoStatus|useOrrnnDemoGroups|useBrokerServers|ActionSheet|TextInput|useDeferredActiveFlag/);
   assert.match(registerHandoffSource, /type RegisterScreenReadyListener = \(launchRevision\?: number\) => void/);
   assert.match(registerHandoffSource, /const registerScreenReadyListeners = new Set<RegisterScreenReadyListener>\(\)/);
@@ -1197,7 +1199,7 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(brokersSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(brokersSource, /const coveredLaunchRevisionRef = useRef<number \| null>\(null\)/);
   assert.doesNotMatch(brokersSource, /directoryQuerySettled|brokerRecords\.length === 0/);
-  assert.match(brokersSource, /useLayoutEffect\(\(\) => \{[\s\S]*if \(!isScreenFocused\)[\s\S]*const launchSnapshot = brokersLaunchController\.getSnapshot\(\);[\s\S]*!launchSnapshot\.visible[\s\S]*coveredLaunchRevisionRef\.current === launchSnapshot\.revision[\s\S]*coveredLaunchRevisionRef\.current = launchSnapshot\.revision;[\s\S]*hideSidebarDestination\(\);[\s\S]*scheduleBrokersLaunchCoverRemoval\(launchSnapshot\.revision\);[\s\S]*\}, \[isScreenFocused\]\)/);
+  assert.match(brokersSource, /useLayoutEffect\(\(\) => \{[\s\S]*if \(!isScreenFocused\)[\s\S]*const launchSnapshot = brokersLaunchController\.getSnapshot\(\);[\s\S]*!launchSnapshot\.visible[\s\S]*coveredLaunchRevisionRef\.current === launchSnapshot\.revision[\s\S]*coveredLaunchRevisionRef\.current = launchSnapshot\.revision;[\s\S]*hideSidebarDestination\(\);[\s\S]*scheduleBrokersLaunchCoverRemoval\(launchSnapshot\.revision\);[\s\S]*\}, \[isScreenFocused, onSelectBroker\]\)/);
   assert.doesNotMatch(brokersSource, /brokerRecords\.length === 0/);
   assert.doesNotMatch(brokersSource, /routePaintReady|useDeferredRouteContentReady/);
   assert.doesNotMatch(brokersSource, /preloadBrokerDetailScreen|preloadRegisterScreen/);
@@ -1230,7 +1232,7 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(brokersSource, /const cancelBrokerRowPressForScroll = \(\) => \{[\s\S]*cancelled: true,[\s\S]*selection: null/);
   assert.match(brokersSource, /const recordBrokerRowPressMove = \(event: GestureResponderEvent\) => \{[\s\S]*hasBrokerPressMovedBeyondThreshold\(gesture\.start, current\)[\s\S]*cancelBrokerRowPressForScroll\(\)/);
   assert.match(brokersSource, /const handleBrokerRowPress = \(broker: BrokerRow, event: GestureResponderEvent\) => \{[\s\S]*if \(!broker\.selectable\) \{[\s\S]*return;[\s\S]*shouldIgnoreBrokerRowPress\(event\)[\s\S]*const selection = toBrokerDetailLaunchSelection\(broker\);[\s\S]*selectedBrokerHealthGate\.run\(\{[\s\S]*serverUrl: broker\.serverUrl,[\s\S]*onAvailable: \(\) => \{[\s\S]*openBrokerDetail\(selection\)[\s\S]*onUnavailable: \(\) => \{[\s\S]*Alert\.alert\(SELECTED_BROKER_UNAVAILABLE_MESSAGE\)/);
-  assert.match(brokersSource, /const openBrokerDetail = \(selection: BrokerDetailLaunchSelection\) => \{[\s\S]*showBrokerDetailLaunch\(selection\)[\s\S]*if \(brokersLaunchController\.isVisible\(\)\) \{\s*hideBrokersLaunch\(\);\s*\}[\s\S]*scheduleBrokerDetailLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*routerInstance\.push/);
+  assert.match(brokersSource, /const openBrokerDetail = \(selection: BrokerDetailLaunchSelection\) => \{[\s\S]*selectGuestBroker\(record\)[\s\S]*routerInstance\.replace/);
   const openBrokerDetailStart = brokersSource.indexOf('const openBrokerDetail =');
   const recordBrokerPressStart = brokersSource.indexOf('const recordBrokerRowPressStart =', openBrokerDetailStart);
   assert.doesNotMatch(
@@ -1282,7 +1284,8 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
     brokerDetailDemoHandlerSource,
     /hideBrokerDetailLaunch/,
   );
-  assert.match(brokerDetailSource, /<BrokerDetailLaunchShell[\s\S]*onBack=\{handleBack\}[\s\S]*onOpenDemo=\{handleOpenDemo\}[\s\S]*backLatencyLabel="brokerDetail\.initial\.back"/);
+  // Contract v3: the demo entry is withheld when /broker/config disables sign-up.
+  assert.match(brokerDetailSource, /<BrokerDetailLaunchShell[\s\S]*onBack=\{handleBack\}[\s\S]*onOpenDemo=\{launchSignUpGate\.demo \? handleOpenDemo : undefined\}[\s\S]*backLatencyLabel="brokerDetail\.initial\.back"/);
   assert.equal((brokerDetailSource.match(/pathname: '\/register-entry'/g) ?? []).length, 2);
   assert.equal((brokerDetailSource.match(/registerLaunchRevision: String\(registerRevision\)/g) ?? []).length, 2);
   assert.doesNotMatch(brokerDetailSource, /router\.replace\('\/register-entry'\)/);
@@ -1308,7 +1311,7 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.doesNotMatch(brokerDetailSource, /MT5_BLUE_LIGHT/);
   assert.doesNotMatch(brokerDetailSource, /LOGIN_VIOLET/);
   assert.match(registerSource, /const REGISTER_BACK_FALLBACK_HREF = '\/\(tabs\)\/settings'/);
-  assert.match(registerSource, /const styles = React\.useMemo\(\(\) => makeStyles\(T, isDark, insets\.top\), \[T, isDark, insets\.top\]\)/);
+  assert.match(registerSource, /const styles = React\.useMemo\(\(\) => makeStyles\(T, isDark, insets, width, fontScale\), \[T, isDark, insets, width, fontScale\]\)/);
   assert.match(registerSource, /const registerBackNavigationStartedRef = React\.useRef\(false\)/);
   assert.match(registerSource, /if \(isScreenFocused\) \{[\s\S]*registerBackNavigationStartedRef\.current = false;[\s\S]*\}, \[isScreenFocused\]\);/);
   assert.match(registerSource, /const \{ origin, registerLaunchRevision \} = useLocalSearchParams/);
@@ -1494,9 +1497,15 @@ test('chart native and web hot actions use the shared immediate action guard', (
   assert.match(nativeChartSource, /runImmediateAction\('chart\.moreMenu\.open'/);
   assert.match(nativeChartSource, /runImmediateAction\('chart\.tradeSheet\.pending\.submit'/);
   assert.match(nativeChartSource, /onPress=\{handleOpenSymbolPicker\}[\s\S]*activateOnTouchStart/);
-  assert.match(nativeChartSource, /onPress=\{\(\) => routeChartWindowToolbarAction\('timeframe'\)\}[\s\S]*activateOnTouchStart/);
-  assert.match(nativeChartSource, /onPress=\{\(\) => routeChartWindowToolbarAction\('drawings'\)\}[\s\S]*activateOnTouchStart/);
-  assert.match(nativeChartSource, /onPress=\{\(\) => routeChartWindowToolbarAction\('more'\)\}[\s\S]*activateOnTouchStart/);
+  const scrollableToolbar = nativeChartSource.slice(
+    nativeChartSource.indexOf('const renderCompactHeaderToolbar'),
+    nativeChartSource.indexOf('const renderChartTradeSheetTopHeader'),
+  );
+  for (const action of ['timeframe', 'sltp', 'drawings', 'more']) {
+    assert.ok(scrollableToolbar.includes(`onPress={() => routeChartWindowToolbarAction('${action}')}`));
+  }
+  // Release activation keeps horizontal toolbar swipes from opening a sheet.
+  assert.doesNotMatch(scrollableToolbar, /activateOnTouchStart|activateOnPressIn|onPressIn=/);
   assert.match(
     nativeChartSource,
     /useChartWindowToolbarRouter\([\s\S]*timeframe: handleOpenTimeframePicker[\s\S]*drawings: handleOpenDrawingTools[\s\S]*more: handleOpenMoreMenu/,
@@ -1617,7 +1626,7 @@ test('theme toggles paint drawer chrome before retained scenes and preference pe
   assert.match(themeModeSource, /let themeModePostPaintFlushing = false/);
   assert.match(
     themeModeSource,
-    /function scheduleThemeModePostPaintFlush\(\)[\s\S]*requestAnimationFrame[\s\S]*setTimeout\(flushThemeModePostPaintWork, 0\)/,
+    /function scheduleThemeModePostPaintFlush\(\)[\s\S]*scheduleAfterVisualFrame\(flushThemeModePostPaintWork\)/,
   );
   assert.match(
     themeModeSource,

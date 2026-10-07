@@ -6,23 +6,6 @@ import {
   recordMarketDataEvent,
 } from '../market/marketDataTelemetry';
 
-export type FeedAuthCredential = 'feed_token' | 'access_token';
-
-export type FeedAuthContext = Readonly<
-  | { mode: 'none' }
-  | {
-      mode: 'disabled_unconfigured';
-      reason: 'missing_contract' | 'missing_credential';
-    }
-  | {
-      mode: 'query';
-      credential: FeedAuthCredential;
-      tokenQueryParam: string;
-      brokerIdQueryParam?: string;
-      accountLoginQueryParam?: string;
-    }
->;
-
 export type ActiveBrokerSession = Readonly<{
   brokerId: string;
   accountLogin: string;
@@ -31,7 +14,11 @@ export type ActiveBrokerSession = Readonly<{
   tradeWsBase?: string;
   feedStatusUrl: string;
   servicesDomain: string;
-  feedAuthContext: FeedAuthContext;
+  /**
+   * Investor (read-only) login: login `login_type: "investor"` or refresh
+   * `investor: true`. UX only; the server still enforces 403 INVESTOR_READ_ONLY.
+   */
+  investor: boolean;
   cacheNamespace: string;
   sessionEpoch: number;
   configVersion: string;
@@ -41,7 +28,6 @@ export type ActiveBrokerCredentials = Readonly<{
   accessToken: string;
   refreshToken: string;
   expiresAt: string;
-  feedToken?: string;
 }>;
 
 export type ActiveBrokerSessionIdentity = Readonly<{
@@ -89,7 +75,8 @@ export type ActivateBrokerSessionInput = Readonly<{
   tradeWsBase?: string | null;
   feedStatusUrl: string;
   servicesDomain: string;
-  feedAuthContext: FeedAuthContext;
+  /** Investor (read-only) session. Missing means false. */
+  investor?: boolean | null;
   configVersion: string | number;
 }>;
 
@@ -138,70 +125,7 @@ const cleanString = (value: unknown): string =>
     ? String(value).trim()
     : '';
 
-const normalizeBrokerId = (value: unknown): string => cleanString(value).toLowerCase();
-
-const normalizeQueryParam = (value: unknown, name: string): string => {
-  const normalized = cleanString(value);
-  if (!normalized || !/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(normalized)) {
-    throw new Error(`Active broker feed auth has an invalid ${name}.`);
-  }
-  return normalized;
-};
-
-const normalizeFeedAuthContext = (value: FeedAuthContext): FeedAuthContext => {
-  if (value?.mode === 'disabled_unconfigured') {
-    if (value.reason !== 'missing_contract' && value.reason !== 'missing_credential') {
-      throw new Error('Active broker feed auth disabled reason is invalid.');
-    }
-    return Object.freeze({ mode: value.mode, reason: value.reason });
-  }
-  if (!value || value.mode === 'none') {
-    return Object.freeze({ mode: 'none' });
-  }
-  if (value.mode !== 'query' || !['feed_token', 'access_token'].includes(value.credential)) {
-    throw new Error('Active broker feed auth mode is invalid.');
-  }
-  const params = [
-    value.tokenQueryParam,
-    value.brokerIdQueryParam,
-    value.accountLoginQueryParam,
-  ].filter((param): param is string => Boolean(param));
-  if (new Set(params).size !== params.length) {
-    throw new Error('Active broker feed auth query parameters must be distinct.');
-  }
-  return Object.freeze({
-    mode: 'query',
-    credential: value.credential,
-    tokenQueryParam: normalizeQueryParam(value.tokenQueryParam, 'token query parameter'),
-    ...(value.brokerIdQueryParam
-      ? { brokerIdQueryParam: normalizeQueryParam(value.brokerIdQueryParam, 'broker ID query parameter') }
-      : {}),
-    ...(value.accountLoginQueryParam
-      ? { accountLoginQueryParam: normalizeQueryParam(value.accountLoginQueryParam, 'account login query parameter') }
-      : {}),
-  });
-};
-
-const normalizeFeedAuthContextForBroker = (
-  brokerId: string,
-  value: FeedAuthContext,
-): FeedAuthContext => {
-  const normalized = normalizeFeedAuthContext(value);
-  if (
-    brokerId === 'achiever-financials' &&
-    normalized.mode !== 'disabled_unconfigured' &&
-    (
-      normalized.mode !== 'query' ||
-      normalized.credential !== 'feed_token' ||
-      normalized.tokenQueryParam !== 'token' ||
-      normalized.brokerIdQueryParam !== 'broker_id' ||
-      Boolean(normalized.accountLoginQueryParam)
-    )
-  ) {
-    throw new Error('Active Achiever feed auth contract is invalid.');
-  }
-  return normalized;
-};
+const normalizeBrokerId = (value: unknown): string => cleanString(value);
 
 const normalizeCredentials = (
   credentials: ActiveBrokerCredentials,
@@ -210,15 +134,11 @@ const normalizeCredentials = (
   if (!accessToken) {
     throw new Error('Active broker credentials require an access token.');
   }
-  const feedToken =
-    typeof credentials.feedToken === 'string' && credentials.feedToken.trim()
-      ? credentials.feedToken
-      : '';
+  // Only the three known fields are kept; unknown legacy fields are dropped.
   return Object.freeze({
     accessToken,
     refreshToken: cleanString(credentials.refreshToken),
     expiresAt: cleanString(credentials.expiresAt),
-    ...(feedToken ? { feedToken } : {}),
   });
 };
 
@@ -274,7 +194,7 @@ export function activateBrokerSession(
   const configVersion = cleanString(input.configVersion);
   const servicesDomain = cleanString(input.servicesDomain);
 
-  if (!brokerId || !accountLogin) {
+  if (!brokerId || !/^\d+$/.test(accountLogin) || !/[1-9]/.test(accountLogin) || typeof input.accountLogin === 'number' && !Number.isSafeInteger(input.accountLogin)) {
     throw new Error('Active broker session requires brokerId and accountLogin.');
   }
   if (!configVersion || !servicesDomain) {
@@ -304,7 +224,7 @@ export function activateBrokerSession(
     ...(endpoints.tradeWsBase ? { tradeWsBase: endpoints.tradeWsBase } : {}),
     feedStatusUrl: endpoints.feedStatusUrl,
     servicesDomain: endpoints.servicesDomain,
-    feedAuthContext: normalizeFeedAuthContextForBroker(brokerId, input.feedAuthContext),
+    investor: input.investor === true,
     cacheNamespace: `${brokerId}:${accountLogin}:${cacheNamespaceNonce}:${currentEpoch}`,
     sessionEpoch: currentEpoch,
     configVersion: endpoints.configVersion,
@@ -437,24 +357,33 @@ export function isActiveBrokerSessionCurrent(
   return Boolean(activeCapture && identityMatches(activeCapture.session, identity));
 }
 
+/**
+ * Atomically rotates the credentials of the current session.
+ *
+ * Token-rotation signal: every successful call bumps the owner stamp's
+ * `credentialGeneration` and emits a `credentials_updated` event through
+ * {@link subscribeActiveBrokerSession}. The trade socket (`/ws/v2?token=`)
+ * must close and reopen on that event because the server never re-checks the
+ * token of an open socket.
+ */
 export function updateActiveBrokerSessionCredentials(
   identity: ActiveBrokerSessionIdentity,
   credentials: ActiveBrokerCredentials,
-  feedAuthContext?: FeedAuthContext,
+  /**
+   * Refresh `investor` verdict. Only the in-memory session flag changes; the
+   * cache namespace, epoch and endpoints stay the same.
+   */
+  sessionUpdate?: Readonly<{ investor?: boolean }>,
 ): boolean {
   if (!activeCapture || !identityMatches(activeCapture.session, identity)) {
     return false;
   }
   const previousSession = activeCapture.session;
-  const nextSession = feedAuthContext
-    ? Object.freeze({
-        ...previousSession,
-        feedAuthContext: normalizeFeedAuthContextForBroker(
-          previousSession.brokerId,
-          feedAuthContext,
-        ),
-      })
-    : previousSession;
+  const nextInvestor = sessionUpdate?.investor;
+  const nextSession: ActiveBrokerSession =
+    typeof nextInvestor === 'boolean' && nextInvestor !== previousSession.investor
+      ? Object.freeze({ ...previousSession, investor: nextInvestor })
+      : previousSession;
   activeCapture = Object.freeze({
     session: nextSession,
     credentials: normalizeCredentials(credentials),

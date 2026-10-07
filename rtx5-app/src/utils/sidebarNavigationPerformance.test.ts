@@ -29,12 +29,15 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   assert.doesNotMatch(source, /scheduleAfterTapFrame/);
   assert.match(source, /export const MENU_BUTTON_VISUAL_LEFT = 28/);
   assert.match(source, /const HEADER_HORIZONTAL_PADDING = 16/);
-  assert.match(source, /const HEADER_SIDE_SLOT_WIDTH = 144/);
+  assert.match(source, /export const HEADER_ACTION_SLOT_WIDTH = 88/);
+  assert.match(source, /export const HEADER_COMPACT_SLOT_WIDTH = MENU_BTN_GUTTER/);
   assert.match(source, /const MENU_BUTTON_LEFT_INSET = MENU_BUTTON_VISUAL_LEFT - HEADER_HORIZONTAL_PADDING/);
-  assert.match(source, /width: HEADER_SIDE_SLOT_WIDTH/);
+  assert.match(source, /const sideSlotStyle = rightActions[\s\S]*styles\.sideSlotWithActions[\s\S]*styles\.sideSlotCompact/);
+  assert.match(source, /sideSlotWithActions: \{\s*width: HEADER_ACTION_SLOT_WIDTH/);
+  assert.match(source, /sideSlotCompact: \{\s*width: HEADER_COMPACT_SLOT_WIDTH/);
+  assert.match(source, /numberOfLines=\{2\}[\s\S]*adjustsFontSizeToFit[\s\S]*minimumFontScale=\{0\.72\}/);
   assert.match(source, /paddingHorizontal: HEADER_HORIZONTAL_PADDING/);
   assert.match(source, /paddingLeft: MENU_BUTTON_LEFT_INSET/);
-  assert.match(source, /paddingRight: 12/);
   assert.match(source, /onPress=\{handleOpenSidebar\}/);
   assert.match(source, /activateOnTouchStart/);
   assert.match(source, /hitSlop=\{MENU_BUTTON_HIT_SLOP\}/);
@@ -50,17 +53,17 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   assert.match(controllerSource, /const index = sidebarOpenHandlers\.lastIndexOf\(handler\)/);
   assert.match(controllerSource, /sidebarOpenHandlers\.splice\(index, 1\)/);
   assert.match(controllerSource, /sidebarOpenHandlers\[sidebarOpenHandlers\.length - 1\]\?\.\(\)/);
-  assert.match(controllerSource, /const SIDEBAR_OPEN_VISUAL_SYNC_DELAY_MS = 130/);
+  assert.doesNotMatch(controllerSource, /SIDEBAR_OPEN_VISUAL_SYNC_DELAY_MS/);
   assert.doesNotMatch(controllerSource, /let openSidebarHandler/);
 });
 
-test('sidebar drawer uses native-driver motion and non-blocking navigation for menu rows', () => {
+test('sidebar drawer reveals instantly and keeps navigation and closing work non-blocking', () => {
   const source = readSource('src/ui/components/SidebarDrawer.tsx');
   const hostControllerSource = readSource('src/ui/components/sidebarDestinationHostController.ts');
   const fastTabVisualSource = readSource('src/ui/navigation/fastTabVisualController.ts');
   const liveSymbolSource = readSource('src/query/websocket.ts');
 
-  assert.match(source, /const DRAWER_OPEN_ANIMATION_MS = 110/);
+  assert.doesNotMatch(source, /DRAWER_OPEN_ANIMATION_MS|startOpenAnimation/);
   assert.match(source, /const DRAWER_CLOSE_ANIMATION_MS = 60/);
   assert.match(source, /const DRAWER_CLOSED_TRANSLATE_X = -DRAWER_WIDTH - 2/);
   assert.match(source, /const SIDEBAR_NAVIGATION_LOCK_MS = 50/);
@@ -68,7 +71,11 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /const SIDEBAR_LIVE_WORK_RESUME_DELAY_MS = 180/);
   assert.match(source, /const SIDEBAR_RECONNECT_DEFER_MS = 1_000/);
   assert.match(source, /const pauseLiveWorkForDrawer = useCallback\(\(\) => \{[\s\S]*pauseLiveQuoteSnapshotNotifications\(SIDEBAR_LIVE_WORK_PAUSE_TIMEOUT_MS\)[\s\S]*pauseLiveSymbolQuoteNotifications\(SIDEBAR_LIVE_WORK_PAUSE_TIMEOUT_MS\)[\s\S]*quotesWsService\.deferReconnectForInteraction\?\.\(SIDEBAR_RECONNECT_DEFER_MS\)/);
-  assert.match(source, /const startOpenAnimation = useCallback\(\(\) => \{\s*pauseLiveWorkForDrawer\(\);/);
+  const revealSource = source.slice(source.indexOf('const revealDrawerImmediately = useCallback'), source.indexOf('const showInteractiveAfterVisualFrame = useCallback'));
+  assert.match(revealSource, /slideAnim\.setValue\(0\);\s*overlayAnim\.setValue\(1\);\s*pauseLiveWorkForDrawer\(\)/);
+  assert.doesNotMatch(revealSource, /Animated\.timing|setTimeout|setInteractive|setSidebarOpen/);
+  assert.match(source, /new Animated\.Value\(initialSidebarOpenRef\.current \? 0 : DRAWER_CLOSED_TRANSLATE_X, \{ useNativeDriver: true \}\)/);
+  assert.match(source, /new Animated\.Value\(initialSidebarOpenRef\.current \? 1 : 0, \{ useNativeDriver: true \}\)/);
   assert.match(source, /const scheduleLiveWorkResumeAfterClose = useCallback\(\(\) => \{[\s\S]*setTimeout\(\(\) => \{[\s\S]*liveSnapshotPauseReleaseRef\.current\?\.\(\)[\s\S]*liveSymbolPauseReleaseRef\.current\?\.\(\)/);
   assert.doesNotMatch(source, /resumeReconnectAfterInteraction/);
   assert.match(liveSymbolSource, /export const pauseLiveSymbolQuoteNotifications = \(durationMs = 2_500\)/);
@@ -91,12 +98,11 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /const drawerAnimationGenerationRef = useRef\(0\)/);
   assert.match(source, /const interactiveGenerationRef = useRef\(0\)/);
   assert.match(source, /const containerRef = useRef<View>\(null\)/);
-  assert.match(source, /const startOpenAnimation = useCallback/);
-  assert.match(source, /\]\)\.start\(\(\{ finished \}\) => \{[\s\S]*animationGeneration === drawerAnimationGenerationRef\.current[\s\S]*&& finished[\s\S]*&& animatedVisibleRef\.current[\s\S]*setSidebarOpen\(true\);/);
+  assert.match(source, /const revealDrawerImmediately = useCallback/);
   assert.doesNotMatch(source, /const snapClosed = useCallback/);
   assert.match(source, /const showInteractiveAfterVisualFrame = useCallback/);
-  assert.match(source, /containerRef\.current\?\.setNativeProps\(\{ pointerEvents: 'auto' \}\)/);
-  assert.match(source, /scheduleNextFrame\(\(\) => \{[\s\S]*setInteractive\(true\);/);
+  assert.match(source, /containerRef\.current\?\.setNativeProps\(\{\s*pointerEvents: 'auto',\s*importantForAccessibility: 'auto',\s*accessibilityElementsHidden: false/);
+  assert.match(source, /scheduleAfterSidebarOpenVisual\(\(\) => \{[\s\S]*interactiveGenerationRef\.current === generation && animatedVisibleRef\.current[\s\S]*setInteractive\(true\);\s*setSidebarOpen\(true\)/);
   assert.match(source, /const hideInteractiveNow = useCallback/);
   assert.match(source, /containerRef\.current\?\.setNativeProps\(\{ pointerEvents: 'none' \}\)/);
   assert.match(source, /setInteractive\(false\);/);
@@ -104,12 +110,18 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   const runNavigationStart = source.indexOf('const runSidebarNavigation = useCallback', snapCloseStart);
   assert.notEqual(snapCloseStart, -1);
   assert.notEqual(runNavigationStart, -1);
-  const snapCloseSource = source.slice(snapCloseStart, runNavigationStart);
+  const closeForNavigationStart = source.indexOf('const closeForNavigation = useCallback', snapCloseStart);
+  assert.notEqual(closeForNavigationStart, -1);
+  const snapCloseSource = source.slice(snapCloseStart, closeForNavigationStart);
   assert.match(snapCloseSource, /slideAnim\.setValue\(DRAWER_CLOSED_TRANSLATE_X\)/);
   assert.match(snapCloseSource, /overlayAnim\.setValue\(0\)/);
   assert.match(snapCloseSource, /interactiveGenerationRef\.current \+= 1/);
   assert.doesNotMatch(snapCloseSource, /hideInteractiveNow\(\)/);
   assert.doesNotMatch(snapCloseSource, /onClose\(\)/);
+  assert.match(snapCloseSource, /invalidateSidebarOpenVisualWork\(\)/);
+  const closeForNavigationSource = source.slice(closeForNavigationStart, runNavigationStart);
+  assert.match(closeForNavigationSource, /snapClosedForNavigation\(\);\s*hideInteractiveNow\(\);\s*onClose\(\);\s*scheduleLiveWorkResumeAfterClose\(\)/);
+  assert.doesNotMatch(closeForNavigationSource, /Animated\.timing|setTimeout/);
   const navigateStart = source.indexOf('const navigateSidebarRoute = useCallback', runNavigationStart);
   assert.notEqual(navigateStart, -1);
   const runNavigationSource = source.slice(runNavigationStart, navigateStart);
@@ -135,64 +147,62 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   );
   const hostedBranchStart = navigateSource.indexOf('if (resolveSidebarHostDestination(route))');
   const primaryBranchStart = navigateSource.indexOf('if (SIDEBAR_PRIMARY_TAB_ROUTES.has(route))');
-  const fallbackBranchStart = navigateSource.indexOf('\n    handleClose(() => {', primaryBranchStart);
+  const fallbackBranchStart = navigateSource.indexOf('\n    closeForNavigation();', navigateSource.indexOf('\n      return;', primaryBranchStart));
   assert.notEqual(hostedBranchStart, -1);
   assert.notEqual(primaryBranchStart, -1);
   assert.notEqual(fallbackBranchStart, -1);
   const hostedBranchSource = navigateSource.slice(hostedBranchStart, primaryBranchStart);
   const primaryBranchSource = navigateSource.slice(primaryBranchStart, fallbackBranchStart);
-  // Every retained destination flips first, then starts the native close in
-  // the same touch turn. A frame-gated close left the opened screen underneath
-  // a stationary drawer for 90-240ms on a busy device.
-  assert.match(hostedBranchSource, /showSidebarDestination\(route, 'sidebar'\);\s*handleClose\(\(\) => \{\s*unlockSidebarNavigation\(\);\s*\}\);\s*return;/);
+  // Selection commits the target and closes the drawer in the same touch turn.
+  assert.match(hostedBranchSource, /showSidebarDestination\(route, 'sidebar'\);\s*closeForNavigation\(\);\s*unlockSidebarNavigation\(\);\s*return;/);
   assert.ok(
     hostedBranchSource.indexOf("showSidebarDestination(route, 'sidebar')")
-      < hostedBranchSource.indexOf('handleClose('),
+      < hostedBranchSource.indexOf('closeForNavigation('),
     'hosted destination must become visible before drawer close work starts',
   );
   assert.doesNotMatch(hostedBranchSource, /runSidebarNavigation|navigateMountedSidebarTab|router\.(?:navigate|push|replace|dismissTo)/);
-  assert.match(primaryBranchSource, /showFastTabVisualForSidebar\(route\);\s*hideSidebarDestination\(\);[\s\S]*handleClose\(\(\) => \{\s*unlockSidebarNavigation\(\);\s*\}\);\s*try \{\s*runSidebarNavigation\(route\);\s*\} catch \(error\) \{\s*unlockSidebarNavigation\(\);\s*throw error;\s*\}\s*return;/);
+  assert.match(primaryBranchSource, /const revision = showFastTabVisualForSidebar\(route\);\s*hideSidebarDestination\(\);\s*closeForNavigation\(\);\s*unlockSidebarNavigation\(\);/);
+  assert.match(primaryBranchSource, /scheduleFastTabNavigation\(revision, \(\) => runSidebarNavigation\(route\), TAB_BAR_NAVIGATION_SETTLE_DELAY_MS\)/);
   assert.ok(
     primaryBranchSource.indexOf('showFastTabVisualForSidebar(route)')
-      < primaryBranchSource.indexOf('handleClose('),
+      < primaryBranchSource.indexOf('closeForNavigation('),
     'Trade/Settings must switch the shared visual layer before drawer close starts',
   );
   assert.ok(
-    primaryBranchSource.indexOf('handleClose(')
+    primaryBranchSource.indexOf('closeForNavigation(')
       < primaryBranchSource.indexOf('runSidebarNavigation(route)'),
     'the native close must start before mounted-tab navigation work',
   );
-  assert.doesNotMatch(primaryBranchSource, /scheduleFastTabNavigation/);
+  assert.doesNotMatch(navigateSource, /handleClose\(/);
   assert.doesNotMatch(navigateSource, /scheduleCloseAfterRevealFrame|scheduleAfterTapVisualFrame|runSidebarNavigation\(route\);[\s\S]*showSidebarDestination/);
   assert.match(source, /import \{[\s\S]*showSidebarDestination,[\s\S]*sidebarDestinationController,[\s\S]*\} from '\.\/sidebarDestinationHostController'/);
-  assert.match(source, /import \{\s*showFastTabVisualForSidebar,\s*\} from '\.\.\/navigation\/fastTabVisualController'/);
+  assert.match(source, /import \{[\s\S]*scheduleFastTabNavigation,[\s\S]*showFastTabVisualForSidebar,[\s\S]*TAB_BAR_NAVIGATION_SETTLE_DELAY_MS,[\s\S]*\} from '\.\.\/navigation\/fastTabVisualController'/);
   assert.match(hostControllerSource, /export const SIDEBAR_HOST_DESTINATIONS = \[[\s\S]*'journal',[\s\S]*'economic-calendar',[\s\S]*'user-guide',[\s\S]*'help',[\s\S]*'about'/);
-  assert.match(hostControllerSource, /export function showSidebarDestination\([\s\S]*return sidebarDestinationController\.show\(destinationOrPath, source\)/);
+  assert.match(hostControllerSource, /export function showSidebarDestination\([\s\S]*const shown = sidebarDestinationController\.show\(destinationOrPath, source\);[\s\S]*if \(shown\) clearFastTabVisual\(\);[\s\S]*return shown/);
   assert.match(fastTabVisualSource, /export function showFastTabVisualForSidebar\(pathOrName: string\)/);
   assert.match(fastTabVisualSource, /export function scheduleFastTabNavigation\(\s*revision: number,\s*action: \(\) => void,\s*settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,\s*\)/);
-  assert.match(source, /import \{ navigateMountedSidebarTab, registerSidebarOpenHandler \} from '\.\/sidebarDrawerController'/);
-  assert.match(source, /useEffect\(\(\) => registerSidebarOpenHandler\(\(\) => \{[\s\S]*startOpenAnimation\(\);[\s\S]*showInteractiveAfterVisualFrame\(\);/);
+  assert.match(source, /import \{ invalidateSidebarOpenVisualWork, navigateMountedSidebarTab, registerSidebarOpenHandler, scheduleAfterSidebarOpenVisual \} from '\.\/sidebarDrawerController'/);
+  assert.match(source, /useEffect\(\(\) => registerSidebarOpenHandler\(\(\) => \{\s*if \(animatedVisibleRef\.current\) return;\s*revealDrawerImmediately\(\);\s*showInteractiveAfterVisualFrame\(\);/);
   assert.match(source, /useUIState\.subscribe\(\(state, previousState\) => \{/);
-  assert.match(source, /if \(state\.sidebarOpen\) \{\s*if \(!animatedVisibleRef\.current\) \{\s*startOpenAnimation\(\);\s*\}\s*showInteractiveAfterVisualFrame\(\);/);
+  assert.match(source, /if \(state\.sidebarOpen\) \{\s*if \(!animatedVisibleRef\.current\) \{\s*revealDrawerImmediately\(\);\s*showInteractiveAfterVisualFrame\(\);\s*\}/);
   assert.match(source, /if \(!isClosingRef\.current && animatedVisibleRef\.current\) \{\s*handleClose\(\);/);
   assert.doesNotMatch(source, /useLayoutEffect/);
   assert.match(source, /Animated\.parallel\(\[/);
-  assert.match(source, /toValue: 0,[\s\S]*duration: DRAWER_OPEN_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
-  assert.match(source, /toValue: 1,[\s\S]*duration: DRAWER_OPEN_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
   assert.match(source, /toValue: DRAWER_CLOSED_TRANSLATE_X,[\s\S]*duration: DRAWER_CLOSE_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
   assert.match(source, /const animationGeneration = drawerAnimationGenerationRef\.current \+ 1;[\s\S]*animationGeneration !== drawerAnimationGenerationRef\.current[\s\S]*\|\| !finished[\s\S]*\|\| animatedVisibleRef\.current[\s\S]*afterClose\?\.\(\);[\s\S]*return;/);
   assert.match(source, /Easing\.out\(Easing\.cubic\)/);
   assert.doesNotMatch(source, /const \[keepDrawerMounted, setKeepDrawerMounted\]/);
   assert.doesNotMatch(source, /const shouldRenderDrawer = visible \|\| keepDrawerMounted/);
-  assert.match(source, /Keep the drawer warm offscreen so opening only has to run native-driver motion/);
+  assert.match(source, /Keep the drawer warm offscreen and reveal its final position on touch-down/);
   assert.match(source, /pointerEvents=\{interactive \? 'auto' : 'none'\}/);
   assert.match(source, /ref=\{containerRef\}/);
   assert.match(source, /importantForAccessibility=\{interactive \? 'auto' : 'no-hide-descendants'\}/);
   assert.match(source, /accessibilityElementsHidden=\{!interactive\}/);
   assert.doesNotMatch(source, /containerHidden:/);
-  assert.match(source, /style=\{ds\.container\}/);
+  assert.match(source, /style=\{\[ds\.container, \{ opacity: interactive \? 1 : 0 \}\]\}/);
   assert.doesNotMatch(source, /if \(!shouldRenderDrawer\) \{\s*return null;\s*\}/);
   assert.match(source, /BackHandler\.addEventListener\('hardwareBackPress'/);
+  assert.match(source, /if \(!animatedVisibleRef\.current\) return false;\s*handleClose\(\);/);
   assert.match(source, /handleClose\(\);\s*return true;/);
   assert.match(source, /pointerEvents="box-none"[\s\S]*style=\{\[[\s\S]*ds\.overlay/);
   const overlaySurfaceStart = source.indexOf('{/* Overlay */}');
@@ -313,7 +323,7 @@ test('settings sidebar route renders its complete page while deferring account-c
   const source = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
 
   assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/..\/hooks\/useDeferredActiveFlag'/);
-  assert.match(source, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
+  assert.match(source, /const SETTINGS_SCREEN_DATA_DELAY_MS = 0/);
   assert.doesNotMatch(source, /SETTINGS_BODY_PREWARM_DELAY_MS|routeBodyReady|useDeferredRouteContentReady/);
   assert.match(source, /<ScrollView[\s\S]*style=\{styles\.container\}[\s\S]*contentContainerStyle=\{styles\.content\}/);
   assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
@@ -358,15 +368,14 @@ test('journal sidebar destination keeps menu access for repeated MT-style drawer
   const rootLayoutSource = readSource('app/_layout.tsx');
 
   assert.match(source, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(source, /useJournalTrades\(isScreenFocused\)/);
+  assert.doesNotMatch(source, /useJournalTrades/);
+  assert.match(source, /<ServerJournalPanel[\s\S]*isScreenFocused=\{isScreenFocused\}/);
   assert.match(source, /import \{ openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual \} from '..\/..\/..\/ui\/components\/sidebarDrawerController'/);
   assert.doesNotMatch(source, /import \{ SidebarDrawer \}|<SidebarDrawer|drawerReady|showDrawer/);
   assert.match(rootLayoutSource, /import \{ SidebarDrawer \} from '..\/src\/ui\/components\/SidebarDrawer'/);
   assert.match(rootLayoutSource, /<SidebarDrawer \/>/);
-  assert.match(source, /<SectionList/);
-  assert.match(source, /initialNumToRender=\{JOURNAL_INITIAL_RENDER_ITEMS\}/);
-  assert.match(source, /maxToRenderPerBatch=\{JOURNAL_RENDER_BATCH_SIZE\}/);
-  assert.match(source, /windowSize=\{JOURNAL_WINDOW_SIZE\}/);
+  // The server journal virtualizes its own rows (fixed-height FlatList).
+  assert.match(source, /<ServerJournalPanel/);
   assert.doesNotMatch(source, /groups\.map\(\(group\)/);
   assert.match(source, /const hideActionSheet = useUIState\(\(state\) => state\.hideActionSheet\)/);
   assert.match(source, /const handleOpenMenu = useCallback/);
@@ -384,7 +393,7 @@ test('economic calendar sidebar destination uses hamburger menu access', () => {
   assert.match(source, /const handleOpenMenu = useCallback/);
   assert.match(source, /openSidebarDrawerImmediately\(\);\s*scheduleAfterSidebarOpenVisual\(hideActionSheet\);/);
   assert.match(source, /onPress=\{handleOpenMenu\}[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="economicCalendar\.menu"/);
-  assert.match(source, /<Ionicons name="menu" size=\{28\}/);
+  assert.match(source, /<AppMenuIcon color=\{T\.text\}/);
   assert.doesNotMatch(source, /import \{ SidebarDrawer \}|<SidebarDrawer/);
   assert.doesNotMatch(source, /safeRouterBack\(router, '\/\(tabs\)\/settings'\)/);
   assert.doesNotMatch(source, /name="arrow-back"/);
@@ -506,7 +515,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.match(rootLayoutSource, /import \{ SidebarDestinationHost \} from '..\/src\/ui\/components\/SidebarDestinationHost'/);
   assert.match(rootLayoutSource, /import \{ BrokersLaunchHost \} from '..\/src\/features\/settings\/BrokersLaunchHost'/);
   assert.match(rootLayoutSource, /import \{ BrokerDetailLaunchHost \} from '..\/src\/features\/settings\/BrokerDetailLaunchHost'/);
-  assert.match(rootLayoutSource, /<\/Stack>[\s\S]*<SidebarDestinationHost \/>[\s\S]*<AboutDetailDestinationHost \/>[\s\S]*<BrokersLaunchHost \/>[\s\S]*<BrokerDetailLaunchHost \/>[\s\S]*<SidebarDrawer \/>/);
+  assert.match(rootLayoutSource, /<\/Stack>[\s\S]*<SidebarDestinationHost \/>[\s\S]*<AboutDetailDestinationHost \/>[\s\S]*<BrokersLaunchHost \/>[\s\S]*<SidebarDrawer \/>/);
   assert.doesNotMatch(tabsLayoutSource, /import \{ SidebarDrawer \}|<SidebarDrawer \/>/);
   assert.doesNotMatch(tabsLayoutSource, /import \{ (?:SidebarDestinationHost|BrokersLaunchHost|BrokerDetailLaunchHost) \}|<(?:SidebarDestinationHost|BrokersLaunchHost|BrokerDetailLaunchHost) \/>/);
   assert.doesNotMatch(tabsLayoutSource, /warmSidebarRouteModules/);
@@ -540,13 +549,12 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.match(destinationControllerSource, /listeners\.forEach\(\(listener\) => listener\(\)\)/);
   assert.match(destinationControllerSource, /registerVisualApplier: \(applier\) => \{/);
   assert.match(destinationControllerSource, /visualApplier\?\.\(destination\);[\s\S]*publish\(\{/);
-  // Focus publishes two frames + a settle delay after the visual flip so the
-  // heavy focus/query commit lands after the drawer close motion finishes.
-  assert.match(destinationControllerSource, /const FOCUS_NOTIFY_SETTLE_DELAY_MS = 60/);
+  // Focus work yields past paint without a fixed animation delay.
+  assert.doesNotMatch(destinationControllerSource, /FOCUS_NOTIFY_SETTLE_DELAY_MS/);
   assert.match(destinationControllerSource, /const FOCUS_NOTIFY_FAILSAFE_DELAY_MS = 250/);
-  assert.match(destinationControllerSource, /setTimeout\(notifyIfCurrent, FOCUS_NOTIFY_FAILSAFE_DELAY_MS\)/);
-  assert.match(destinationControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(notifyIfCurrent, FOCUS_NOTIFY_SETTLE_DELAY_MS\);/);
-  assert.match(destinationControllerSource, /if \(nextSnapshot\.source === 'settings'\) \{\s*notifyIfCurrent\(\);\s*return;/);
+  assert.match(destinationControllerSource, /scheduleAfterVisualFrame\(notifyIfCurrent, FOCUS_NOTIFY_FAILSAFE_DELAY_MS\)/);
+  assert.match(destinationControllerSource, /cancelFocusNotification\?\.\(\)/);
+  assert.doesNotMatch(destinationControllerSource, /if \(nextSnapshot\.source === 'settings'\)/);
   assert.match(destinationControllerSource, /show: \(destinationOrPath, source = 'programmatic'\) => \{/);
   assert.match(destinationControllerSource, /export function showSidebarDestination\([\s\S]*sidebarDestinationController\.show\(destinationOrPath, source\)/);
   assert.doesNotMatch(destinationControllerSource, /useRouter|router\.(?:navigate|push|replace|dismissTo)/);
@@ -594,13 +602,13 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.match(destinationHostSource, /const visualDestination = controller\.getSnapshot\(\)\.activeDestination/);
   assert.match(destinationHostSource, /const layerRefSetters = useMemo[\s\S]*const visible = controller\.getSnapshot\(\)\.activeDestination === destination;[\s\S]*layer\.setNativeProps\(\{[\s\S]*pointerEvents: visible \? 'auto' : 'none'/);
   assert.match(destinationHostSource, /const sweepVisualDestinationNow = useCallback[\s\S]*for \(const destination of SIDEBAR_HOST_DESTINATIONS\)[\s\S]*layerRefs\.current\[destination\]\?\.setNativeProps/);
-  assert.match(destinationHostSource, /const applyVisualDestinationNow = useCallback[\s\S]*const previousDestination = nativeVisualDestinationRef\.current;[\s\S]*layerRefs\.current\[previousDestination\]\?\.setNativeProps[\s\S]*layerRefs\.current\[visualDestination\]\?\.setNativeProps[\s\S]*nativeVisualDestinationRef\.current = visualDestination/);
+  assert.match(destinationHostSource, /const applyVisualDestinationNow = useCallback[\s\S]*const previousDestination = nativeVisualDestinationRef\.current;[\s\S]*layerRefs\.current\[visualDestination\]\?\.setNativeProps[\s\S]*layerRefs\.current\[previousDestination\]\?\.setNativeProps[\s\S]*nativeVisualDestinationRef\.current = visualDestination/);
   assert.match(destinationHostSource, /useLayoutEffect\(\(\) => \{[\s\S]*let firstApplication = true;[\s\S]*controller\.registerVisualApplier\(\(destination\) => \{[\s\S]*if \(firstApplication\)[\s\S]*sweepVisualDestinationNow\(destination\);[\s\S]*applyVisualDestinationNow\(destination\)/);
   assert.match(destinationHostSource, /ref=\{layerRef\}[\s\S]*collapsable=\{false\}/);
   // Keep the controller's compatibility API/version for Fast Refresh even
   // though the Host deliberately avoids its visual-store subscription.
   assert.match(destinationControllerSource, /subscribeVisual: \(listener: \(\) => void\) => \{/);
-  assert.match(destinationControllerSource, /SIDEBAR_DESTINATION_CONTROLLER_VERSION = 4/);
+  assert.match(destinationControllerSource, /SIDEBAR_DESTINATION_CONTROLLER_VERSION = 6/);
   assert.match(destinationControllerSource, /__rtx5SidebarDestinationControllerVersion/);
   assert.match(destinationControllerSource, /requestBack: \(\) => \{[\s\S]*backHandlers\.get\(destination\)\?\.\(\) \?\? false/);
   assert.match(destinationControllerSource, /registerBackHandler: \(destination, handler\) => \{[\s\S]*backHandlers\.set\(destination, handler\)/);
@@ -618,7 +626,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.match(fastTabNavigatorSource, /const SceneLayer = memo/);
   assert.match(fastTabVisualSource, /export function showFastTabVisual\(pathOrName: string\)/);
   assert.match(fastTabVisualSource, /export function scheduleFastTabNavigation\(\s*revision: number,\s*action: \(\) => void,\s*settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,\s*\)/);
-  assert.match(deferredMountSource, /requestAnimationFrame/);
+  assert.match(deferredMountSource, /return scheduleAfterVisualFrames\(action, frameCount\)/);
   assert.match(deferredMountSource, /export function DeferredRouteModule/);
   assert.match(deferredMountSource, /const ROUTE_MODULE_LOAD_DELAY_MS = 0/);
   assert.match(deferredMountSource, /const ROUTE_HEAVY_CONTENT_DELAY_MS = 1200/);
@@ -672,15 +680,18 @@ test('sidebar detail screens prewarm complete retained content before their firs
 
   for (const [file, prewarmConstant, prewarmDelay] of destinationFiles) {
     const source = readSource(file);
-    const headerIndex = source.indexOf('accessibilityLabel="Open menu"');
+    const headerIndex = Math.max(
+      source.indexOf('accessibilityLabel="Open menu"'),
+      source.indexOf("accessibilityLabel={t('Open menu')}"),
+    );
     const bodyGateIndex = source.indexOf('routeBodyReady ?');
 
-    assert.match(source, /import \{ useDeferredRouteContentReady \} from/);
+    assert.match(source, /import \{ useRetainedRouteContentReady \} from/);
     assert.match(source, /const isScreenFocused = useIsFocused\(\)/);
     assert.match(source, new RegExp(`const ${prewarmConstant} = ${prewarmDelay}`));
     assert.match(
       source,
-      new RegExp(`const routeBodyReady = useDeferredRouteContentReady\\(\\s*isScreenFocused \\? 0 : ${prewarmConstant},\\s*\\)`),
+      new RegExp(`const routeBodyReady = useRetainedRouteContentReady\\(\\s*isScreenFocused, ${prewarmConstant},\\s*\\)`),
     );
     assert.doesNotMatch(source, /const focusedBodyReady = isScreenFocused && routeBodyReady;/);
     assert.notEqual(headerIndex, -1, `${file} must render its real menu header`);
@@ -690,12 +701,10 @@ test('sidebar detail screens prewarm complete retained content before their firs
   }
 
   const journalSource = readSource('src/features/settings/JournalScreen/JournalScreen.tsx');
-  assert.match(journalSource, /\{isScreenFocused && isNoteOpen \? \(/);
-  assert.match(journalSource, /<JournalCalendarOverlay[\s\S]*ref=\{calendarOverlayRef\}/);
-  assert.match(journalSource, /testID="journal-retained-calendar"/);
-  assert.match(journalSource, /isScreenFocused \? state\.entries : EMPTY_TERMINAL_ENTRIES/);
-  assert.doesNotMatch(journalSource, /isCalendarPrimed|setIsCalendarPrimed|pendingCalendarOpenRef/);
-  assert.doesNotMatch(journalSource, /isCalendarOpen|setIsCalendarOpen/);
+  // Prewarmed while hidden, but journal requests and overlays are focus-only.
+  assert.match(journalSource, /<ServerJournalPanel[\s\S]*isScreenFocused=\{isScreenFocused\}/);
+  const serverJournalHookSource = readSource('src/features/settings/JournalScreen/serverJournal/useServerJournal.ts');
+  assert.match(serverJournalHookSource, /if \(!active\) \{\s*return undefined;\s*\}/);
 
   const calendarDestinationSource = readSource('src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx');
   assert.match(
@@ -705,7 +714,7 @@ test('sidebar detail screens prewarm complete retained content before their firs
 
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
   assert.match(accountsSource, /export function AccountsScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*return <AccountsScreenInner isScreenFocused=\{isScreenFocused\} \/>;\s*\}/);
-  assert.match(accountsSource, /useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : ACCOUNTS_BODY_PREWARM_DELAY_MS,/);
+  assert.match(accountsSource, /useRetainedRouteContentReady\(\s*isScreenFocused, ACCOUNTS_BODY_PREWARM_DELAY_MS,/);
   assert.match(accountsSource, /const showAccountsBody = isScreenFocused \|\| hostBodyReady;/);
   assert.match(accountsSource, /\{showAccountsBody \? \(\s*<FlatList/);
   assert.doesNotMatch(accountsSource, /focusedBodyReady|accountsBodyVisible|accountsBodyReady|SidebarHostedAccountsScreenInner/);

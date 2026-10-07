@@ -43,28 +43,93 @@ const ACTION_LABELS: Record<TradingAction, string> = {
   'modify-position': 'modify the position',
 };
 
+/**
+ * User copy for the gateway error envelope `{"error":"<CODE>","message"}`
+ * (backend contract v3, section 6.1). Unknown codes fall back to the server
+ * `message`.
+ */
 const BROKER_ERROR_MESSAGES: Record<string, string> = {
+  // 400
   UNAUTHORIZED: 'Invalid session or credentials. Please log in again.',
   INVALID_INPUT: 'The trade request was invalid. Check the symbol and volume, then try again.',
+  INVALID_CLIENT_ORDER_ID: 'The trade request id was invalid. Please submit the order again.',
   INVALID_SIDE: 'The trade direction was invalid. Choose Buy or Sell and try again.',
   INVALID_IDEMPOTENCY_KEY: 'The trade request key was invalid. Please try the order again.',
   IDEMPOTENCY_KEY_REQUIRED: 'The trade could not be submitted safely. Please try again.',
-  IDEMPOTENCY_KEY_REUSED: 'This trade request was already used for different order details. Please submit it again.',
+  INSUFFICIENT_MARGIN: 'Insufficient margin. You do not have enough funds to open this position.',
+  ORDER_REJECTED: 'The broker rejected the order. Check market status, volume, and SL/TP values, then try again.',
+  INVALID_SL_TP: 'Invalid Stop Loss or Take Profit levels. Please check your price offsets.',
+  // 403
   BROKER_REQUIRED: 'Your broker session is incomplete. Please log in again.',
   BROKER_NOT_FOUND: 'The selected broker is unavailable. Please contact your broker.',
   BROKER_INACTIVE: 'The selected broker server is offline. Please try again later.',
+  BROKER_MISMATCH: 'This account belongs to a different broker. Please log in again with the correct broker.',
   LICENSE_EXPIRED: 'License expired. Please renew your trading license to proceed.',
-  INSUFFICIENT_MARGIN: 'Insufficient margin. You do not have enough funds to open this position.',
-  TRADE_DISABLED: 'Trading is disabled for this account group. Please contact your broker.',
   SYMBOL_NOT_ALLOWED: 'This symbol is not available for trading on your account.',
+  TRADE_DISABLED: 'Trading is disabled for this account group. Please contact your broker.',
+  INVESTOR_READ_ONLY: 'You are logged in with a read-only (investor) password. Trading is not allowed on this login.',
+  ACCOUNT_UNAVAILABLE: 'Your trading account is temporarily unavailable. Please try again later or contact support.',
   TRADE_ROUTE_NOT_CONFIGURED: 'Trading is not configured for this broker account. Please contact your broker.',
-  NO_FRESH_QUOTE: 'No fresh market price is available yet. Wait for the next quote and try again.',
+  // 404
+  ORDER_COMMAND_NOT_FOUND: 'The order confirmation could not be found. Check your positions before trading again.',
+  // 409
+  IDEMPOTENCY_CONFLICT: 'This request id was already used for a different trade. Please submit the trade again.',
+  IDEMPOTENCY_KEY_REUSED: 'This trade request was already used for different order details. Please submit it again.',
+  MARKET_CLOSED: 'The market is closed for this symbol. Try again when trading reopens.',
   STALE_QUOTE: 'The market price is stale. Wait for a fresh quote and try again.',
+  POSITION_STATE_CHANGED: 'The position changed while your request was processed. Review it and try again.',
+  POSITION_ALREADY_CLOSED: 'This position is already closed.',
+  ORDER_ALREADY_PROCESSED: 'This order was already processed. The order list has been refreshed.',
+  ORDER_STATE_CHANGED: 'The order changed while your request was processed. Review it and try again.',
+  ORDER_COMMAND_REJECTED: 'The trading server rejected the order command. Please try again.',
+  MARKET_SESSION_CHANGED: 'The market session changed while your request was processed. Please try again.',
+  ACCOUNT_IDENTITY_CHANGED: 'Your trading account changed while the request was processed. Please log in again.',
+  // 429 (no Retry-After header; the client waits 2 seconds)
+  ORDER_RATE_LIMITED: 'Too many orders were sent. Wait 2 seconds and try again.',
+  TOO_MANY_ORDERS: 'Too many orders were sent. Wait 2 seconds and try again.',
+  // 500
+  INTERNAL_ERROR: 'The trading server hit an internal error. Check your positions before trying again.',
+  DATABASE_ERROR: 'The trading server could not save the request. Check your positions before trying again.',
+  // 503
+  NO_FRESH_QUOTE: 'No fresh market price is available yet. Wait for the next quote and try again.',
   SOURCE_MISMATCH: 'The broker price feed is temporarily unavailable. Please try again shortly.',
+  SERVICE_UNAVAILABLE: 'The trading service is temporarily unavailable. Please try again shortly.',
+  DATABASE_UNAVAILABLE: 'The trading service is temporarily unavailable. Please try again shortly.',
+  COMMAND_ROUTING_UNAVAILABLE: 'Order routing is temporarily unavailable. Please try again shortly.',
+  COMMAND_COMMIT_UNCERTAIN: 'The trading server could not confirm the request. Check your positions before trying again.',
+  ENGINE_CLOSE_UNAVAILABLE: 'Closing is temporarily unavailable, please contact support.',
+  TRIGGER_CAPTURE_UNAVAILABLE: 'Stop Loss / Take Profit is temporarily unavailable. Please try again shortly.',
+  EXACT_CALCULATION_UNAVAILABLE: 'Trading calculations are temporarily unavailable. Please try again shortly.',
+  MARKET_SCHEDULE_UNAVAILABLE: 'The market schedule is unavailable, so trading is paused for this symbol.',
   MISSING_FX_RATE: 'A required conversion rate is unavailable. Please try again shortly.',
   CALCULATION_SCHEMA_NOT_READY: 'Trading calculations are temporarily unavailable. Please try again shortly.',
-  INVALID_SL_TP: 'Invalid Stop Loss or Take Profit levels. Please check your price offsets.',
+  // App-local: a 202 order/close did not reach a final state within 30 s.
+  ORDER_CONFIRMATION_PENDING: 'The server accepted the request but has not confirmed it yet. Check your positions before trying again.',
 };
+
+/** Codes returned without Retry-After; the contract asks the client to wait 2 s. */
+export const ORDER_RATE_LIMIT_CODES: ReadonlySet<string> = new Set(['ORDER_RATE_LIMITED', 'TOO_MANY_ORDERS']);
+export const ORDER_RATE_LIMIT_WAIT_SECONDS = 2;
+
+/** App-local error code used when a 202 command is not final after 30 s. */
+export const ORDER_CONFIRMATION_PENDING_CODE = 'ORDER_CONFIRMATION_PENDING';
+
+const CODE_TITLES: Record<string, string> = {
+  INVESTOR_READ_ONLY: 'Read-Only Account',
+  MARKET_CLOSED: 'Market Closed',
+  ENGINE_CLOSE_UNAVAILABLE: 'Closing Unavailable',
+  POSITION_ALREADY_CLOSED: 'Position Already Closed',
+  ORDER_ALREADY_PROCESSED: 'Order Already Processed',
+  ORDER_CONFIRMATION_PENDING: 'Confirmation Pending',
+  COMMAND_COMMIT_UNCERTAIN: 'Confirmation Pending',
+  IDEMPOTENCY_CONFLICT: 'Duplicate Request',
+};
+
+const SESSION_CODES: ReadonlySet<string> = new Set([
+  'UNAUTHORIZED',
+  'BROKER_REQUIRED',
+  'ACCOUNT_IDENTITY_CHANGED',
+]);
 
 const ORIGIN_LABELS: Record<TradingIssueOrigin, string> = {
   frontend: 'Frontend issue',
@@ -177,6 +242,10 @@ const getErrorData = (error: unknown): unknown => {
 
   return (response as Record<string, unknown>).data;
 };
+
+/** Reads the canonical `{error:"<CODE>"}` code from any trading error shape. */
+export const getTradingErrorCode = (error: unknown): string | null =>
+  extractDataCode(getErrorData(error));
 
 const getErrorMessage = (error: unknown): string | null => {
   if (!error || typeof error !== 'object') {
@@ -321,6 +390,36 @@ export const classifyTradingError = (
 
   const activeBrokerId =
     options.brokerId ?? captureActiveBrokerSession()?.session.brokerId ?? '';
+
+  // 404 NOT_FOUND "Account not found" on POST /orders means account_login is
+  // not the session's account (contract 6.1).
+  if (
+    (brokerCode === 'NOT_FOUND' || status === 404) &&
+    detail &&
+    /account not found/i.test(detail)
+  ) {
+    return {
+      origin: 'api',
+      kind: 'integration',
+      title: 'Account Mismatch',
+      message: 'The trading account does not match your logged-in account. Log in again and retry.',
+      status,
+      detail,
+    };
+  }
+
+  if (brokerCode && ORDER_RATE_LIMIT_CODES.has(brokerCode)) {
+    return {
+      origin: 'backend',
+      kind: 'rate-limit',
+      title: 'Rate Limited',
+      message: BROKER_ERROR_MESSAGES[brokerCode],
+      status,
+      retryAfterSeconds: retryAfterSeconds ?? ORDER_RATE_LIMIT_WAIT_SECONDS,
+      detail,
+    };
+  }
+
   const mappedBrokerMessage = brokerCode
     ? brokerCode === 'TRADE_DISABLED' && activeBrokerId === 'orrnn-demo'
       ? 'Trading is temporarily unavailable for this demo broker.'
@@ -331,15 +430,14 @@ export const classifyTradingError = (
     : null;
 
   if (brokerCode && mappedBrokerMessage) {
-    const sessionCode = brokerCode === 'UNAUTHORIZED' || brokerCode === 'BROKER_REQUIRED';
+    const sessionCode = SESSION_CODES.has(brokerCode);
     return {
       origin: sessionCode ? 'session' : 'backend',
       kind: sessionCode ? 'session-expired' : 'backend-rejection',
       title: sessionCode
         ? 'Session Expired'
-        : options.action === 'place-order'
-          ? 'Order Rejected'
-          : 'Request Rejected',
+        : CODE_TITLES[brokerCode]
+          ?? (options.action === 'place-order' ? 'Order Rejected' : 'Request Rejected'),
       message: mappedBrokerMessage,
       status,
       detail,
@@ -367,6 +465,20 @@ export const classifyTradingError = (
         : 'Too many requests were sent to the trading backend. Wait a moment and try again.',
       status,
       retryAfterSeconds,
+      detail,
+    };
+  }
+
+  // Unknown gateway code: the contract says to show the server `message`.
+  if (brokerCode && detail && status !== undefined && status >= 400) {
+    return {
+      origin: 'backend',
+      kind: status >= 500 ? 'backend-unavailable' : 'backend-rejection',
+      title: status >= 500
+        ? 'Trading Server Error'
+        : options.action === 'place-order' ? 'Order Rejected' : 'Request Rejected',
+      message: detail,
+      status,
       detail,
     };
   }

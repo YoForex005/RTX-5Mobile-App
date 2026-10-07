@@ -206,7 +206,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       flex: 1,
       color: T.text,
       fontSize: 20,
-      fontWeight: '700',
+      fontWeight: '500',
     },
     searchRow: {
       flexDirection: 'row',

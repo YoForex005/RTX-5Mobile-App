@@ -1,7 +1,4 @@
-import type {
-  ActivateBrokerSessionInput,
-  FeedAuthContext,
-} from './activeBrokerSession';
+import type { ActivateBrokerSessionInput } from './activeBrokerSession';
 import { revalidateBrokerSessionEndpointSet } from '../api/brokerRouting';
 
 export const ACTIVE_BROKER_SESSION_MANIFEST_KEY =
@@ -19,71 +16,25 @@ export type ActiveBrokerSessionManifest = Readonly<{
   tradeWsBase?: string;
   feedStatusUrl: string;
   servicesDomain: string;
-  feedAuthContext: FeedAuthContext;
   configVersion: string;
+  /** Investor (read-only) session. Absent in older manifests: restores as false. */
+  investor?: boolean;
 }>;
+
+// Distinguish an unchanged current record from legacy fields the parser drops.
+const canonicalStoredManifests = new WeakSet<ActiveBrokerSessionManifest>();
+export const isCanonicalStoredBrokerSessionManifest = (manifest: ActiveBrokerSessionManifest): boolean =>
+  canonicalStoredManifests.has(manifest);
 
 const cleanString = (value: unknown): string =>
   typeof value === 'string' || typeof value === 'number'
     ? String(value).trim()
     : '';
 
-const parseFeedAuthContext = (value: unknown): FeedAuthContext | null => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  if (
-    record.mode === 'disabled_unconfigured' &&
-    (record.reason === 'missing_contract' || record.reason === 'missing_credential')
-  ) {
-    return Object.freeze({
-      mode: 'disabled_unconfigured',
-      reason: record.reason,
-    });
-  }
-  if (record.mode === 'none') {
-    return Object.freeze({ mode: 'none' });
-  }
-  if (
-    record.mode !== 'query' ||
-    (record.credential !== 'feed_token' && record.credential !== 'access_token')
-  ) {
-    return null;
-  }
-
-  const tokenQueryParam = cleanString(record.tokenQueryParam);
-  const brokerIdQueryParam = cleanString(record.brokerIdQueryParam);
-  const accountLoginQueryParam = cleanString(record.accountLoginQueryParam);
-  const validParam = (param: string) =>
-    !param || /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(param);
-
-  if (!tokenQueryParam || !validParam(tokenQueryParam)) {
-    return null;
-  }
-  if (!validParam(brokerIdQueryParam) || !validParam(accountLoginQueryParam)) {
-    return null;
-  }
-  const params = [tokenQueryParam, brokerIdQueryParam, accountLoginQueryParam].filter(Boolean);
-  if (new Set(params).size !== params.length) {
-    return null;
-  }
-
-  return Object.freeze({
-    mode: 'query',
-    credential: record.credential,
-    tokenQueryParam,
-    ...(brokerIdQueryParam ? { brokerIdQueryParam } : {}),
-    ...(accountLoginQueryParam ? { accountLoginQueryParam } : {}),
-  });
-};
-
 export const createActiveBrokerSessionManifest = (
   input: ActivateBrokerSessionInput,
 ): ActiveBrokerSessionManifest => {
-  const feedAuthContext = parseFeedAuthContext(input.feedAuthContext);
-  const brokerId = cleanString(input.brokerId).toLowerCase();
+  const brokerId = cleanString(input.brokerId);
   const accountLogin = cleanString(input.accountLogin);
   const apiBase = cleanString(input.apiBase);
   const feedWsBase = cleanString(input.feedWsBase);
@@ -91,27 +42,15 @@ export const createActiveBrokerSessionManifest = (
   const feedStatusUrl = cleanString(input.feedStatusUrl);
   const servicesDomain = cleanString(input.servicesDomain);
   const configVersion = cleanString(input.configVersion);
-  const achieverFeedContractValid =
-    brokerId !== 'achiever-financials' ||
-    feedAuthContext?.mode === 'disabled_unconfigured' ||
-    (
-      feedAuthContext?.mode === 'query' &&
-      feedAuthContext.credential === 'feed_token' &&
-      feedAuthContext.tokenQueryParam === 'token' &&
-      feedAuthContext.brokerIdQueryParam === 'broker_id' &&
-      !feedAuthContext.accountLoginQueryParam
-    );
 
   if (
     !brokerId ||
-    !accountLogin ||
+    !/^\d+$/.test(accountLogin) || !/[1-9]/.test(accountLogin) || (typeof input.accountLogin === 'number' && !Number.isSafeInteger(input.accountLogin)) ||
     !apiBase ||
     !feedWsBase ||
     !feedStatusUrl ||
     !servicesDomain ||
-    !configVersion ||
-    !feedAuthContext ||
-    !achieverFeedContractValid
+    !configVersion
   ) {
     throw new Error('Active broker session manifest is incomplete or invalid.');
   }
@@ -139,8 +78,8 @@ export const createActiveBrokerSessionManifest = (
     ...(endpoints.tradeWsBase ? { tradeWsBase: endpoints.tradeWsBase } : {}),
     feedStatusUrl: endpoints.feedStatusUrl,
     servicesDomain: endpoints.servicesDomain,
-    feedAuthContext,
     configVersion: endpoints.configVersion,
+    ...(input.investor === true ? { investor: true } : {}),
   });
 };
 
@@ -154,7 +93,7 @@ export const parseActiveBrokerSessionManifest = (
     if (!parsed || parsed.version !== ACTIVE_BROKER_SESSION_MANIFEST_VERSION) {
       return null;
     }
-    return createActiveBrokerSessionManifest({
+    const manifest = createActiveBrokerSessionManifest({
       brokerId: cleanString(parsed.brokerId),
       accountLogin: cleanString(parsed.accountLogin),
       apiBase: cleanString(parsed.apiBase),
@@ -162,9 +101,17 @@ export const parseActiveBrokerSessionManifest = (
       tradeWsBase: cleanString(parsed.tradeWsBase),
       feedStatusUrl: cleanString(parsed.feedStatusUrl),
       servicesDomain: cleanString(parsed.servicesDomain),
-      feedAuthContext: parsed.feedAuthContext as FeedAuthContext,
+      // Manifests written before contract v3 carry a feed-auth field.
+      // It is ignored on purpose so those sessions restore without a re-login.
       configVersion: cleanString(parsed.configVersion),
+      // Tolerant: only an explicit boolean true marks an investor session.
+      investor: parsed.investor === true,
     });
+    if (Object.keys(parsed).length === Object.keys(manifest).length &&
+      Object.entries(manifest).every(([key, value]) => parsed[key] === value)) {
+      canonicalStoredManifests.add(manifest);
+    }
+    return manifest;
   } catch {
     return null;
   }
@@ -179,9 +126,13 @@ export const writeActiveBrokerSessionManifest = async (
     ACTIVE_BROKER_SESSION_MANIFEST_KEY,
     JSON.stringify(manifest),
   );
+  return manifest;
+};
+
+/** V1 is never read or trusted. Its removal is housekeeping after login. */
+export const clearLegacyActiveBrokerSessionManifest = async (): Promise<void> => {
   const { removeSecureItemAsync } = await import('../utils/secureStorage');
   await removeSecureItemAsync(LEGACY_ACTIVE_BROKER_SESSION_MANIFEST_KEY);
-  return manifest;
 };
 
 export const readActiveBrokerSessionManifest = async (): Promise<ActiveBrokerSessionManifest | null> => {

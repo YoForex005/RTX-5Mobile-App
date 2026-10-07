@@ -56,6 +56,50 @@ test('selected broker probe uses only the selected server and requires an HTTP s
   );
 });
 
+test('selected broker probe retries a timeout once but never an HTTP or network failure', async () => {
+  const timeout = () => Object.assign(new Error('Request timed out after 3000ms'), { name: 'AbortError' });
+  let calls = 0;
+  assert.equal(
+    await probeSelectedBrokerHealth('https://service.orrnn.com', async () => {
+      calls += 1;
+      if (calls === 1) throw timeout();
+      return { ok: true };
+    }),
+    true,
+  );
+  assert.equal(calls, 2);
+
+  calls = 0;
+  assert.equal(
+    await probeSelectedBrokerHealth('https://service.orrnn.com', async () => {
+      calls += 1;
+      throw timeout();
+    }),
+    false,
+  );
+  assert.equal(calls, 2);
+
+  calls = 0;
+  assert.equal(
+    await probeSelectedBrokerHealth('https://service.orrnn.com', async () => {
+      calls += 1;
+      throw new Error('offline');
+    }),
+    false,
+  );
+  assert.equal(calls, 1);
+
+  calls = 0;
+  assert.equal(
+    await probeSelectedBrokerHealth('https://service.orrnn.com', async () => {
+      calls += 1;
+      return { ok: false };
+    }),
+    false,
+  );
+  assert.equal(calls, 1);
+});
+
 test('failed selected broker health leaves login closed and reports the exact message', async () => {
   const opened: string[] = [];
   const unavailableMessages: string[] = [];

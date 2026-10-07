@@ -39,7 +39,6 @@ import { resolveLiveChartPnlColor } from './livePnlColors';
 import { normalizeChartOverlaySymbol } from './symbolUtils';
 import {
   CHART_LINE_STYLE,
-  CHART_OVERLAY_DEBUG,
   EMPTY_CHART_OVERLAY_PAYLOAD,
   EMPTY_OVERLAY_MARKERS,
   type ChartOverlayCandle,
@@ -333,22 +332,6 @@ export const buildChartOverlayPayload = ({
     )
     : [];
 
-  if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_OVERLAY_DEBUG) {
-    console.log(
-      `[ChartOverlay] chart=${chartSymbol} (norm=${normalizedChartSymbol}) | ` +
-      `totalPositions=${positions.length} matchingPositions=${symbolPositions.length} | ` +
-      `closedPositions=${closedPositions.length} | ` +
-      `flags: buy=${showOnChart.buyTrade} sell=${showOnChart.sellTrade} sltp=${showOnChart.slTpLevels}`,
-    );
-    if (symbolPositions.length > 0) {
-      symbolPositions.forEach((p) =>
-        console.log(
-          `  pos id=${p.id} sym=${p.symbol} ${p.side} vol=${p.volume} open=${p.openPrice} sl=${p.sl} tp=${p.tp}`,
-        ),
-      );
-    }
-  }
-
   const priceLines = new Map<string, ChartOverlayPriceLine>();
 
   symbolPositions.forEach((position) => {
@@ -371,7 +354,7 @@ export const buildChartOverlayPayload = ({
       id: `open-${position.id}`,
       price: parsedPrice,
       color: sideColor,
-      lineWidth: 2,
+      lineWidth: 1,
       lineStyle: CHART_LINE_STYLE.Dotted,
       axisLabelVisible: true,
       title: labelPatch.title,
@@ -385,7 +368,7 @@ export const buildChartOverlayPayload = ({
     if (showOnChart.slTpLevels) {
       const tpValue = Number(position.tp);
       if (Number.isFinite(tpValue) && tpValue > 0) {
-        const tpColor = colors.tradeTpSl || '#089981';
+        const tpColor = colors.tradeTpSl || resolveLiveChartPnlColor(1, colors.background, '#4597FF');
         addUniquePriceLine(priceLines, {
           id: `tp-${position.id}`,
           price: tpValue,
@@ -494,14 +477,6 @@ export const buildChartOverlayPayload = ({
     && result.tradeHistorySegments.length === 0
   ) {
     return EMPTY_CHART_OVERLAY_PAYLOAD;
-  }
-
-  if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_OVERLAY_DEBUG) {
-    console.log(
-      `[ChartOverlay] OUTPUT: ${result.priceLines.length} priceLines, ${result.markers.length} markers, ` +
-      `${result.tradeHistorySegments.length} trade-history segments`,
-    );
-    result.priceLines.forEach((l) => console.log(`  line id=${l.id} price=${l.price} title="${l.title}"`));
   }
 
   return result;

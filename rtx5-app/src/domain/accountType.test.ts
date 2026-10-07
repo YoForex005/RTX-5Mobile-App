@@ -131,6 +131,15 @@ const resolverCases: ResolverCase[] = [
   { name: 'seeded Demo CENT group', payload: { group: 'demo/CENT' }, expected: 'demo' },
   { name: 'seeded Live STD group', payload: { group: 'live/STD' }, expected: 'real' },
   { name: 'seeded Live CENT group', payload: { group: 'live/CENT' }, expected: 'real' },
+  { name: 'lot-only standard group does not identify an environment', payload: { group: 'standard' }, expected: 'unknown' },
+  { name: 'unrecognized broker group does not imply Real', payload: { group: 'RTX5-Standard' }, expected: 'unknown' },
+  { name: 'custom group has an undefined environment', payload: { group: 'VIP-2026' }, expected: 'unknown' },
+  { name: 'explicit Real identifies an otherwise custom group', payload: { account_type: 'real', group: 'VIP-2026' }, expected: 'real' },
+  {
+    name: 'the first account group wins over a nested conflicting group',
+    payload: { group: 'standard', account: { group: 'demo/STD' } },
+    expected: 'unknown',
+  },
   {
     name: 'Demo boolean is independent of standard lot type',
     payload: { demo: true, accountType: 'standard' },
@@ -184,7 +193,7 @@ test('resolveAccountEnvironment reports accurate backend evidence source', () =>
   );
   assert.deepEqual(
     resolveAccountEnvironment({ group: 'standard' }, true),
-    { accountType: 'unknown', source: 'unknown' },
+    { accountType: 'unknown', source: 'backend-group' },
   );
 });
 
@@ -317,7 +326,7 @@ test('mergeAccountEnvironment allows fresh known evidence to replace prior evide
   }
 });
 
-test('Demo registration seed survives an unrecognized standard group refresh', () => {
+test('recognized Live group corrects a stale Demo registration seed', () => {
   const accountKey = buildAccountEnvironmentKey('orrnn-demo', 200001);
   const seeded = mergeAccountEnvironment(null, {
     accountKey,
@@ -328,12 +337,12 @@ test('Demo registration seed survives an unrecognized standard group refresh', (
 
   const refreshed = mergeAccountEnvironment(seeded, {
     accountKey,
-    resolved: resolveAccountEnvironment({ group: 'standard' }),
+    resolved: resolveAccountEnvironment({ group: 'live/standard' }),
     source: 'backend-group',
   });
-  assert.equal(refreshed, seeded);
-  assert.equal(refreshed.accountType, 'demo');
-  assert.equal(refreshed.isDemoAccount, true);
+  assert.equal(refreshed?.accountType, 'real');
+  assert.equal(refreshed?.accountEnvironmentSource, 'backend-group');
+  assert.equal(refreshed?.isDemoAccount, false);
 });
 
 test('account switch never inherits the previous account environment', () => {

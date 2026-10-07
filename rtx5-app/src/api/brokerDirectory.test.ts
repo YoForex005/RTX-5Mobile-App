@@ -6,6 +6,7 @@ import {
   parseBrokerDirectoryListingPayload,
   parseBrokerDirectoryPayload,
 } from './broker';
+import { resolveBrokerEndpointSet } from './brokerRouting';
 
 const richDirectoryRecord = () => ({
   id: 7,
@@ -142,6 +143,20 @@ test('live-shaped raw v2 Achiever, GTA, MyProp, and Orrnn Demo rows remain selec
       server_ip: '69.197.178.27',
       created_at: 1_784_199_260,
     }),
+    rawV2Record({
+      id: 21,
+      broker_id: 'Nexa',
+      broker_name: 'Nexa',
+      server_url: 'https://nexa.orrnn.com',
+      market_api_url: 'https://nexa.orrnn.com',
+      feed_wss_url: 'wss://nexa.orrnn.com/ws/feed',
+      feed_ws_url: 'wss://nexa.orrnn.com/ws/feed',
+      feed_status_https_url: 'https://nexa.orrnn.com/ws/feed/status',
+      feed_status_url: 'https://nexa.orrnn.com/ws/feed/status',
+      server: 'nexa.orrnn.com:443',
+      server_ip: '100.119.182.26',
+      created_at: 1_789_459_348,
+    }),
   ];
 
   const result = parseBrokerDirectoryListingPayload(liveLikeRows);
@@ -157,6 +172,7 @@ test('live-shaped raw v2 Achiever, GTA, MyProp, and Orrnn Demo rows remain selec
       ['gta_broker', 'https://services.growtradingacademy.com'],
       ['myprop-trade', 'https://services.myprop.trade'],
       ['orrnn-demo', 'https://demobackend.orrnn.com'],
+      ['Nexa', 'https://nexa.orrnn.com'],
     ],
   );
   // REST base is derived from the exact service-root server_url.
@@ -407,4 +423,274 @@ test('malformed display metadata is rejected rather than defaulted', () => {
     }),
     'missing_broker_name',
   );
+});
+
+// ─── Backend contract v3 (2026-09-24): Trivanta + Orrnn ────────────────────────
+
+/** Section 3 target rows: https/wss hostnames, no `enabled`/`active` keys. */
+const contractV3TargetRows = () => [
+  {
+    id: 3,
+    broker_id: 'trivanta-markets',
+    broker_name: 'Trivanta Markets',
+    created_at: 1_789_633_122,
+    protocol: 'https',
+    server: 'trivanta.orrnn.com:443',
+    server_ip: '<unchanged>',
+    server_port: 443,
+    server_url: 'https://trivanta.orrnn.com',
+    market_api_url: 'https://trivanta.orrnn.com',
+    services_domain: 'trivanta.orrnn.com',
+    feed_wss_url: 'wss://trivanta.orrnn.com/ws/feed',
+    feed_status_https_url: 'https://trivanta.orrnn.com/ws/feed/status',
+  },
+  {
+    id: 4,
+    broker_id: 'Orrnn',
+    broker_name: 'ORRNN',
+    created_at: 1_789_643_254,
+    protocol: 'https',
+    server: 'service.orrnn.com:443',
+    server_ip: '<unchanged>',
+    server_port: 443,
+    server_url: 'https://service.orrnn.com',
+    market_api_url: 'https://service.orrnn.com',
+    services_domain: 'service.orrnn.com',
+    feed_wss_url: 'wss://service.orrnn.com/ws/feed',
+    feed_status_https_url: 'https://service.orrnn.com/ws/feed/status',
+  },
+];
+
+test('contract v3 target rows (no enabled key) are selectable with exact endpoints', () => {
+  const result = parseBrokerDirectoryListingPayload(contractV3TargetRows());
+
+  assert.equal(result.mode, 'v2');
+  assert.deepEqual(
+    result.selectableServers.map((server) => [
+      server.broker_id,
+      server.server_url,
+      server.market_api_url,
+      server.feed_wss_url,
+      server.feed_status_https_url,
+      server.trade_wss_url,
+    ]),
+    [
+      [
+        'trivanta-markets',
+        'https://trivanta.orrnn.com',
+        'https://trivanta.orrnn.com/api/v2',
+        'wss://trivanta.orrnn.com/ws/feed',
+        'https://trivanta.orrnn.com/ws/feed/status',
+        // trade_wss_url is not sent; it is derived as wss://{host}/ws/v2.
+        'wss://trivanta.orrnn.com/ws/v2',
+      ],
+      [
+        // broker_id keeps its exact directory case: login sends "Orrnn".
+        'Orrnn',
+        'https://service.orrnn.com',
+        'https://service.orrnn.com/api/v2',
+        'wss://service.orrnn.com/ws/feed',
+        'https://service.orrnn.com/ws/feed/status',
+        'wss://service.orrnn.com/ws/v2',
+      ],
+    ],
+  );
+});
+
+test('contract v3 extra alias keys holding identical values are not a conflict', () => {
+  const [trivanta, orrnn] = contractV3TargetRows();
+  const withAliases = {
+    ...trivanta,
+    feed_ws_url: 'wss://trivanta.orrnn.com/ws/feed',
+    feed_url: 'wss://trivanta.orrnn.com/ws/feed',
+    ws_url: 'wss://trivanta.orrnn.com/ws/feed',
+    wss_url: 'wss://trivanta.orrnn.com/ws/feed',
+    feed_status_url: 'https://trivanta.orrnn.com/ws/feed/status',
+    domain_name: 'trivanta.orrnn.com',
+    server_domain: 'trivanta.orrnn.com',
+    admin_domain: 'admin.trivanta.orrnn.com',
+    domains: { domain_name: 'trivanta.orrnn.com', server: 'trivanta.orrnn.com' },
+    logo_url: 'https://superadmin-prod.orrnn.com/api/v1/brokers/trivanta-markets/logo',
+  };
+
+  const result = parseBrokerDirectoryListingPayload([withAliases, orrnn]);
+  assert.deepEqual(
+    result.selectableServers.map((server) => server.broker_id),
+    ['trivanta-markets', 'Orrnn'],
+  );
+  assert.equal(result.selectableServers[0].feed_wss_url, 'wss://trivanta.orrnn.com/ws/feed');
+});
+
+/** Section 3 "live rows today": raw IPs with ws:// and http:// feed URLs. */
+const contractV3LiveRawIpRows = () => [
+  {
+    id: 3,
+    broker_id: 'trivanta-markets',
+    broker_name: 'Trivanta Markets',
+    created_at: 1_789_633_122,
+    protocol: 'https',
+    server: '100.116.90.110:443',
+    server_ip: '100.116.90.110',
+    server_port: 443,
+    server_url: 'https://100.116.90.110:443',
+    market_api_url: 'http://100.116.90.110',
+    services_domain: '',
+    feed_url: 'ws://100.116.90.110/ws/feed',
+    feed_ws_url: 'ws://100.116.90.110/ws/feed',
+    ws_url: 'ws://100.116.90.110/ws/feed',
+    feed_status_url: 'http://100.116.90.110/ws/feed/status',
+    logo_url: 'http://superadmin-prod.orrnn.com/api/v1/brokers/trivanta-markets/logo',
+    domains: { domain_name: '', server: '100.116.90.110' },
+  },
+  {
+    id: 4,
+    broker_id: 'Orrnn',
+    broker_name: 'ORRNN',
+    created_at: 1_789_643_254,
+    protocol: 'https',
+    server: '51.195.188.172:443',
+    server_ip: '51.195.188.172',
+    server_port: 443,
+    server_url: 'https://51.195.188.172:443',
+    market_api_url: 'http://51.195.188.172',
+    services_domain: '',
+    feed_url: 'ws://51.195.188.172/ws/feed',
+    feed_ws_url: 'ws://51.195.188.172/ws/feed',
+    ws_url: 'ws://51.195.188.172/ws/feed',
+    feed_status_url: 'http://51.195.188.172/ws/feed/status',
+    logo_url: 'http://superadmin-prod.orrnn.com/api/v1/brokers/Orrnn/logo',
+    domains: { domain_name: '', server: '51.195.188.172' },
+  },
+];
+
+test('current live raw-IP rows recover to the contract-published hostnames', () => {
+  // superadmin-prod still serves these rows (raw IP server_url, ws:// and
+  // http:// feed fields, no feed_wss_url). For exactly the two Contract v3
+  // brokers the app falls back to their published hostnames, keeping the
+  // directory broker_id case ("Orrnn") for login.
+  const result = parseBrokerDirectoryListingPayload(contractV3LiveRawIpRows());
+  assert.deepEqual(
+    result.selectableServers.map((server) => [
+      server.broker_id,
+      server.broker_name,
+      server.server_url,
+      server.feed_wss_url,
+      server.feed_status_https_url,
+      server.trade_wss_url,
+    ]),
+    [
+      [
+        'trivanta-markets',
+        'Trivanta Markets',
+        'https://trivanta.orrnn.com',
+        'wss://trivanta.orrnn.com/ws/feed',
+        'https://trivanta.orrnn.com/ws/feed/status',
+        'wss://trivanta.orrnn.com/ws/v2',
+      ],
+      [
+        'Orrnn',
+        'ORRNN',
+        'https://service.orrnn.com',
+        'wss://service.orrnn.com/ws/feed',
+        'https://service.orrnn.com/ws/feed/status',
+        'wss://service.orrnn.com/ws/v2',
+      ],
+    ],
+  );
+  for (const server of result.selectableServers) {
+    const resolution = resolveBrokerEndpointSet(server);
+    assert.equal(resolution.ok, true, server.broker_id);
+  }
+});
+
+test('raw-IP rows for any broker without a published hostname stay rejected', () => {
+  const unpinnedRows = contractV3LiveRawIpRows().map((row, index) => ({
+    ...row,
+    broker_id: `unlisted-broker-${index}`,
+  }));
+  // Every row fails, so the listing surfaces an error instead of an empty list.
+  assert.throws(
+    () => parseBrokerDirectoryListingPayload(unpinnedRows),
+    (error: unknown) => error instanceof BrokerDirectorySchemaError,
+  );
+
+  // Even with a wss:// feed field added, a raw-IP server_url stays rejected.
+  for (const row of unpinnedRows) {
+    const host = row.server_ip;
+    expectSchemaError(
+      () => parseBrokerDirectoryListingPayload([{
+        ...row,
+        feed_wss_url: `wss://${host}/ws/feed`,
+        feed_status_https_url: `https://${host}/ws/feed/status`,
+      }]),
+      'invalid_server_url',
+    );
+  }
+});
+
+test('a hostname row with ws:// or http:// feed endpoints stays rejected', () => {
+  const [trivanta] = contractV3TargetRows();
+  const unlisted = {
+    ...trivanta,
+    broker_id: 'unlisted-broker',
+    server: 'services.unlisted-broker.com:443',
+    server_url: 'https://services.unlisted-broker.com',
+    market_api_url: 'https://services.unlisted-broker.com',
+    services_domain: 'services.unlisted-broker.com',
+    feed_wss_url: 'wss://services.unlisted-broker.com/ws/feed',
+    feed_status_https_url: 'https://services.unlisted-broker.com/ws/feed/status',
+  };
+  expectSchemaError(
+    () => parseBrokerDirectoryListingPayload([{
+      ...unlisted,
+      feed_wss_url: 'ws://services.unlisted-broker.com/ws/feed',
+    }]),
+    'invalid_feed_endpoint',
+  );
+  expectSchemaError(
+    () => parseBrokerDirectoryListingPayload([{
+      ...unlisted,
+      feed_status_https_url: 'http://services.unlisted-broker.com/ws/feed/status',
+    }]),
+    'invalid_status_endpoint',
+  );
+  expectSchemaError(
+    () => parseBrokerDirectoryListingPayload([{
+      ...unlisted,
+      server_url: 'http://services.unlisted-broker.com',
+    }]),
+    'invalid_server_url',
+  );
+
+  // A published broker never keeps a cleartext endpoint either: its unusable
+  // row is replaced wholesale by the pinned wss:// / https:// endpoint set.
+  const recovered = parseBrokerDirectoryListingPayload([{
+    ...trivanta,
+    feed_wss_url: 'ws://trivanta.orrnn.com/ws/feed',
+  }]);
+  assert.equal(recovered.selectableServers[0].feed_wss_url, 'wss://trivanta.orrnn.com/ws/feed');
+});
+
+test('a valid directory row always wins over the pinned fallback', () => {
+  const [trivanta, orrnn] = contractV3TargetRows();
+  const [, orrnnLive] = contractV3LiveRawIpRows();
+  const unlistedRawIp = { ...orrnnLive, broker_id: 'unlisted-broker' };
+  const result = parseBrokerDirectoryListingPayload([orrnnLive, trivanta, unlistedRawIp]);
+  assert.deepEqual(
+    result.selectableServers.map((server) => server.broker_id),
+    ['Orrnn', 'trivanta-markets'],
+  );
+
+  // If ops publishes a different valid hostname, the app follows the directory.
+  const movedOrrnn = {
+    ...orrnn,
+    server: 'api.orrnn.com:443',
+    server_url: 'https://api.orrnn.com',
+    market_api_url: 'https://api.orrnn.com',
+    services_domain: 'api.orrnn.com',
+    feed_wss_url: 'wss://api.orrnn.com/ws/feed',
+    feed_status_https_url: 'https://api.orrnn.com/ws/feed/status',
+  };
+  const moved = parseBrokerDirectoryListingPayload([movedOrrnn]);
+  assert.equal(moved.selectableServers[0].server_url, 'https://api.orrnn.com');
 });

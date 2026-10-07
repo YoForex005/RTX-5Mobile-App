@@ -31,7 +31,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.doesNotMatch(quotesSource, /import \{[^}]*usePathname[^}]*\} from 'expo-router'/);
   assert.doesNotMatch(quotesSource, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
   assert.match(quotesSource, /const QuotesScreenInner = React\.memo\(function QuotesScreenInner\(\{ isScreenFocused \}: \{ isScreenFocused: boolean \}\)/);
-  assert.match(quotesSource, /export function QuotesScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <QuotesScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
+  assert.match(quotesSource, /export function QuotesScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const marketDemandAllowed = useAuthMarketDemandAllowed\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused && marketDemandAllowed\);\s*return <QuotesScreenInner isScreenFocused=\{marketDemandAllowed && deferredScreenFocused\} \/>;\s*\}/);
   assert.match(quotesSource, /const quoteRouteActive = isScreenFocused/);
   assert.match(quotesSource, /const quoteCatalogActive = quoteRouteActive/);
   assert.doesNotMatch(quotesSource, /quoteSheetRouteActionPending|setQuoteSheetRouteActionPending/);
@@ -52,7 +52,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   // time while another tab is active.
   assert.doesNotMatch(quotesSource, /reportFeedLocalTick|quotesWsService\.addTickListener/);
   assert.match(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteStickyFeedActive, \{[\s\S]*restFallbackActive: quoteRestFallbackActive,[\s\S]*\}\)/);
-  assert.match(quotesSource, /liveUpdatesActive=\{quoteStickyFeedActive\}/);
+  assert.match(quotesSource, /liveUpdatesActive=\{isQuoteRowLive\(quoteStickyFeedActive, sym, index, visibleQuoteSymbols\)\}/);
   assert.match(
     quotesSource,
     /const observedLiveItem = useLiveQuoteSnapshot\(liveSymbol, liveUpdatesActive\);[\s\S]*\(!liveUpdatesActive \? getCurrentLiveQuoteSnapshot\(liveSymbol\) : undefined\)/,
@@ -74,7 +74,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(marketDataSource, /const activeSession = useActiveBrokerQuerySession\(\)/);
   assert.match(marketDataSource, /const isActive = active && isLoggedIn && Boolean\(activeSession\)/);
   assert.match(marketDataSource, /if \(safeCommitIntervalMs === 0\) \{[\s\S]*commit\(\);[\s\S]*return;[\s\S]*\}/);
-  assert.match(marketDataSource, /safeCommitIntervalMs <= 16[\s\S]*globalThis\.requestAnimationFrame/);
+  assert.match(marketDataSource, /safeCommitIntervalMs <= 16[\s\S]*scheduleAfterVisualFrame\(commit\)/);
   assert.match(marketDataSource, /if \(safeCommitIntervalMs <= 16\) \{[\s\S]*updateLiveQuote\(\);[\s\S]*\} else \{[\s\S]*React\.startTransition\(updateLiveQuote\)/);
   assert.match(marketDataSource, /if \(!isActive \|\| !activeSession \|\| !normalizedSymbol\)/);
   assert.doesNotMatch(marketDataSource, /skipAuth: true/);
@@ -128,11 +128,11 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.doesNotMatch(chartSource, /import \{[^}]*usePathname[^}]*\} from 'expo-router'/);
   assert.match(
     chartSource,
-    /const ChartScreenInner = React\.memo\(function ChartScreenInner\(\{\s*isChartRouteActive,\s*isTradeExecutionFocused,\s*\}: \{\s*isChartRouteActive: boolean;\s*isTradeExecutionFocused: \(\) => boolean;\s*\}\)/,
+    /const ChartScreenInner = React\.memo\(function ChartScreenInner\(\{\s*isChartRouteActive,\s*isTradeExecutionFocused,\s*marketDemandAllowed,\s*\}: \{\s*isChartRouteActive: boolean;\s*isTradeExecutionFocused: \(\) => boolean;\s*marketDemandAllowed: boolean;\s*\}\)/,
   );
   assert.match(
     chartSource,
-    /export function ChartScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const immediateFocusRef = useRef\(isScreenFocused\);\s*immediateFocusRef\.current = isScreenFocused;\s*const isTradeExecutionFocused = useCallback\([\s\S]*?\(\) => immediateFocusRef\.current,[\s\S]*?\[\],[\s\S]*?\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return \([\s\S]*?<ChartScreenInner[\s\S]*?isChartRouteActive=\{deferredScreenFocused\}[\s\S]*?isTradeExecutionFocused=\{isTradeExecutionFocused\}[\s\S]*?\/>[\s\S]*?\);\s*\}/,
+    /export function ChartScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const marketDemandAllowed = useAuthMarketDemandAllowed\(\);\s*const immediateFocusRef = useRef\(isScreenFocused && marketDemandAllowed\);\s*immediateFocusRef\.current = isScreenFocused && marketDemandAllowed;\s*const isTradeExecutionFocused = useCallback\([\s\S]*?\(\) => immediateFocusRef\.current,[\s\S]*?\[\],[\s\S]*?\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused && marketDemandAllowed\);\s*return \([\s\S]*?<ChartScreenInner[\s\S]*?isChartRouteActive=\{marketDemandAllowed && deferredScreenFocused\}[\s\S]*?isTradeExecutionFocused=\{isTradeExecutionFocused\}[\s\S]*?marketDemandAllowed=\{marketDemandAllowed\}[\s\S]*?\/>[\s\S]*?\);\s*\}/,
   );
   assert.match(chartSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
   assert.match(chartSource, /import \{ scheduleAfterFirstFrame, scheduleIdleWork \} from '\.\.\/\.\.\/utils\/startupScheduler'/);
@@ -153,9 +153,9 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   // display-price ref stay warm without waking React in the hidden footer.
   const chartStartupBootSource = readSource('src/features/chart/useChartSurfaceStartupBoot.ts');
   assert.match(chartSource, /const chartSurfaceActivated = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)/);
-  assert.match(chartSource, /const chartSurfaceStartupBooted = useChartSurfaceStartupBoot\(chartSurfaceActivated\)/);
+  assert.match(chartSource, /const chartSurfaceStartupBooted = useChartSurfaceStartupBoot\(chartSurfaceActivated \|\| !marketDemandAllowed\)/);
   assert.match(chartSource, /const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated \|\| chartSurfaceStartupBooted\)/);
-  assert.match(chartStartupBootSource, /export const CHART_SURFACE_STARTUP_BOOT_DELAY_MS = 2000/);
+  assert.match(chartStartupBootSource, /export const CHART_SURFACE_STARTUP_BOOT_DELAY_MS = 1000/);
   assert.match(
     chartStartupBootSource,
     /if \(startupBooted \|\| surfaceAlreadyActivated \|\| !preferencesHydrated\) \{[\s\S]*return undefined;/,
@@ -232,6 +232,11 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   const retainedLivePaintSource = chartSource.slice(
     retainedLivePaintStart,
     retainedLivePaintEnd,
+  );
+  assert.match(
+    retainedLivePaintSource,
+    /if \(\s*!marketDemandAllowed \|\|\s*!chartSurfaceReady \|\|/,
+    'authentication must pause retained demand without changing normal hidden-tab warming',
   );
   assert.doesNotMatch(
     retainedLivePaintSource,
@@ -310,11 +315,10 @@ test('settings, trade, and history screens pause work when another screen is foc
   const tradeSummarySource = readSource('src/features/trade/TradeScreen/SummaryHeader.tsx');
   const calendarSource = readSource('src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx');
   const healthSource = readSource('src/query/health.ts');
-  const mt5Source = readSource('src/query/mt5.ts');
   const accountsQuerySource = readSource('src/query/accounts.ts');
 
   assert.match(accountsSource, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(accountsSource, /const ACCOUNTS_SCREEN_DATA_DELAY_MS = 650/);
+  assert.match(accountsSource, /const ACCOUNTS_SCREEN_DATA_DELAY_MS = 0/);
   assert.match(accountsSource, /const \[firstPaintReady, setFirstPaintReady\] = React\.useState\(false\)/);
   assert.match(accountsSource, /const focusDataActive = useDeferredActiveFlag\(\s*isLoggedIn && isScreenFocused && firstPaintReady,\s*ACCOUNTS_SCREEN_DATA_DELAY_MS,\s*\)/);
   // A BOUNDED boot prewarm window may fill the caches once while hidden so the
@@ -323,15 +327,15 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(accountsSource, /const ACCOUNTS_DATA_PREWARM_WINDOW_MS = 15000/);
   assert.match(accountsSource, /setDataPrewarmWindowActive\(false\),?\s*\)?,?\s*ACCOUNTS_DATA_PREWARM_DELAY_MS \+ ACCOUNTS_DATA_PREWARM_WINDOW_MS/);
   assert.match(accountsSource, /const screenDataActive = focusDataActive \|\| \(isLoggedIn && dataPrewarmWindowActive\)/);
-  assert.match(accountsSource, /useAccounts\(screenDataActive\)/);
+  // Contract v3: GET /accounts is 403 for traders and /api/mt5/* does not exist.
+  assert.doesNotMatch(accountsSource, /useAccounts\(|useMt5Status\(/);
   assert.match(accountsSource, /useBrokerConfig\(brokerId, screenDataActive\)/);
   assert.match(accountsSource, /useAccountDetails\(activeLogin, screenDataActive && !!activeLogin\)/);
   assert.match(accountsSource, /useHealth\(screenDataActive\)/);
-  assert.match(accountsSource, /useMt5Status\(screenDataActive\)/);
   // The retained Accounts body is prepared while hidden, like the mounted
   // Trade tab, so opening the drawer destination does not mount a FlatList in
   // the tap turn. Network/live work below must still remain focus-gated.
-  assert.match(accountsSource, /useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : ACCOUNTS_BODY_PREWARM_DELAY_MS,/);
+  assert.match(accountsSource, /useRetainedRouteContentReady\(\s*isScreenFocused, ACCOUNTS_BODY_PREWARM_DELAY_MS,/);
   assert.match(accountsSource, /const showAccountsBody = isScreenFocused \|\| hostBodyReady;/);
   assert.match(accountsSource, /\{showAccountsBody \? \(\s*<FlatList/);
   assert.doesNotMatch(accountsSource, /focusedBodyReady|accountsBodyVisible|accountsBodyReady|SidebarHostedAccountsScreenInner/);
@@ -344,7 +348,7 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(settingsSource, /import \{ useNextFrameValue \} from '\.\.\/\.\.\/\.\.\/hooks\/useNextFrameValue'/);
   assert.match(settingsSource, /const SettingsScreenInner = memo\(function SettingsScreenInner\(\{ isScreenFocused \}: \{ isScreenFocused: boolean \}\)/);
   assert.match(settingsSource, /export function SettingsScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <SettingsScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
-  assert.match(settingsSource, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
+  assert.match(settingsSource, /const SETTINGS_SCREEN_DATA_DELAY_MS = 0/);
   assert.doesNotMatch(settingsSource, /SETTINGS_BODY_PREWARM_DELAY_MS|routeBodyReady|useDeferredRouteContentReady/);
   assert.match(settingsSource, /<ScrollView[\s\S]*style=\{styles\.container\}[\s\S]*contentContainerStyle=\{styles\.content\}/);
   assert.match(settingsSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
@@ -440,7 +444,7 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(calendarSource, /if \(!isScreenFocused\) \{[\s\S]*return;[\s\S]*\}/);
   assert.doesNotMatch(calendarSource, /CALENDAR_INITIAL_DATA_DELAY_MS|calendarDataReady/);
   assert.match(calendarSource, /const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 0/);
-  assert.match(calendarSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : ECON_CALENDAR_BODY_PREWARM_DELAY_MS,\s*\)/);
+  assert.match(calendarSource, /const routeBodyReady = useRetainedRouteContentReady\(\s*isScreenFocused, ECON_CALENDAR_BODY_PREWARM_DELAY_MS,\s*\)/);
   assert.doesNotMatch(calendarSource, /const focusedBodyReady = isScreenFocused && routeBodyReady;/);
   assert.match(calendarSource, /\{routeBodyReady \? <>/);
   // One bounded idle prewarm is the only work the hidden calendar shell may do:
@@ -453,11 +457,8 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(healthSource, /export function useHealth\(enabled = true\)/);
   assert.match(healthSource, /const isEnabled = enabled && Boolean\(session\)/);
   assert.match(healthSource, /refetchInterval: isEnabled \? 30000 : false/);
-  assert.match(mt5Source, /export function useMt5Status\(enabled = true\)/);
-  assert.match(mt5Source, /const isEnabled = enabled && Boolean\(session\)/);
-  assert.match(mt5Source, /refetchInterval: isEnabled \? 30000 : false/);
   assert.match(accountsQuerySource, /const isEnabled = Boolean\(session\) && \(enabled \?\? true\)/);
-  assert.match(accountsQuerySource, /refetchInterval: isEnabled \? 10 \* 1000 : false/);
+  assert.doesNotMatch(accountsQuerySource, /export function useAccounts\(/);
   assert.match(accountsQuerySource, /refetchInterval: isEnabled \? 30 \* 1000 : false/);
 });
 
@@ -475,11 +476,9 @@ test('high-volume diagnostics are disabled unless explicitly requested', () => {
   assert.doesNotMatch(accountsSource, /console\.log\('\[AccountsScreen\]/);
   assert.doesNotMatch(accountsSource, /EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN/);
 
-  assert.match(accountsApiSource, /EXPO_PUBLIC_DEBUG_ACCOUNTS_API === 'true'/);
-  assert.match(
-    accountsApiSource,
-    /if \(DEBUG_ACCOUNTS_API\) \{[\s\S]*Accounts response received[\s\S]*accountCount: mapped\.length/,
-  );
+  // The GET /accounts list (and its debug log) was removed: contract v3 returns
+  // 403 for traders. The singular detail path never logs account payloads.
+  assert.doesNotMatch(accountsApiSource, /console\.log\(/);
   assert.doesNotMatch(accountsApiSource, /Raw backend response:|Mapped accounts:/);
 
   assert.match(quotesWsSource, /EXPO_PUBLIC_DEBUG_CANDLE_FEED === 'true'/);

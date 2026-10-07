@@ -1,6 +1,7 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React, {  } from 'react';
-import { Dimensions, Keyboard, Modal, ScrollView, StyleSheet, Text, TextInput, View, Platform } from 'react-native';
+import { Keyboard, Modal, ScrollView, StyleSheet, Text, TextInput, View, Platform, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -212,7 +213,10 @@ export function ChartFooterLotPicker({
   onClose: () => void;
   onSelect: (next: number) => void;
 }) {
-  const windowSize = Dimensions.get('window');
+  const windowSize = useWindowDimensions();
+  const safeInsets = useSafeAreaInsets();
+  const availableWidth = Math.max(1, windowSize.width - safeInsets.left - safeInsets.right - 24);
+  const availableHeight = Math.max(1, windowSize.height - bottomOffset - safeInsets.top - 24);
   const valueScrollRef = React.useRef<ScrollView>(null);
   const [activeRangeMultiplier, setActiveRangeMultiplier] = React.useState<number | null>(null);
   const resolved = React.useMemo(() => resolveTradeVolumeBounds(bounds), [bounds]);
@@ -272,8 +276,8 @@ export function ChartFooterLotPicker({
           styles.footerLotPickerCardVertical,
           {
             bottom: bottomOffset,
-            width: Math.max(168, Math.min(windowSize.width - 24, 228)),
-            maxHeight: Math.max(220, Math.min(windowSize.height - bottomOffset - 72, 384)),
+            width: Math.min(availableWidth, 228),
+            maxHeight: Math.min(availableHeight, 384),
           },
         ]}
       >

@@ -71,3 +71,62 @@ test('unknown, aliased, or non-safe-integer tickets remain harmless', () => {
     assert.equal(normalizeProtectionTriggeredEvent(value), null);
   }
 });
+
+test('contract v3: position_closed with close_reason sl/tp is an SL/TP hit', () => {
+  const envelope = {
+    event_id: 'evt-77',
+    client_order_id: null,
+    type: 'position_closed',
+    data: {
+      ticket: 2002,
+      account_login: 200074,
+      broker_id: 'trivanta-markets',
+      symbol: 'EURUSD',
+      close_reason: 'sl',
+      price_close: 1.13,
+      profit: -7.45,
+      swap: 0,
+      deal_ticket: '5005',
+      closed_at: 1790241600,
+    },
+  };
+
+  const sl = normalizeProtectionTriggeredEvent(envelope, 'position.closed');
+  assert.ok(sl);
+  assert.equal(sl.eventName, 'sl.triggered');
+  assert.equal(sl.ticket, 2002);
+  assert.equal(sl.journalPayload.price_close, 1.13);
+  assert.equal(sl.journalPayload.reason, 'sl');
+  assert.equal(sl.journalPayload.close_reason, 'sl');
+  assert.equal(sl.journalPayload.account_login, 200074);
+  assert.equal(sl.eventFingerprint, 'sl.triggered:2002:evt-77');
+
+  // Without an inherited name the envelope type is read directly.
+  const tp = normalizeProtectionTriggeredEvent({
+    ...envelope,
+    event_id: undefined,
+    data: { ...envelope.data, close_reason: 'tp' },
+  });
+  assert.ok(tp);
+  assert.equal(tp.eventName, 'tp.triggered');
+  assert.equal(tp.eventFingerprint, 'tp.triggered:2002:5005');
+});
+
+test('contract v3: other close reasons and plain closes are not SL/TP hits', () => {
+  for (const closeReason of ['stop_out', 'netting_close', 'netting_reverse', 'manual', undefined]) {
+    assert.equal(
+      normalizeProtectionTriggeredEvent(
+        { type: 'position_closed', data: { ticket: 2002, close_reason: closeReason } },
+        'position.closed',
+      ),
+      null,
+    );
+  }
+  assert.equal(
+    normalizeProtectionTriggeredEvent(
+      { type: 'position_modified', data: { ticket: 2002, close_reason: 'sl' } },
+      'position.modified',
+    ),
+    null,
+  );
+});

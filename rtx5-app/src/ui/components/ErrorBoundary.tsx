@@ -1,6 +1,7 @@
 import { FastPressable as Pressable } from './FastPressable';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { ActivityIndicator, Platform, View, Text, StyleSheet } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, Text, StyleSheet } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Updates from 'expo-updates';
 import { logStartupError } from '../../utils/startupDiagnostics';
@@ -104,7 +105,9 @@ export class ErrorBoundary extends Component<Props, State> {
       const showOtaInstall = canInstallOtaFromBoundary();
 
       return (
-        <View style={styles.container}>
+        <SafeAreaProvider>
+        <SafeAreaView style={styles.surface}>
+        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="always" canCancelContentTouches={Platform.OS === 'ios'}>
           <Ionicons name="warning-outline" size={64} color="#F87171" style={styles.icon} />
           <Text style={styles.title}>Something went wrong</Text>
           <Text style={styles.subtitle}>
@@ -149,7 +152,9 @@ export class ErrorBoundary extends Component<Props, State> {
             <Ionicons name="refresh" size={18} color="#FFF" />
             <Text style={styles.buttonText}>Tap to Reload</Text>
           </Pressable>
-        </View>
+        </ScrollView>
+        </SafeAreaView>
+        </SafeAreaProvider>
       );
     }
 
@@ -158,8 +163,9 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 
 const styles = StyleSheet.create({
+  surface: { flex: 1, backgroundColor: '#121212' },
   container: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: '#121212',
     alignItems: 'center',
     justifyContent: 'center',
@@ -203,7 +209,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     borderRadius: 999,
     gap: 8,
-    minWidth: 260,
+    width: '100%',
+    maxWidth: 400,
     minHeight: 48,
     marginBottom: 12,
   },
@@ -216,13 +223,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     borderRadius: 999,
     gap: 8,
-    minWidth: 260,
+    width: '100%',
+    maxWidth: 400,
     minHeight: 48,
   },
   buttonDisabled: {
     opacity: 0.75,
   },
   buttonText: {
+    flexShrink: 1,
+    textAlign: 'center',
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',

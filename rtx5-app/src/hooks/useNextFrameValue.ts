@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { scheduleAfterVisualFrame } from '../utils/afterVisualFrame';
 
 /**
  * Mirrors `value` one animation frame late. The giant tab screens (Chart,
@@ -20,12 +21,10 @@ export function useNextFrameValue<T>(value: T): T {
       return;
     }
 
-    const frameId = globalThis.requestAnimationFrame(() => {
-      setDeferred(value);
-    });
-    return () => {
-      globalThis.cancelAnimationFrame?.(frameId);
-    };
+    // A suspended/dropped native frame must not leave the visible screen's
+    // focus, live data and controls inactive indefinitely. Cleanup cancels
+    // both the frame and its recovery timer when a newer focus wins.
+    return scheduleAfterVisualFrame(() => setDeferred(value));
   }, [deferred, value]);
 
   return deferred;

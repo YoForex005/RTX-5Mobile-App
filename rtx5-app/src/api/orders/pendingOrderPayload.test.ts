@@ -120,7 +120,7 @@ test('pending decimal fields reject zero, negative, non-finite, and excess preci
   }
 });
 
-test('pending protection distinguishes omission/null from forbidden literal zero', () => {
+test('pending protection never sends 0: omission, null and zero all mean no SL/TP', () => {
   const base = {
     account_login: 200074,
     symbol: 'EURUSD',
@@ -143,17 +143,64 @@ test('pending protection distinguishes omission/null from forbidden literal zero
   assert.equal(Object.hasOwn(explicitUnset, 'tp'), false);
   assert.equal(explicitUnset.expiry, null);
 
+  // Contract v3 6.3: for "no SL/TP" leave the field out or send null; do
+  // not send 0. A zero from the ticket UI is therefore omitted, never sent.
   for (const payload of [
     { ...base, sl: 0 },
     { ...base, tp: 0 },
     { ...base, price_sl: 0 },
     { ...base, price_tp: 0 },
+    { ...base, sl: '0', tp: '' },
   ]) {
-    assert.throws(
-      () => buildPendingOrderRequestBody(payload),
-      PendingOrderPayloadError,
-    );
+    const body = buildPendingOrderRequestBody(payload);
+    assert.equal(Object.hasOwn(body, 'sl'), false);
+    assert.equal(Object.hasOwn(body, 'tp'), false);
+    assert.doesNotMatch(JSON.stringify(body), /"(?:sl|tp)":0/);
   }
+
+  assert.throws(
+    () => buildPendingOrderRequestBody({ ...base, sl: -1 }),
+    PendingOrderPayloadError,
+  );
+});
+
+test('pending placement matches the contract example and always carries account_login', () => {
+  const futureExpiry = Math.floor(Date.now() / 1000) + 86_400;
+  const body = buildPendingOrderRequestBody({
+    account_login: '200074',
+    symbol: 'EURUSD',
+    side: 'buy',
+    volume: 0.01,
+    type: 'buy_limit',
+    price: '1.1300',
+    sl: '1.1250',
+    tp: '1.1400',
+    expiry: futureExpiry,
+    comment: 'RTX5 Mobile',
+  });
+  assert.deepEqual(body, {
+    account_login: 200074,
+    symbol: 'EURUSD',
+    volume: '0.01',
+    type: 'buy_limit',
+    price: '1.13',
+    sl: '1.125',
+    tp: '1.14',
+    expiry: futureExpiry,
+    comment: 'RTX5 Mobile',
+  });
+  assert.equal(typeof body.account_login, 'number');
+  assert.throws(
+    () => buildPendingOrderRequestBody({
+      account_login: 0,
+      symbol: 'EURUSD',
+      side: 'buy',
+      volume: 0.01,
+      type: 'buy_limit',
+      price: 1.13,
+    }),
+    PendingOrderPayloadError,
+  );
 });
 
 test('pending canonical options are validated and aliases cannot conflict', () => {
@@ -171,6 +218,7 @@ test('pending canonical options are validated and aliases cannot conflict', () =
     sl: '1.07',
     tp: '1.09',
     expiry: futureExpiry,
+    // Not part of the v3 pending contract: accepted from callers, never sent.
     fill_mode: 'fok',
   }), {
     account_login: 200074,
@@ -181,7 +229,6 @@ test('pending canonical options are validated and aliases cannot conflict', () =
     sl: '1.07',
     tp: '1.09',
     expiry: futureExpiry,
-    fill_mode: 'fok',
   });
 
   assert.throws(

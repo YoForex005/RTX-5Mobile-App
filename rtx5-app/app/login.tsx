@@ -1,20 +1,21 @@
+import { AuthEntryScreen } from '../src/features/auth/AuthEntryScreen';
 import { FastPressable as Pressable } from '../src/ui/components/FastPressable';
 import { Stack, router } from 'expo-router';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getSecureItemAsync, setSecureItemAsync, removeSecureItemAsync } from '../src/utils/secureStorage';
 import {
-  ActivityIndicator, Image, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Image, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
   type NativeSyntheticEvent,
   type TextInputEndEditingEventData,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { isLoginRequestAbortedError, loginAPI } from '../src/api/auth';
 import { redactAuthPayload, redactSensitiveString } from '../src/api/authRedaction';
 // Broker config API — validates broker_id before login and provides server_name
-import { checkBrokerServerHealth, getBrokerConfig, type BrokerServer } from '../src/api/broker';
+import { checkBrokerServerHealth, type BrokerServer } from '../src/api/broker';
 import {
   getBrokerBackendDomainUnavailableMessage,
   isBrokerServerUrlForApiBase,
@@ -24,13 +25,17 @@ import {
 } from '../src/api/brokerRouting';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useQueryClient } from '@tanstack/react-query';
-import { useBrokerServers, getBrokerConfigQueryKey } from '../src/query/broker';
+import { useBrokerServers } from '../src/query/broker';
 import {
   invalidateSessionQueryRoots,
 } from '../src/query/authenticatedQueryScope';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { useUserPreferences } from '../src/state/userPreferences';
-import { ORRNN_DEMO_PUBLIC_BROKER_ID } from '../src/api/orrnnDemoPublicMarket';
+import {
+  ORRNN_DEMO_PUBLIC_BROKER_ID,
+  ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL,
+  ORRNN_PUBLIC_DEMO_LOGIN_BROKER_ID,
+} from '../src/api/orrnnDemoPublicMarket';
 import { consumePendingTradeAuthIntent } from '../src/features/trade/tradeAuthGate';
 import {
   buildAccountEnvironmentKey,
@@ -41,7 +46,11 @@ import {
 } from '../src/domain/accountType';
 import { safeRouterBack } from '../src/utils/navigation';
 import { runImmediateAction } from '../src/utils/actionLatency';
-import { ActionSheet } from '../src/ui/components/ActionSheet';
+import {
+  createLoginBrokerPickerStore,
+  LoginBrokerPickerExpandedState,
+  LoginBrokerPickerSheet,
+} from '../src/features/settings/loginBrokerPicker';
 import { bootstrapApp } from '../src/services/bootstrapApp';
 import { recordAccountJournalEvent } from '../src/state/terminalJournalState';
 import { preloadRegisterScreen } from '../src/features/settings/registerScreenPreload';
@@ -52,11 +61,17 @@ import {
   isStaleBrokerSessionCommitError,
   type BrokerSessionCommitAuthorization,
 } from '../src/services/brokerSessionCoordinator';
-import { resolveSessionFeedAuth } from '../src/api/feedAuthContract';
 import {
-  getActiveBrokerSessionProvenance,
-  isActiveBrokerSessionProvenanceCurrent,
-} from '../src/state/activeBrokerSession';
+  isSameBrokerId,
+  readLoginAccountLogin,
+  resolveLoginExpiresAtIso,
+  resolveLoginServerName,
+} from '../src/api/authSession';
+import { enrichSignedInAccountProfile } from '../src/api/authSessionProfile';
+import { isInvestorReadOnlySession } from '../src/api/investorSession';
+import { useBrokerSignUpGate } from '../src/features/settings/BrokerDetailScreenRegistrationGate';
+import { getActiveBrokerSessionProvenance } from '../src/state/activeBrokerSession';
+import { resolveLoginFieldScrollOffset } from '../src/features/settings/loginKeyboardLayout';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
@@ -99,6 +114,11 @@ type LoginBrokerOption = {
 };
 
 const normalizeBrokerKey = (brokerId: string) => brokerId.trim().toLowerCase();
+
+// A failed /health probe is retried while the same broker stays selected, so a
+// transient cold-network failure clears itself instead of pinning "Selected
+// broker is unavailable" (and a disabled LOGIN) on a healthy broker.
+const BROKER_HEALTH_REPROBE_DELAYS_MS = [2000, 4000, 8000, 15000] as const;
 
 const formatLoginBrokerInitials = (name: string) => {
   const words = name
@@ -172,7 +192,9 @@ export function AccountLoginScreen() {
   const [brokerServerUrl, setBrokerServerUrl] = useState('');
   const [brokerLogoUrl, setBrokerLogoUrl] = useState('');
   const [brokerLogoFailed, setBrokerLogoFailed] = useState<Record<string, boolean>>({});
-  const [brokerPickerOpen, setBrokerPickerOpen] = useState(false);
+  // Picker open state lives outside this component so opening the sheet does
+  // not re-render the whole login form (see loginBrokerPicker.tsx).
+  const [brokerPickerStore] = useState(createLoginBrokerPickerStore);
   const [brokerHealthWarning, setBrokerHealthWarning] = useState('');
   const [isBrokerHealthChecking, setIsBrokerHealthChecking] = useState(false);
   const [healthVerifiedBrokerServerUrl, setHealthVerifiedBrokerServerUrl] = useState('');
@@ -182,7 +204,8 @@ export function AccountLoginScreen() {
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
-  const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
+  const { width, height, fontScale } = useWindowDimensions();
+  const styles = useMemo(() => makeStyles(T, isDark, insets, width, fontScale), [T, isDark, insets, width, fontScale]);
   const loginRequestInFlightRef = useRef(false);
   const loginMountedRef = useRef(true);
   const activeLoginAttemptRef = useRef<{
@@ -196,7 +219,61 @@ export function AccountLoginScreen() {
   const brokerLogoUrlValueRef = useRef<string | null>(null);
   const accountIdValueRef = useRef<string | null>(null);
   const passwordValueRef = useRef<string | null>(null);
+  const loginScrollRef = useRef<ScrollView>(null);
+  const brokerFieldRef = useRef<View>(null);
+  const loginIdFieldRef = useRef<View>(null);
+  const passwordFieldRef = useRef<View>(null);
+  const focusedFieldRef = useRef<View | null>(null);
+  const loginScrollOffsetRef = useRef(0);
+  const keyboardScrollFrameRef = useRef<number | null>(null);
+  const keepFocusedFieldVisible = useCallback(() => {
+    if (keyboardScrollFrameRef.current !== null) {
+      cancelAnimationFrame(keyboardScrollFrameRef.current);
+    }
+    // Wait for native resize/keyboard-avoidance layout before measuring. This
+    // also handles switching from the numeric Login ID keyboard to Password.
+    keyboardScrollFrameRef.current = requestAnimationFrame(() => {
+      keyboardScrollFrameRef.current = null;
+      const scroll = loginScrollRef.current;
+      const field = focusedFieldRef.current;
+      const keyboard = Keyboard.metrics();
+      if (!scroll || !field || !keyboard) return;
+      scroll.getNativeScrollRef()?.measureInWindow((_x, viewportTop, _width, viewportHeight) => {
+        field.measureInWindow((_fieldX, fieldTop, _fieldWidth, fieldHeight) => {
+          if (focusedFieldRef.current !== field || loginScrollRef.current !== scroll) return;
+          const scrollOffset = loginScrollOffsetRef.current;
+          const nextOffset = resolveLoginFieldScrollOffset({
+            fieldTop, fieldHeight, viewportTop, viewportHeight,
+            keyboardTop: keyboard.screenY, scrollOffset,
+          });
+          if (Math.abs(nextOffset - scrollOffset) > 1) {
+            scroll.scrollTo({ y: nextOffset, animated: true });
+          }
+        });
+      });
+    });
+  }, []);
+  const focusLoginField = (field: View | null) => {
+    focusedFieldRef.current = field;
+    keepFocusedFieldVisible();
+  };
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', keepFocusedFieldVisible);
+    const change = Keyboard.addListener('keyboardDidChangeFrame', keepFocusedFieldVisible);
+    return () => {
+      show.remove();
+      change.remove();
+      if (keyboardScrollFrameRef.current !== null) {
+        cancelAnimationFrame(keyboardScrollFrameRef.current);
+      }
+    };
+  }, [keepFocusedFieldVisible]);
   const brokerHealthProbeRef = useRef(0);
+  const brokerHealthInFlightRef = useRef<{ url: string; probeId: number; promise: Promise<boolean> } | null>(null);
+  const brokerHealthReprobeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const brokerHealthReprobeAttemptRef = useRef(0);
+  const brokerHealthReprobeUrlRef = useRef('');
+  const selectedBrokerServerUrlRef = useRef('');
   const healthVerifiedBrokerServerUrlRef = useRef('');
   const warmedBrokerServerUrlRef = useRef('');
   const hasSavedCredentialsRef = useRef(false);
@@ -269,7 +346,21 @@ export function AccountLoginScreen() {
         clearTimeout(loginSubmitPressGuardTimerRef.current);
         loginSubmitPressGuardTimerRef.current = null;
       }
+      if (brokerHealthReprobeTimerRef.current) {
+        clearTimeout(brokerHealthReprobeTimerRef.current);
+        brokerHealthReprobeTimerRef.current = null;
+      }
     };
+  }, []);
+
+  const clearBrokerHealthReprobe = useCallback((resetAttempts = false) => {
+    if (brokerHealthReprobeTimerRef.current) {
+      clearTimeout(brokerHealthReprobeTimerRef.current);
+      brokerHealthReprobeTimerRef.current = null;
+    }
+    if (resetAttempts) {
+      brokerHealthReprobeAttemptRef.current = 0;
+    }
   }, []);
 
   const clearBrokerHealthVerification = useCallback(() => {
@@ -295,37 +386,101 @@ export function AccountLoginScreen() {
       return true;
     }
 
+    // Join a probe that is still running for this exact host instead of
+    // superseding it (submit right after a picker selection, or a re-probe
+    // timer firing while the pre-warm probe is in flight).
+    const inFlight = brokerHealthInFlightRef.current;
+    if (
+      inFlight
+      && inFlight.url === normalizedServerUrl
+      && inFlight.probeId === brokerHealthProbeRef.current
+    ) {
+      return inFlight.promise;
+    }
+
     const probeId = brokerHealthProbeRef.current + 1;
     brokerHealthProbeRef.current = probeId;
+    clearBrokerHealthReprobe();
     // Do not clear a prior verification until this probe fails. Clearing on
     // every re-warm disabled LOGIN mid-flight while health was re-checked.
     setIsBrokerHealthChecking(true);
     setBrokerHealthWarning('');
 
-    try {
-      await checkBrokerServerHealth(normalizedServerUrl);
-      if (brokerHealthProbeRef.current === probeId) {
-        healthVerifiedBrokerServerUrlRef.current = normalizedServerUrl;
-        setHealthVerifiedBrokerServerUrl(normalizedServerUrl);
-        setBrokerHealthWarning('');
-        return true;
+    const probe = (async (): Promise<boolean> => {
+      try {
+        await checkBrokerServerHealth(normalizedServerUrl);
+        if (brokerHealthProbeRef.current === probeId) {
+          healthVerifiedBrokerServerUrlRef.current = normalizedServerUrl;
+          setHealthVerifiedBrokerServerUrl(normalizedServerUrl);
+          setBrokerHealthWarning('');
+          brokerHealthReprobeAttemptRef.current = 0;
+          return true;
+        }
+      } catch {
+        if (brokerHealthProbeRef.current === probeId) {
+          clearBrokerHealthVerification();
+          setBrokerHealthWarning(t('Selected broker is unavailable'));
+          scheduleBrokerHealthReprobe(normalizedServerUrl);
+        }
+      } finally {
+        if (brokerHealthProbeRef.current === probeId) {
+          setIsBrokerHealthChecking(false);
+        }
+        if (brokerHealthInFlightRef.current?.probeId === probeId) {
+          brokerHealthInFlightRef.current = null;
+        }
       }
-    } catch {
-      if (brokerHealthProbeRef.current === probeId) {
-        clearBrokerHealthVerification();
-        setBrokerHealthWarning(t('Selected broker is unavailable'));
-      }
-    } finally {
-      if (brokerHealthProbeRef.current === probeId) {
-        setIsBrokerHealthChecking(false);
-      }
+      return false;
+    })();
+    brokerHealthInFlightRef.current = { url: normalizedServerUrl, probeId, promise: probe };
+    return probe;
+  }, [clearBrokerHealthReprobe, clearBrokerHealthVerification, t]);
+  const probeBrokerHealthRef = useRef(probeBrokerHealth);
+  probeBrokerHealthRef.current = probeBrokerHealth;
+
+  // Declared as a function so probeBrokerHealth above can schedule it; it only
+  // touches refs, so the latest probe callback is read through a ref.
+  function scheduleBrokerHealthReprobe(serverUrl: string) {
+    clearBrokerHealthReprobe();
+    if (!loginMountedRef.current) {
+      return;
     }
-    return false;
-  }, [clearBrokerHealthVerification, t]);
+    // A different host starts its own backoff from the first (2 s) step.
+    if (brokerHealthReprobeUrlRef.current !== serverUrl) {
+      brokerHealthReprobeUrlRef.current = serverUrl;
+      brokerHealthReprobeAttemptRef.current = 0;
+    }
+    const attempt = brokerHealthReprobeAttemptRef.current;
+    brokerHealthReprobeAttemptRef.current = attempt + 1;
+    const delayMs = BROKER_HEALTH_REPROBE_DELAYS_MS[
+      Math.min(attempt, BROKER_HEALTH_REPROBE_DELAYS_MS.length - 1)
+    ];
+    brokerHealthReprobeTimerRef.current = setTimeout(() => {
+      brokerHealthReprobeTimerRef.current = null;
+      if (
+        !loginMountedRef.current
+        || selectedBrokerServerUrlRef.current !== serverUrl
+        || healthVerifiedBrokerServerUrlRef.current === serverUrl
+      ) {
+        return;
+      }
+      void probeBrokerHealthRef.current(serverUrl);
+    }, delayMs);
+  }
 
   const updateBrokerId = (value: string) => {
     hasResolvedLoggedOutBrokerDefaultRef.current = true;
+    // onEndEditing re-sends the unchanged text on blur. Keep the selected
+    // broker's health result: wiping it here left LOGIN disabled with no
+    // re-probe, because the selected broker (and the pre-warm effect) did not
+    // change.
+    if (normalizeBrokerKey(value) === normalizeBrokerKey(brokerIdValueRef.current ?? brokerId)) {
+      brokerIdValueRef.current = value;
+      setBrokerId(value);
+      return;
+    }
     brokerHealthProbeRef.current += 1;
+    clearBrokerHealthReprobe(true);
     clearBrokerHealthVerification();
     brokerIdValueRef.current = value;
     setBrokerId(value);
@@ -354,10 +509,11 @@ export function AccountLoginScreen() {
       return;
     }
     brokerHealthProbeRef.current += 1;
+    clearBrokerHealthReprobe(true);
     clearBrokerHealthVerification();
     warmedBrokerServerUrlRef.current = option.serverUrl;
     void probeBrokerHealth(option.serverUrl);
-  }, [clearBrokerHealthVerification, probeBrokerHealth]);
+  }, [clearBrokerHealthReprobe, clearBrokerHealthVerification, probeBrokerHealth]);
 
   const selectBrokerOptionFromPicker = useCallback((option: LoginBrokerOption) => {
     hasResolvedLoggedOutBrokerDefaultRef.current = true;
@@ -455,7 +611,9 @@ export function AccountLoginScreen() {
       return;
     }
     const publicDemoOption = brokerOptions.find(
-      (option) => option.brokerId === ORRNN_DEMO_PUBLIC_BROKER_ID,
+      (option) =>
+        option.brokerId === ORRNN_PUBLIC_DEMO_LOGIN_BROKER_ID
+        && option.serverUrl === ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL,
     );
     if (!publicDemoOption) {
       return;
@@ -468,8 +626,9 @@ export function AccountLoginScreen() {
       return;
     }
 
-    // The trade guard was opened from the selected public demo broker. Do not
-    // carry a different broker's saved account/password into this login form.
+    // The logged-out Demo market is served by Orrnn V2. Authenticate against
+    // that validated broker route, not the offline legacy orrnn-demo host.
+    // Clear credentials from any previously selected broker.
     selectBrokerOption(publicDemoOption);
     accountIdValueRef.current = '';
     passwordValueRef.current = '';
@@ -508,6 +667,9 @@ export function AccountLoginScreen() {
     if (/network|fetch|connection/i.test(message)) {
       return t('Unable to reach the broker directory. Check this device\'s internet connection and retry.');
     }
+    if (/broker list unavailable/i.test(message)) {
+      return t('Broker list unavailable. The broker directory returned an unexpected response. Retry or contact support.');
+    }
     if (/contract|invalid json|schema/i.test(message)) {
       return t('Broker directory returned invalid data. Retry or contact support.');
     }
@@ -530,11 +692,18 @@ export function AccountLoginScreen() {
     if (!serverUrl) {
       brokerHealthProbeRef.current += 1;
       warmedBrokerServerUrlRef.current = '';
+      clearBrokerHealthReprobe(true);
       clearBrokerHealthVerification();
       setIsBrokerHealthChecking(false);
       return;
     }
-    if (healthVerifiedBrokerServerUrlRef.current !== serverUrl) {
+    // Only drop a verification that belongs to a different host. Clearing
+    // unconditionally also reset "Checking broker server..." while the probe
+    // started by a picker selection was still running.
+    if (
+      healthVerifiedBrokerServerUrlRef.current
+      && healthVerifiedBrokerServerUrlRef.current !== serverUrl
+    ) {
       clearBrokerHealthVerification();
     }
     if (warmedBrokerServerUrlRef.current === serverUrl) {
@@ -542,7 +711,7 @@ export function AccountLoginScreen() {
     }
     warmedBrokerServerUrlRef.current = serverUrl;
     void probeBrokerHealth(serverUrl);
-  }, [savedCredentialsChecked, selectedBrokerOption, clearBrokerHealthVerification, probeBrokerHealth]);
+  }, [savedCredentialsChecked, selectedBrokerOption, clearBrokerHealthReprobe, clearBrokerHealthVerification, probeBrokerHealth]);
 
   const resolveBrokerSelectionError = useCallback((candidateBrokerId: string, candidateServerUrl = '') => {
     const candidateKey = normalizeBrokerKey(candidateBrokerId);
@@ -577,6 +746,10 @@ export function AccountLoginScreen() {
     brokerServerUrlValueRef.current || selectedBrokerServerUrl,
   );
   const exactSelectedBrokerServerUrl = normalizeBrokerServerUrl(selectedBrokerOption?.serverUrl || '');
+  selectedBrokerServerUrlRef.current = exactSelectedBrokerServerUrl;
+  // Contract v3: hide sign-up when the selected broker's /broker/config says
+  // registration_enabled:false (Trivanta and Orrnn both do).
+  const signUpGate = useBrokerSignUpGate(exactSelectedBrokerServerUrl);
   const isSelectedBrokerHealthVerified = Boolean(
     exactSelectedBrokerServerUrl
     && healthVerifiedBrokerServerUrl === exactSelectedBrokerServerUrl,
@@ -750,6 +923,19 @@ export function AccountLoginScreen() {
       return;
     }
     if (healthVerifiedBrokerServerUrlRef.current !== normalizedServerUrl) {
+      // "Not verified yet" is not "unavailable": join the probe still running
+      // for this exact host (or run one) and only fail closed on a real failure.
+      loginRequestInFlightRef.current = true;
+      try {
+        await probeBrokerHealth(normalizedServerUrl);
+      } finally {
+        loginRequestInFlightRef.current = false;
+      }
+      if (!loginMountedRef.current) {
+        return;
+      }
+    }
+    if (healthVerifiedBrokerServerUrlRef.current !== normalizedServerUrl) {
       const unavailableMessage = t('Selected broker is unavailable');
       setIsLoading(false);
       setBrokerHealthWarning(unavailableMessage);
@@ -810,7 +996,9 @@ export function AccountLoginScreen() {
         : {
             username: normalizedAccountId,
             password: currentPassword,
-            broker_id: normalizedBrokerId,
+            // broker_id is case-sensitive on the server: send the exact
+            // directory value, never the typed/normalized text.
+            broker_id: selectedEndpoints.brokerId,
           },
       { serverUrl: normalizedServerUrl, signal: loginAbortController.signal },
     );
@@ -828,14 +1016,14 @@ export function AccountLoginScreen() {
       // can't silently break login and leave trades with an undefined JWT.
       const accessToken = response.access_token ?? response.token;
       const refreshToken = response.refresh_token ?? response.refreshToken;
-      const accountLogin =
-        response.account_login ??
-        response.accountLogin ??
-        response.user?.account_login ??
-        response.user?.id ??
-        response.username ??
-        response.user?.username ??
-        normalizedAccountId;
+      if (!accessToken) {
+        throw new Error(t('Login server did not return an access token.'));
+      }
+      // Contract v3: account_login null means no trading account; stop here.
+      const accountLogin = readLoginAccountLogin(response, normalizedAccountId);
+      // Contract v3 sends no name/server/account type. These are placeholders
+      // until enrichSignedInAccountProfile reads /account/{login} and
+      // /broker/config after the session is committed.
       const accountName =
         response.account_name ??
         response.accountName ??
@@ -846,44 +1034,24 @@ export function AccountLoginScreen() {
         response.username ??
         response.user?.username ??
         'Trader';
-      const serverName =
-        response.server ?? response.broker_server ?? response.brokerServer;
+      // expires_at is epoch seconds; expires_in is the fallback.
+      const expiresAtIso = resolveLoginExpiresAtIso(response);
 
-      if (!accessToken || !accountLogin) {
-        // Without a token or a resolvable account login every downstream
-        // REST/WS call is broken. Fail the login here with a clear message
-        // instead of allowing a half-authenticated session.
-        console.warn('[Login] Unexpected auth response shape', {
-          hasAccessToken: Boolean(accessToken),
-          hasAccountLogin: Boolean(accountLogin),
-        });
-        throw new Error(
-          !accessToken
-            ? t('Login server did not return an access token.')
-            : t('Login server did not return an account login.'),
-        );
-      }
-
-      // Compute expiresAt: spec uses `expires_at` (epoch seconds), older
-      // shape uses `expires_in` (seconds from now). Accept both.
-      const expiresAtIso = (() => {
-        if (typeof response.expires_at === 'number' && response.expires_at > 0) {
-          // If it's an epoch in seconds (< year 3000 in ms), treat as seconds.
-          const ms = response.expires_at > 1e12 ? response.expires_at : response.expires_at * 1000;
-          return new Date(ms).toISOString();
-        }
-        const expiresInSec = typeof response.expires_in === 'number' ? response.expires_in : 86400;
-        return new Date(Date.now() + expiresInSec * 1000).toISOString();
-      })();
-
-      // Use the broker_id from the API response as canonical — the server
-      // validates and returns it, so it's always correct. Falls back to
-      // the user-typed value if the response doesn't include it.
-      const canonicalBrokerId = response.broker_id || response.brokerId || normalizedBrokerId;
-      if (normalizeBrokerKey(canonicalBrokerId) !== normalizeBrokerKey(selectedEndpoints.brokerId)) {
+      // The response broker_id must match the selection ignoring case. The
+      // exact directory value is kept for later requests and saved rows.
+      const responseBrokerId = response.broker_id || response.brokerId || selectedEndpoints.brokerId;
+      if (!isSameBrokerId(responseBrokerId, selectedEndpoints.brokerId)) {
         throw new Error(t('Login response did not match the selected broker.'));
       }
-      const immediateServerName = serverName || canonicalBrokerId;
+      const canonicalBrokerId = selectedEndpoints.brokerId;
+      const directoryBrokerName = brokerOptions.find(
+        (option) => option.key === normalizeBrokerKey(canonicalBrokerId),
+      )?.brokerName;
+      const immediateServerName = resolveLoginServerName({
+        brokerConfigServerName: response.server ?? response.broker_server ?? response.brokerServer,
+        directoryBrokerName,
+        brokerId: canonicalBrokerId,
+      });
       const savedLogin = String(accountLogin);
       const accountEnvironmentEvidence = resolveAccountEnvironment(response, true);
       const resolvedAccountType = accountEnvironmentEvidence.accountType;
@@ -913,11 +1081,6 @@ export function AccountLoginScreen() {
       const accountType = initialAccountEnvironment.accountType;
       const accountEnvironmentSource = initialAccountEnvironment.accountEnvironmentSource;
       const responseAccountGroup = readRawAccountGroup(response);
-      const sessionFeed = resolveSessionFeedAuth({
-        response,
-        brokerId: selectedEndpoints.brokerId,
-        accountLogin: normalizedAccountId,
-      });
 
       const committedSession = await commitBrokerSession({
         session: {
@@ -928,14 +1091,14 @@ export function AccountLoginScreen() {
           tradeWsBase: selectedEndpoints.tradeWsBase,
           feedStatusUrl: selectedEndpoints.feedStatusUrl,
           servicesDomain: selectedEndpoints.servicesDomain,
-          feedAuthContext: sessionFeed.feedAuthContext,
           configVersion: selectedEndpoints.configVersion,
+          // login_type "investor": read-only session, trade actions are hidden.
+          investor: isInvestorReadOnlySession(response),
         },
         credentials: {
           accessToken,
           refreshToken: refreshToken ?? '',
           expiresAt: expiresAtIso,
-          ...(sessionFeed.feedToken ? { feedToken: sessionFeed.feedToken } : {}),
         },
         account: {
           name: accountName,
@@ -994,21 +1157,30 @@ export function AccountLoginScreen() {
         // The saved row must exist before bootstrap can return classification
         // evidence; otherwise a fast response would update only canonical
         // session state and the following seed write could persist stale data.
-        void bootstrapApp({
+        const bootstrapPromise = bootstrapApp({
           accountLogin: savedLogin,
           expectedProvenance: committedProvenance,
-        }).catch((err) => {
-          console.warn('[Login] Post-login bootstrap failed', redactAuthPayload(err));
         });
+        bootstrapPromise.catch((err) => {
+          console.error('[Login] Post-login bootstrap failed', redactAuthPayload(err));
+        });
+        // Name from /account/{login} (reusing bootstrap's fetch) and server
+        // from /broker/config. Never blocks or fails the login.
+        void enrichSignedInAccountProfile({
+          provenance: committedProvenance,
+          brokerId: canonicalBrokerId,
+          accountLogin: savedLogin,
+          accountDetail: bootstrapPromise.then((result) => result?.accounts ?? undefined),
+        }).catch(() => undefined);
         setSavedAccountPassword(canonicalBrokerId, savedLogin, currentPassword).catch((err) => {
-          console.warn('[Login] Failed to persist saved-account credential', redactAuthPayload(err));
+          console.error('[Login] Failed to persist saved-account credential', redactAuthPayload(err));
         });
 
         // Refresh session-scoped caches after navigation has started.
         void invalidateSessionQueryRoots(
           queryClient,
           committedSession.session.cacheNamespace,
-          ['accountsList', 'accountDetail', 'brokerConfig'],
+          ['accountDetail', 'brokerConfig'],
         );
 
         // Keep remembered-login storage off the critical route change.
@@ -1027,51 +1199,6 @@ export function AccountLoginScreen() {
           removeSecureItemAsync(screenCopy.savedLoginKey);
         }
 
-        if (!isActiveBrokerSessionProvenanceCurrent(committedProvenance)) return;
-        void getBrokerConfig(canonicalBrokerId)
-          .then((brokerConfig) => {
-            if (!isActiveBrokerSessionProvenanceCurrent(committedProvenance)) return;
-            queryClient.setQueryData(
-              getBrokerConfigQueryKey(committedSession.session.cacheNamespace, canonicalBrokerId),
-              brokerConfig,
-            );
-            if (canonicalBrokerId !== normalizedBrokerId) {
-              queryClient.setQueryData(
-                getBrokerConfigQueryKey(committedSession.session.cacheNamespace, normalizedBrokerId),
-                brokerConfig,
-              );
-            }
-            if (brokerConfig.server_name && brokerConfig.server_name !== immediateServerName) {
-              // Bootstrap may have refreshed the environment while this
-              // independent broker-config request was in flight. Re-read the
-              // account row so this late metadata write cannot restore stale
-              // login-time classification evidence.
-              const latestSavedAccount = useSavedAccounts.getState().accounts.find(
-                (account) =>
-                  buildAccountEnvironmentKey(account.brokerId, account.login)
-                  === accountEnvironmentKey,
-              );
-              const latestRawGroup =
-                latestSavedAccount?.rawGroup ?? responseAccountGroup;
-              upsertSavedAccount({
-                login: savedLogin,
-                name: accountName,
-                brokerId: canonicalBrokerId,
-                server: brokerConfig.server_name,
-                serverUrl: normalizedServerUrl,
-                logoUrl: selectedLogoUrl,
-                accountType: latestSavedAccount?.accountType ?? accountType,
-                accountEnvironmentSource:
-                  latestSavedAccount?.accountEnvironmentSource ?? accountEnvironmentSource,
-                ...(latestRawGroup ? { rawGroup: latestRawGroup } : {}),
-                lastUsedAt: Date.now(),
-                hasCredentials: true,
-              });
-            }
-          })
-          .catch((err) => {
-            console.warn('[Login] Broker config refresh failed after login', redactAuthPayload(err));
-          });
       });
       
     } catch (error: any) {
@@ -1135,10 +1262,15 @@ export function AccountLoginScreen() {
   const handleBrokerPickerPress = () => {
     runImmediateAction('login.brokerPicker.open', () => {
       Keyboard.dismiss();
+      brokerPickerStore.open();
       if (brokerOptions.length === 0 && !isBrokerServersLoading && !isBrokerServersFetching) {
-        void refetchBrokerServers();
+        // Start the retry after the sheet has painted; the query's fetching
+        // state change re-renders the whole screen and must not land in the
+        // opening frame.
+        requestAnimationFrame(() => {
+          void refetchBrokerServers();
+        });
       }
-      setBrokerPickerOpen(true);
     });
   };
 
@@ -1166,7 +1298,10 @@ export function AccountLoginScreen() {
           }
         `}</style>
       )}
-      <View style={styles.bg}>
+      <KeyboardAvoidingView
+        style={styles.bg}
+        behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+      >
 
 
         {/* ── Header ── */}
@@ -1182,12 +1317,14 @@ export function AccountLoginScreen() {
           <Text style={styles.headerTitle}>{t(screenCopy.headerTitle)}</Text>
         </View>
 
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
           <ScrollView
+            ref={loginScrollRef}
+            style={styles.container}
             contentContainerStyle={styles.scrollContent}
+            onLayout={keepFocusedFieldVisible}
+            onContentSizeChange={keepFocusedFieldVisible}
+            onScroll={(event) => { loginScrollOffsetRef.current = event.nativeEvent.contentOffset.y; }}
+            scrollEventThrottle={16}
             keyboardShouldPersistTaps="always"
             canCancelContentTouches={Platform.OS === 'ios'}
           >
@@ -1209,7 +1346,7 @@ export function AccountLoginScreen() {
             <View style={styles.formContainer}>
 
               {/* Broker Server Field */}
-              <View style={styles.fieldBlock}>
+              <View ref={brokerFieldRef} collapsable={false} style={styles.fieldBlock}>
                 <Text style={styles.inputLabel}>{t('Broker Server')}</Text>
                 <View style={[styles.inputRow, styles.brokerInputRow]}>
                   <View
@@ -1236,6 +1373,7 @@ export function AccountLoginScreen() {
                     <TextInput
                       style={[styles.input, styles.brokerInput, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                       value={brokerId}
+                      onFocus={() => focusLoginField(brokerFieldRef.current)}
                       onChangeText={updateBrokerId}
                       onEndEditing={updateBrokerIdFromEndEditing}
                       autoCapitalize="none"
@@ -1274,42 +1412,47 @@ export function AccountLoginScreen() {
                       ) : null}
                     </View>
                   </View>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.brokerPickerBtn,
-                      pressed && styles.brokerPickerBtnPressed,
-                    ]}
-                    onPress={handleBrokerPickerPress}
-                    activateOnPressIn
-                    activateOnTouchStart
-                    hitSlop={LOGIN_TOUCH_HIT_SLOP}
-                    latencyLabel="login.brokerPicker.open"
-                    accessibilityRole="button"
-                    accessibilityLabel={t('Select broker')}
-                    accessibilityState={{
-                      expanded: brokerPickerOpen,
-                      busy: isBrokerServersLoading || isBrokerServersFetching,
-                    }}
-                    testID="login-broker-picker-button"
-                  >
-                    {isBrokerServersLoading || isBrokerServersFetching ? (
-                      <ActivityIndicator size="small" color={T.accent} />
-                    ) : (
-                      <Ionicons name="chevron-down" size={19} color={T.accent} />
+                  <LoginBrokerPickerExpandedState store={brokerPickerStore}>
+                    {(brokerPickerExpanded) => (
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.brokerPickerBtn,
+                          pressed && styles.brokerPickerBtnPressed,
+                        ]}
+                        onPress={handleBrokerPickerPress}
+                        activateOnPressIn
+                        activateOnTouchStart
+                        hitSlop={LOGIN_TOUCH_HIT_SLOP}
+                        latencyLabel="login.brokerPicker.open"
+                        accessibilityRole="button"
+                        accessibilityLabel={t('Select broker')}
+                        accessibilityState={{
+                          expanded: brokerPickerExpanded,
+                          busy: isBrokerServersLoading || isBrokerServersFetching,
+                        }}
+                        testID="login-broker-picker-button"
+                      >
+                        {isBrokerServersLoading || isBrokerServersFetching ? (
+                          <ActivityIndicator size="small" color={T.accent} />
+                        ) : (
+                          <Ionicons name="chevron-down" size={19} color={T.accent} />
+                        )}
+                      </Pressable>
                     )}
-                  </Pressable>
+                  </LoginBrokerPickerExpandedState>
                 </View>
               </View>
               <View style={styles.fieldDivider} />
 
               {/* Login ID Field */}
-              <View style={styles.fieldBlock}>
+              <View ref={loginIdFieldRef} collapsable={false} style={styles.fieldBlock}>
                 <Text style={styles.inputLabel}>{t('Login ID')}</Text>
                 <View style={styles.inputRow}>
                   <Ionicons name="person-outline" size={21} color={T.textSub} style={styles.inputLeadingIcon} />
                   <TextInput
                     style={[styles.input, styles.stackedInput, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                     value={accountId}
+                    onFocus={() => focusLoginField(loginIdFieldRef.current)}
                     onChangeText={updateAccountId}
                     onEndEditing={updateAccountIdFromEndEditing}
                     autoCapitalize="none"
@@ -1329,13 +1472,14 @@ export function AccountLoginScreen() {
               <View style={styles.fieldDivider} />
 
               {/* Password Field */}
-              <View style={styles.fieldBlock}>
+              <View ref={passwordFieldRef} collapsable={false} style={styles.fieldBlock}>
                 <Text style={styles.inputLabel}>{t('Password')}</Text>
                 <View style={styles.inputRow}>
                   <Ionicons name="lock-closed-outline" size={21} color={T.textSub} style={styles.inputLeadingIcon} />
                   <TextInput
                     style={[styles.input, styles.stackedInput, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                     value={password}
+                    onFocus={() => focusLoginField(passwordFieldRef.current)}
                     onChangeText={updatePassword}
                     onEndEditing={updatePasswordFromEndEditing}
                     autoCapitalize="none"
@@ -1398,6 +1542,7 @@ export function AccountLoginScreen() {
                 )}
               </Pressable>
 
+              {signUpGate.any && (
               <View style={styles.registerPromptRow}>
                 <Text style={styles.registerPromptText}>{t("Don't have an account?")}</Text>
                 <Pressable
@@ -1419,16 +1564,15 @@ export function AccountLoginScreen() {
                   <Text style={styles.registerAccountText}>{t('Register an account')}</Text>
                 </Pressable>
               </View>
+              )}
             </View>
 
           </ScrollView>
-        </KeyboardAvoidingView>
 
-        <ActionSheet
-          visible={brokerPickerOpen}
+        <LoginBrokerPickerSheet
+          store={brokerPickerStore}
           title="Select Broker"
           actions={brokerPickerActions}
-          onClose={() => setBrokerPickerOpen(false)}
           searchable={brokerOptions.length > 0}
           searchPlaceholder="Search brokers..."
           detent="large"
@@ -1446,16 +1590,16 @@ export function AccountLoginScreen() {
         {modalState.visible && (
           <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
             <Pressable style={StyleSheet.absoluteFillObject} onPress={handleModalClose} />
-            <View style={styles.successModal}>
+            <ScrollView keyboardShouldPersistTaps="always" canCancelContentTouches={Platform.OS === 'ios'} style={[styles.successModal, { maxHeight: Math.max(0, height - insets.top - insets.bottom - 48) }]} contentContainerStyle={styles.successModalContent}>
               <View style={[styles.successIconBox, modalState.type === 'error' && { backgroundColor: T.trading.sell.primary }]}>
                 <Ionicons name={modalState.type === 'success' ? 'checkmark' : 'close'} size={32} color="#fff" />
               </View>
               <Text style={styles.successTitle}>{modalState.title}</Text>
               <Text style={styles.successDesc}>{modalState.message}</Text>
-            </View>
+            </ScrollView>
           </View>
         )}
-      </View>
+      </KeyboardAvoidingView>
     </>
   );
 }
@@ -1464,22 +1608,25 @@ export function AccountLoginScreen() {
 /**
  * Main entry point for authentication. Allows the user to select an existing account or proceed to login with a new account.
  */
-export default function LoginScreen() {
+function LegacyLoginScreen() {
   return <AccountLoginScreen />;
 }
 
-function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
+function makeStyles(T: ThemeColors, isDark: boolean, insets: EdgeInsets, width: number, fontScale: number) {
   const pageBg = T.bg;
   const fieldBg = isDark ? T.glass1 : '#FFFFFF';
   const fieldBorder = isDark ? T.border : '#DFE7F1';
   const shadowColor = isDark ? '#000000' : T.textDark;
   const secondaryText = isDark ? '#93C5FD' : T.trading.buy.primary;
+  const pageGutter = width - insets.left - insets.right < 360 ? 20 : 34;
 
   return StyleSheet.create({
     bg: {
       flex: 1,
       backgroundColor: T.bg,
-      paddingTop: safeTop + 8,
+      paddingTop: insets.top + 8,
+      paddingLeft: insets.left,
+      paddingRight: insets.right,
     },
     container: {
       flex: 1,
@@ -1502,15 +1649,17 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       backgroundColor: T.glass1,
     },
     headerTitle: {
+      flex: 1,
+      minWidth: 0,
       color: T.text,
       fontSize: 20,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
 
     scrollContent: {
       paddingTop: 20,
-      paddingBottom: 36,
+      paddingBottom: Math.max(36, insets.bottom + 16),
     },
 
     /* Section Title */
@@ -1518,7 +1667,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       width: '100%',
       maxWidth: 760,
       alignSelf: 'center',
-      paddingHorizontal: 34,
+      paddingHorizontal: pageGutter,
       paddingTop: 0,
       paddingBottom: 30,
     },
@@ -1543,7 +1692,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       width: '100%',
       maxWidth: 760,
       alignSelf: 'center',
-      paddingHorizontal: 34,
+      paddingHorizontal: pageGutter,
       marginTop: 0,
     },
 
@@ -1571,9 +1720,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       elevation: isDark ? 0 : 1,
     },
     brokerInputRow: {
-      height: 80,
-      minHeight: 80,
-      paddingVertical: 0,
+      minHeight: Math.max(80, Math.ceil(80 * fontScale)),
+      paddingVertical: 12,
       alignItems: 'center',
     },
     inputLabel: {
@@ -1586,6 +1734,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     input: {
       flex: 1,
+      minWidth: 0,
       color: T.text,
       fontSize: 16,
       lineHeight: 22,
@@ -1593,7 +1742,6 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       padding: 0,
       paddingHorizontal: 0,
       margin: 0,
-      height: '100%' as any,
       textAlignVertical: 'center',
       backgroundColor: 'transparent',
       borderWidth: 0,
@@ -1608,12 +1756,13 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       justifyContent: 'center',
     },
     stackedInput: {
-      height: 40,
+      height: Math.max(40, Math.ceil(22 * fontScale + 16)),
       minHeight: 40,
       marginTop: 0,
     },
     brokerInput: {
-      height: 25,
+      flex: 0,
+      height: Math.max(25, Math.ceil(22 * fontScale + 3)),
       minHeight: 25,
       marginTop: 0,
     },
@@ -1641,9 +1790,9 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       color: T.trading.sell.primary,
     },
     brokerHealthStatusSlot: {
-      // Keep one status line inside the fixed broker row so health state does
-      // not create an empty band between Broker Server and Login ID.
-      minHeight: 17,
+      // An empty status must not shift the broker name away from the logo's
+      // center. The row can grow when a checking/error message is present.
+      minHeight: 0,
     },
 
     /* Divider between fields */
@@ -1702,6 +1851,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       paddingVertical: 2,
     },
     checkboxText: {
+      flexShrink: 1,
       color: T.textSub,
       fontSize: 14,
       fontWeight: '500',
@@ -1712,6 +1862,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     loginBtn: {
       backgroundColor: T.trading.buy.primary,
       minHeight: 56,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
       borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
@@ -1726,6 +1878,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       opacity: 0.85,
     },
     loginBtnText: {
+      textAlign: 'center',
+      flexShrink: 1,
       color: '#ffffff',
       fontSize: 16,
       fontWeight: '600',
@@ -1734,11 +1888,13 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
 
     registerPromptRow: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: 16,
     },
     registerPromptText: {
+      textAlign: 'center',
       color: T.textSub,
       fontSize: 13,
       lineHeight: 20,
@@ -1757,6 +1913,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       opacity: 0.82,
     },
     registerAccountText: {
+      textAlign: 'center',
       color: secondaryText,
       fontSize: 13,
       fontWeight: '700',
@@ -1771,15 +1928,17 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       elevation: 999,
     },
     successModal: {
-      width: '85%',
+      width: '100%',
       maxWidth: 340,
       backgroundColor: T.glass2,
       borderRadius: 24,
-      padding: 24,
-      alignItems: 'center',
       borderWidth: 1,
       borderColor: T.borderMedium,
       shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 12,
+    },
+    successModalContent: {
+      padding: 24,
+      alignItems: 'center',
     },
     successIconBox: {
       width: 64,
@@ -1817,3 +1976,6 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
   });
 }
+
+export default function SharedAuthenticationEntry() { return <AuthEntryScreen form="login" />; }
+

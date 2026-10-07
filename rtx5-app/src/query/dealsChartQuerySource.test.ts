@@ -28,14 +28,19 @@ test('chart deals use an unfiltered, broker-session-scoped accountDeals cache en
   assert.doesNotMatch(hook, /useUserPreferences|resolveEffectiveHistoryDateRange|options\.(?:from|to)/);
 });
 
-test('chart deals reuse the account and login endpoint merge path', () => {
+test('deals use paged /account/deals first and /deals/{login} only as a fallback', () => {
+  // Contract v3 6.4: /account/deals is the primary source (offset paging,
+  // 1000 rows per page); /deals/{login} ignores paging and has no
+  // position_ticket, so the two are no longer merged.
   const fetcher = sliceBetween(
     'const fetchAccountDealsWithLoginFallback',
     'export function useAccountDealsQuery',
   );
 
-  assert.match(fetcher, /Promise\.all\(/);
-  assert.match(fetcher, /dealsApi\.getAccountDeals\(/);
-  assert.match(fetcher, /getLoginDealsWithRangeFallback\(login, from, to\)/);
-  assert.match(fetcher, /mergeDealHistorySources\(/);
+  assert.match(fetcher, /await fetchAllAccountDeals\(\{ from, to \}\)/);
+  assert.match(fetcher, /catch \(accountError\)[\s\S]*getLoginDealsWithRangeFallback\(login, from, to\)/);
+  assert.doesNotMatch(fetcher, /Promise\.all\(|mergeDealHistorySources\(/);
+
+  const journalHook = sliceBetween('export function useDealsQuery', '\n}\n');
+  assert.match(journalHook, /fetchAccountDealsWithLoginFallback\(login, from, to\)/);
 });

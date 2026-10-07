@@ -49,7 +49,7 @@ export const makeAboutStyles = (isDark = false) => {
       color: palette.text,
       fontSize: 20,
       lineHeight: 26,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     content: {
@@ -58,7 +58,7 @@ export const makeAboutStyles = (isDark = false) => {
     },
     identity: {
       alignItems: 'center',
-      paddingTop: 42,
+      paddingTop: 16,
     },
     logo: {
       width: 96,
@@ -139,7 +139,7 @@ export const makeAboutStyles = (isDark = false) => {
       color: palette.text,
       fontSize: 21,
       lineHeight: 27,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     contactKeyboardAvoider: {

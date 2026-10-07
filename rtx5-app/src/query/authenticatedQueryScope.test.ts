@@ -23,19 +23,12 @@ test('market-data credential scope rotates while the account cache namespace sta
       tradeWsBase: 'wss://service.achieverfinancials.com/ws/v2',
       feedStatusUrl: 'https://service.achieverfinancials.com/ws/feed/status',
       servicesDomain: 'service.achieverfinancials.com',
-      feedAuthContext: {
-        mode: 'query',
-        credential: 'feed_token',
-        tokenQueryParam: 'token',
-        brokerIdQueryParam: 'broker_id',
-      },
       configVersion: 'cfg-achiever',
     },
     {
       accessToken: 'access-1',
       refreshToken: 'refresh-1',
       expiresAt: '2099-01-01T00:00:00.000Z',
-      feedToken: 'feed-1',
     },
   );
   const cacheNamespace = capture.session.cacheNamespace;
@@ -47,9 +40,7 @@ test('market-data credential scope rotates while the account cache namespace sta
       accessToken: 'access-2',
       refreshToken: 'refresh-2',
       expiresAt: '2099-01-02T00:00:00.000Z',
-      feedToken: 'feed-2',
     },
-    capture.session.feedAuthContext,
   ), true);
 
   const afterCapture = captureActiveBrokerSession();

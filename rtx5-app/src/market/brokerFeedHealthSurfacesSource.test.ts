@@ -13,8 +13,10 @@ test('authenticated price surfaces show broker-scoped outage reason, last succes
 
   assert.match(
     banner,
-    /buildFeedHealthBannerModel\(\s*state,\s*brokerName \|\| identity\.brokerId,\s*capture\?\.session\.feedAuthContext,\s*\)/,
+    /buildFeedHealthBannerModel\(state, brokerName \|\| identity\.brokerId\)/,
   );
+  // Contract v3: the quote feed has no auth contract to surface.
+  assert.doesNotMatch(banner, /feedAuthContext/);
   assert.match(banner, /feedHealthStateMatchesIdentity\(state, identity\)/);
   assert.match(banner, /requestFeedHealthRetry\(identity\)/);
   assert.match(banner, /t\('Last success'\)/);

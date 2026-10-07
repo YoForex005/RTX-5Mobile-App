@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
@@ -21,39 +21,58 @@ function assertGuardBefore(block: string, laterMarker: string): void {
   assert.ok(guardIndex < laterIndex, `guard must run before ${laterMarker}`);
 }
 
-test('trade auth prompt uses the native Android alert, safe actions, and direct routes', () => {
+test('all guest trading entry points share one root authentication modal', () => {
   const source = readSource('src/features/trade/tradeAuthPrompt.ts');
-  const rootSource = readSource('app/_layout.tsx');
-
-  assert.match(source, /import \{ Alert \} from 'react-native'/);
-  assert.match(source, /Alert\.alert\(/);
-  assert.match(
-    source,
-    /Create a demo account to place the trade, or log in if you already have credentials\./,
-  );
-  assert.match(source, /text: 'Not now'/);
-  assert.match(source, /text: 'Log In'[\s\S]*router\.push\('\/login'\)/);
-  assert.match(source, /text: 'Create Demo Account'[\s\S]*router\.push\('\/register-entry'\)/);
-  assert.ok(source.indexOf("text: 'Not now'") < source.indexOf("text: 'Log In'"));
-  assert.ok(source.indexOf("text: 'Log In'") < source.indexOf("text: 'Create Demo Account'"));
-  assert.match(source, /savePendingTradeAuthIntent\(intent\)/);
-  assert.match(source, /const cancelTradeAuthPrompt = \(\) => \{[\s\S]*clearPendingTradeAuthIntent\(\)/);
-  assert.match(source, /if \(tradeAuthPromptVisible\)[\s\S]*return true/);
-  assert.match(source, /cancelable: true[\s\S]*onDismiss: cancelTradeAuthPrompt/);
-  assert.match(source, /captureActiveBrokerSession\(\)/);
-  assert.doesNotMatch(rootSource, /TradeAuthPromptHost/);
+  const root = readSource('app/_layout.tsx');
+  const host = readSource('src/features/auth/GuestFlowHost.tsx');
+  assert.match(source, /openAuthFlow/); assert.doesNotMatch(source, /Alert\.alert/);
+  assert.match(root, /<GuestFlowHost \/>/); assert.match(host, /<Modal/);
+  const modals = host.match(/<Modal\b[^>]*\banimationType=(?:"[^"]*"|\{[^}]*\})/g) ?? [];
+  assert.equal(modals.length, 2, 'broker selection and authentication retain their root modal hosts');
+  for (const modal of modals) {
+    assert.match(modal, /animationType="none"/, 'every auth stage must use one stable instant native presentation');
+  }
+  assert.match(host, /<Modal visible=\{visible && Boolean\(context\)\} animationType="none" onRequestClose=\{close\}/);
+  assert.match(host, /The order will not be sent automatically/);
+});
+test('active login and demo routes delegate to the modal and only return one reviewed draft', () => {
+  for (const path of ['app/login.tsx', 'app/register.tsx', 'app/register-entry.tsx']) {
+    const source = readSource(path); assert.match(source, /export default function SharedAuthenticationEntry\(\) \{ return <AuthEntryScreen/);
+  }
+  const host = readSource('src/features/auth/GuestFlowHost.tsx');
+  assert.match(host, /completeAuthenticatedFlow\(attempt, true, investor\)/);
+  assert.match(host, /const investor = captureActiveBrokerSession\(\)\?\.session\.investor === true/);
+  const close = sourceBetween(host, 'const close = () =>', 'const submit = async');
+  assert.match(close, /void logoutBrokerSession\(\)/);
+  assert.match(close, /if \(!tryPrepareGuestBrokerSelection\(\)\) void logoutBrokerSession\(\)/);
+  assert.doesNotMatch(close, /if \(committedNamespace\.current\)/);
+  assert.match(host, /pathname: '\/trade\/order-ticket'/);
+  assert.doesNotMatch(host, /placeMarketOrder|placePendingOrder|createDemoAccount|deposit/);
 });
 
-test('successful login or demo creation consumes the intent without auto-submitting a trade', () => {
-  const login = readSource('app/login.tsx');
-  const register = readSource('app/register.tsx');
+test('retained authentication entries cannot redirect Settings or reopen dismissed forms', () => {
+  const source = readSource('src/features/auth/AuthEntryScreen.tsx');
+  const effect = sourceBetween(source, 'useEffect(() => {', 'return null;');
+  assert.match(source, /const focused = useIsFocused\(\)/);
+  assert.match(effect, /if \(!context \|\| !focused \|\|/);
+  assert.ok(effect.indexOf('!focused') < effect.indexOf('openAuthFlow('));
+  assert.ok(effect.indexOf('!focused') < effect.indexOf('router.replace('));
+  assert.match(effect, /\[context, form, pathname, focused\]/);
+  const host = readSource('src/features/auth/GuestFlowHost.tsx');
+  assert.match(host, /if \(retainAuthEntryHandoff\(pathname\)\) return;/);
+});
 
-  for (const source of [login, register]) {
-    assert.match(source, /const pendingTradeIntent = consumePendingTradeAuthIntent\(\)/);
-    assert.match(source, /pathname: '\/trade\/order-ticket'/);
-    assert.match(source, /router\.replace\('\/\(tabs\)\/trade'\)/);
-    assert.doesNotMatch(source, /pendingTradeIntent[\s\S]{0,300}placeMarketOrder/);
-  }
+test('Login responds on press-in and starts optional password storage only after secure commit', () => {
+  const login = readSource('src/features/auth/LoginAccountScreen.tsx');
+  assert.equal((login.match(/activateOnPressIn latencyLabel="auth.login.submit"/g) ?? []).length, 2);
+  const host = readSource('src/features/auth/GuestFlowHost.tsx');
+  const reset = sourceBetween(host, 'setBrokerConfig(null);', 'const demoAllowed');
+  assert.match(reset, /\}, \[context\]\);/);
+  const submit = sourceBetween(host, 'const submit = async', 'const changeBroker');
+  assert.ok(submit.indexOf('Keyboard.dismiss()') < submit.indexOf('await authenticateGuest'));
+  assert.ok(submit.indexOf('await commitBrokerSession(') < submit.indexOf('setSavedAccountPassword('));
+  assert.match(submit, /const submittedPassword = passwordValue\.current; const submittedRemember = rememberValue\.current/);
+  assert.match(submit, /submitting.current \|\| \['submitting', 'hydrating'\]\.includes\(currentFlow.screen\)/);
 });
 
 test('primary trade entry points guard before navigation, prefetch, or execution', () => {
@@ -165,4 +184,28 @@ test('order ticket and position mutations guard before validation or API calls',
   );
   assertGuardBefore(chartPending, 'isPendingOrderTypeBackendLocked');
   assertGuardBefore(chartPending, 'ordersApi.placePendingOrder');
+});
+
+
+
+test('plain login navigates after secure commit; a pending draft still awaits account hydration', () => {
+  const host = readSource('src/features/auth/GuestFlowHost.tsx');
+  const submit = sourceBetween(host, 'const submit = async', 'const changeBroker');
+  assert.match(submit, /onActivated: active => \{\s*if \(!isAuthAttemptCurrent\(attempt\)\) return/);
+  assert.match(submit, /hydration = Promise\.resolve\(\)\.then\(\(\) => bootstrapApp\([\s\S]*waitFor: 'trading'/);
+  assert.ok(submit.indexOf('await commitBrokerSession(') < submit.indexOf('const hydrated = await (hydration'));
+  const dashboard = submit.indexOf('if (completeAuthenticatedLogin(attempt))');
+  assert.ok(dashboard > submit.indexOf('await commitBrokerSession('));
+  assert.ok(dashboard < submit.indexOf('const hydrated = await (hydration'));
+  assert.ok(submit.indexOf("router.replace('/(tabs)/quotes')", dashboard) < submit.indexOf('hydration = Promise.resolve()'));
+  assert.match(submit, /if \(didNavigate\) scheduleAfterVisualFrame\(startSessionWork\);\s*else startSessionWork\(\)/);
+  assert.match(submit, /const startSessionWork = \(\) => \{\s*if \(!isAuthAttemptCurrent\(attempt\) \|\| captureActiveBrokerSession\(\)\?\.session\.cacheNamespace !== active\.session\.cacheNamespace\) return/);
+  assert.match(submit, /\}, authorization\.current\);\s*if \(didNavigate\) return;/);
+  const committedHandoff = submit.slice(submit.indexOf('if (didNavigate) return;'));
+  assert.ok(committedHandoff.indexOf('if (!isAuthAttemptCurrent(attempt))') < committedHandoff.indexOf('committedNamespace.current = capture.session.cacheNamespace'));
+  assert.doesNotMatch(submit, /getBrokerDirectoryForBroker/);
+  assert.match(submit, /verifiedContext: selected/);
+  assert.doesNotMatch(submit, /await (?:setSavedAccountPassword|removeSavedAccountPassword)/);
+  assert.ok(submit.indexOf('const hydrated = await (hydration') < submit.indexOf('!acceptTradingHydration('));
+  assert.ok(submit.indexOf('!acceptTradingHydration(') < submit.indexOf('completeAuthenticatedFlow('));
 });

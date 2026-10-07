@@ -220,3 +220,42 @@ test('open-position SL and TP uses its own broker gate and shared coordinator', 
   assert.match(source, /useModifyPositionTicketState\(position\?\.id\)/);
   assert.doesNotMatch(source, /positionsApi\.modifyPosition|applyLocalStopPatch|AbortController/);
 });
+
+test('modify position typed SL/TP keeps the raw text while editing so decimals can be entered', () => {
+  // Deriving the controlled input value from the parsed number erased a
+  // trailing decimal point on every keystroke, so decimal edits silently
+  // mangled ("4140." -> "4140", next digit -> "41402"). The raw text must own
+  // the display while editing and hand back to the snapped number on blur.
+  assert.match(source, /const \[slInputText, setSlInputText\] = useState<string \| null>\(null\);/);
+  assert.match(source, /const \[tpInputText, setTpInputText\] = useState<string \| null>\(null\);/);
+  assert.match(source, /value=\{inputText \?\? \(rawValue !== null \? rawValue\.toString\(\) : ''\)\}/);
+  assert.match(source, /onBlur=\{onBlur\}/);
+  assert.match(
+    source,
+    /const handleSlChange = \(text: string\) => \{\s*setSlInputText\(text\);/,
+  );
+  assert.match(
+    source,
+    /const handleSlBlur = useCallback\(\(\) => \{\s*setSlInputText\(null\);\s*setStopLoss\(\(prev\) => \(prev === null \? null : snapStopTarget\(prev\)\)\);/,
+  );
+  // Steppers, presets, clear and position reloads must drop the raw text so
+  // the display follows the numeric state again.
+  assert.match(source, /setSubmitMessage\(null\);\s*setSlInputText\(null\);\s*setStopLoss\(\(prev\) =>/);
+  assert.match(source, /setSubmitMessage\(null\);\s*setTpInputText\(null\);\s*setTakeProfit\(\(prev\) =>/);
+  // A no-change submit must explain itself instead of closing the sheet
+  // silently, which previously read as "Modify does nothing".
+  assert.match(
+    source,
+    /if \(requestedSl === previousSl && requestedTp === previousTp\) \{\s*\/\/ Closing silently here read as "Modify does nothing"[\s\S]*setSubmitMessage\(t\('No SL\/TP changes to submit\.'\)\);\s*return;/,
+  );
+  assert.doesNotMatch(
+    source,
+    /if \(requestedSl === previousSl && requestedTp === previousTp\) \{\s*handleBack\(\);/,
+  );
+  // The disabled submit button must never be silent while the coordinator
+  // owns the ticket or the broker retry window is open.
+  assert.match(
+    source,
+    /\(coordinatorBusy \|\| coordinatorRateLimited\) && \(\s*<Text style=\{styles\.validationText\} accessibilityRole="alert">/,
+  );
+});

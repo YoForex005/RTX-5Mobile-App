@@ -33,7 +33,10 @@ export const getSecureItemAsync = async (key: string): Promise<string | null> =>
     assertNativeSecureStorage();
     return await SecureStore.getItemAsync(key);
   } catch (error) {
-    console.warn('[SecureStorage] Failed to read secure item', { key, error });
+    // Web has no secure store by design (expected); a native read failure is not.
+    if (Platform.OS !== 'web') {
+      console.error('[SecureStorage] Failed to read secure item', { key, error });
+    }
     return null;
   }
 };

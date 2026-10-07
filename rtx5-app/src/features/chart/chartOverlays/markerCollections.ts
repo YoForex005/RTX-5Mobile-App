@@ -1,3 +1,4 @@
+import { resolveLiveChartPnlColor } from './livePnlColors';
 /**
  * Marker collection helpers and per-feature builders (patterns, signals, HMR,
  * closed positions). Each builder is a pure function so they can be composed
@@ -155,7 +156,7 @@ export const buildTradingSignalMarkers = (
       id: `signal-${latest.time}`,
       time: latest.time,
       position: isBullish ? 'belowBar' : 'aboveBar',
-      color: isBullish ? colors.tradeTpSl || '#22C55E' : colors.tradeStopOut || '#EF4444',
+      color: isBullish ? colors.tradeTpSl || resolveLiveChartPnlColor(1, colors.background, '#4597FF') : colors.tradeStopOut || '#EF4444',
       shape: isBullish ? 'arrowUp' : 'arrowDown',
       text: label,
       size: 1.1,

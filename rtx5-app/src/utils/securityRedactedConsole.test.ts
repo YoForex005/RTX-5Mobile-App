@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { installSecurityRedactedConsole } from './securityRedactedConsole';
 
-test('global console defense redacts every method and installs once', () => {
+test('global console defense redacts every method, avoids Expo overlays, and installs once', () => {
   const calls: Record<string, unknown[][]> = {
     debug: [], error: [], info: [], log: [], warn: [],
   };
@@ -18,9 +18,15 @@ test('global console defense redacts every method and installs once', () => {
   installSecurityRedactedConsole(target);
   installSecurityRedactedConsole(target);
   target.error('Authorization: Bearer secret-access', { token: 'secret-feed' });
+  target.warn('refresh token=secret-refresh');
 
-  assert.equal(calls.error.length, 1);
-  const serialized = JSON.stringify(calls.error[0]);
+  assert.equal(calls.error.length, 0);
+  assert.equal(calls.warn.length, 0);
+  assert.equal(calls.log.length, 2);
+  assert.equal(calls.log[0]?.[0], '[console.error]');
+  assert.equal(calls.log[1]?.[0], '[console.warn]');
+  const serialized = JSON.stringify(calls.log);
   assert.doesNotMatch(serialized, /secret-access|secret-feed/);
+  assert.doesNotMatch(serialized, /secret-refresh/);
   assert.match(serialized, /\[redacted\]/);
 });

@@ -49,12 +49,8 @@ export function BrokerFeedHealthBanner({
   const identity = capture ? getActiveBrokerSessionIdentity(capture.session) : null;
   const model = useMemo(() => {
     if (!identity || !feedHealthStateMatchesIdentity(state, identity)) return null;
-    return buildFeedHealthBannerModel(
-      state,
-      brokerName || identity.brokerId,
-      capture?.session.feedAuthContext,
-    );
-  }, [brokerName, capture?.session.feedAuthContext, identity, state]);
+    return buildFeedHealthBannerModel(state, brokerName || identity.brokerId);
+  }, [brokerName, identity, state]);
 
   const retry = useCallback(() => {
     if (

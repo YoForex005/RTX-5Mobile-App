@@ -45,7 +45,7 @@ const tradeNotificationsStorage = createJSONStorage<PersistedTradeNotificationsS
       JSON.parse(value);
       return value;
     } catch (error) {
-      console.warn('[TradeNotifications] Ignoring unreadable persisted settings', error);
+      console.error('[TradeNotifications] Ignoring unreadable persisted settings', error);
       void AsyncStorage.removeItem(name).catch(() => {});
       return null;
     }

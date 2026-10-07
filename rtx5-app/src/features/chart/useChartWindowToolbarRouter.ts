@@ -1,11 +1,11 @@
 import { useCallback, useRef } from 'react';
 
 export const CHART_WINDOW_TOOLBAR_ACTIONS = [
+  'crosshair',
   'timeframe',
   'sltp',
   'drawings',
   'settings',
-  'fullscreen',
   'more',
 ] as const;
 

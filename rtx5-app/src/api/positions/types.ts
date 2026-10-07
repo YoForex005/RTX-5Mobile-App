@@ -19,6 +19,7 @@ export interface Position {
   price_tp?: number | null;
   profit: number;
   swap: number;
+  /** Not sent by the v3 gateway; a missing value means 0. */
   commission?: number;
   comment?: string;
   time_create: number;
@@ -26,6 +27,12 @@ export interface Position {
   trailing_stop?: number;
   trailing_step?: number;
   magic?: number;
+  /** v3 optimistic-concurrency counter (string). Informational only. */
+  state_version?: string | number;
+  margin?: number;
+  contract_size?: number;
+  bid?: number;
+  ask?: number;
 }
 
 /**
@@ -74,8 +81,18 @@ export interface ClosePositionResponse {
   volume_closed?: number;
   volume_total?: number;
 
+  /** v3 sends these tickets as STRINGS ("1003"); legacy builds used numbers. */
+  order_ticket?: number | string;
+  deal_ticket?: number | string;
+  state_version?: string;
+  client_order_id?: string;
+  command_id?: string;
+  /** App-local: 409 POSITION_ALREADY_CLOSED was treated as a completed close. */
+  already_closed?: boolean;
+  /** App-local: a 202 close was confirmed by the positions reconciliation read. */
+  confirmed_by?: 'reconciliation';
+
   // Alternate documented properties
-  order_ticket?: number;
   position_ticket?: number;
   account_login?: number;
   action?: string;

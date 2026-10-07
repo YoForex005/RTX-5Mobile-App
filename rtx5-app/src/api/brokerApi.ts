@@ -10,25 +10,27 @@ import {
   type ActiveBrokerSessionCapture,
   type ActiveBrokerSessionIdentity,
   type ActiveBrokerSessionOwnerStamp,
-  type FeedAuthContext,
 } from '../state/activeBrokerSession';
 import type { SecureAuthCredentialBundle } from '../state/secureCredentialBundle';
-import { timedFetch } from '../utils/apiLatency';
-import { buildApiUrl } from './brokerRouting';
-import { extractFeedBrokerToken } from './feedAuth';
+import { API_FETCH_TIMEOUT_MS, timedFetch } from '../utils/apiLatency';
 import {
-  ACHIEVER_BROKER_ID,
-  resolveEffectiveFeedAuthForSession,
-  resolveSessionFeedAuth,
-} from './feedAuthContract';
+  buildApiUrl,
+  buildVersionedBrokerApiUrl,
+  type BrokerApiVersion,
+} from './brokerRouting';
+import { readInvestorSessionFlag } from './investorSession';
 import { createTradeIdempotencyKey, getTradeIdempotencyAction } from './tradeIdempotency';
+import { assertTradingSession, assertOrderReadiness } from '../services/tradingAccess';
+import { positiveAccountLogin } from './guestAuthentication';
 import {
   fingerprintMarketDataHost,
   recordMarketDataEvent,
 } from '../market/marketDataTelemetry';
 
 const TOKEN_REFRESH_SKEW_MS = 60_000;
-const AUTH_REFRESH_TIMEOUT_MS = 2500;
+// Contract v3 recommends 8 s. A refresh that times out is retried by the next
+// caller; a premature abort there only wastes a rotation round trip.
+export const AUTH_REFRESH_TIMEOUT_MS = 8000;
 const AUTH_SESSION_EXPIRED_MESSAGE = 'Refresh token invalid or expired.';
 const AUTH_SESSION_UNAVAILABLE_MESSAGE = 'No authenticated broker session available.';
 const GUARDED_RESPONSE_BODY_READERS = new Set<PropertyKey>([
@@ -44,6 +46,8 @@ export type BrokerApiRequestInit = RequestInit & {
   _retry?: boolean;
   skipAuth?: boolean;
   skipRefresh?: boolean;
+  /** Use a broker-owned REST version other than the active session default. */
+  apiVersion?: BrokerApiVersion;
   /**
    * Client-side abort budget for this request. Defaults to the shared
    * API_FETCH_TIMEOUT_MS; pass 0 to wait indefinitely (chart candle history —
@@ -56,7 +60,68 @@ export type BrokerApiRequestInit = RequestInit & {
    * session after a 401 but returns that response without replaying the write.
    */
   replayAfterAuthRefresh?: boolean;
+  /** Native upload byte progress. Used only for FormData requests. */
+  onUploadProgress?: (progress: number) => void;
 };
+
+const xhrUpload = (
+  url: string,
+  config: RequestInit,
+  timeoutMs: number | undefined,
+  onUploadProgress: (progress: number) => void,
+): Promise<Response> => new Promise((resolve, reject) => {
+  const xhr = new XMLHttpRequest();
+  const method = (config.method ?? 'GET').toUpperCase();
+  let settled = false;
+
+  const cleanup = () => config.signal?.removeEventListener('abort', abortFromSignal);
+  const finish = (callback: () => void) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    callback();
+  };
+  const abortFromSignal = () => xhr.abort();
+
+  xhr.open(method, url, true);
+  xhr.timeout = timeoutMs === 0 ? 0 : (timeoutMs ?? API_FETCH_TIMEOUT_MS);
+  new Headers(config.headers ?? {}).forEach((value, key) => xhr.setRequestHeader(key, value));
+  xhr.upload.onprogress = (event) => {
+    if (event.lengthComputable && event.total > 0) {
+      onUploadProgress(Math.min(1, Math.max(0, event.loaded / event.total)));
+    }
+  };
+  xhr.onload = () => finish(() => {
+    if (xhr.status === 0) { reject(new TypeError('Network request failed')); return; }
+    const responseHeaders = new Headers();
+    xhr.getAllResponseHeaders().trim().split(/[\r\n]+/).forEach((line) => {
+      const separator = line.indexOf(':');
+      if (separator > 0) responseHeaders.append(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
+    });
+    resolve(new Response(xhr.responseText, {
+      status: xhr.status,
+      statusText: xhr.statusText,
+      headers: responseHeaders,
+    }));
+  });
+  xhr.onerror = () => finish(() => reject(new TypeError('Network request failed')));
+  xhr.ontimeout = () => finish(() => reject(new Error('Network request timed out')));
+  xhr.onabort = () => finish(() => {
+    const error = new Error('The request was aborted.');
+    error.name = 'AbortError';
+    reject(error);
+  });
+
+  if (config.signal?.aborted) {
+    const error = new Error('The request was aborted.');
+    error.name = 'AbortError';
+    finish(() => reject(error));
+    return;
+  }
+  config.signal?.addEventListener('abort', abortFromSignal, { once: true });
+  onUploadProgress(0);
+  xhr.send((config.body ?? null) as XMLHttpRequestBodyInit | null);
+});
 
 export type BrokerApiJsonResponse<T> = Readonly<{
   ok: boolean;
@@ -71,11 +136,12 @@ type NormalizedAuthResponse = {
   accessToken: string;
   refreshToken: string;
   expiresAt: string;
+  /** Lower-cased: broker_id is compared ignoring case. */
   brokerId?: string;
+  /** String form: account_login is a JSON number on the wire. */
   accountLogin?: string;
-  feedToken?: string;
-  feedAuthContext?: FeedAuthContext;
-  feedContractFailure?: 'feed_generation_reused';
+  /** Refresh `investor` (bool); absent when the response does not say. */
+  investor?: boolean;
 };
 
 type InFlightRequest = {
@@ -140,13 +206,13 @@ const parseExpiresAtMs = (expiresAt: string | undefined | null): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+/**
+ * Normalizes a login/refresh body. `expires_at` is epoch seconds (ms values
+ * are still accepted); without it `expires_in` seconds from now is used. The
+ * rotated `refresh_token` is mandatory because the old one dies on use.
+ */
 export const normalizeBrokerRefreshResponse = (
   payload: unknown,
-  expected?: Readonly<{
-    brokerId: string;
-    accountLogin: string | number;
-    previousFeedToken?: string | null;
-  }>,
 ): NormalizedAuthResponse => {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('Refresh response was not an object.');
@@ -167,8 +233,8 @@ export const normalizeBrokerRefreshResponse = (
     const ms = rawExpiresAt > 1e12 ? rawExpiresAt : rawExpiresAt * 1000;
     expiresAt = new Date(ms).toISOString();
   } else {
-    const expiresIn = typeof root.expires_in === 'number' ? root.expires_in : 86_400;
-    expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+    const expiresIn = Number(root.expires_in);
+    expiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : '';
   }
 
   if (!accessToken) {
@@ -179,42 +245,17 @@ export const normalizeBrokerRefreshResponse = (
   }
 
   const brokerId = typeof root.broker_id === 'string'
-    ? root.broker_id.trim().toLowerCase()
+    ? root.broker_id.trim()
     : typeof root.brokerId === 'string'
-      ? root.brokerId.trim().toLowerCase()
+      ? root.brokerId.trim()
       : undefined;
   const accountLoginValue = root.account_login ?? root.accountLogin;
   const accountLogin =
     typeof accountLoginValue === 'string' || typeof accountLoginValue === 'number'
-      ? String(accountLoginValue).trim()
+      ? positiveAccountLogin(accountLoginValue)
       : undefined;
-  const sessionFeed = expected
-    ? resolveSessionFeedAuth({
-        response: root,
-        brokerId: expected.brokerId,
-        accountLogin: expected.accountLogin,
-      })
-    : null;
-  const candidateFeedToken = sessionFeed
-    ? sessionFeed.feedToken
-    : extractFeedBrokerToken(root);
-  const previousFeedToken =
-    typeof expected?.previousFeedToken === 'string' &&
-    expected.previousFeedToken.trim()
-      ? expected.previousFeedToken
-      : '';
-  const feedGenerationReused =
-    expected?.brokerId.trim().toLowerCase() === ACHIEVER_BROKER_ID &&
-    Boolean(candidateFeedToken) &&
-    Boolean(previousFeedToken) &&
-    candidateFeedToken === previousFeedToken;
-  const feedToken = feedGenerationReused ? undefined : candidateFeedToken;
-  const feedAuthContext = feedGenerationReused
-    ? Object.freeze({
-        mode: 'disabled_unconfigured' as const,
-        reason: 'missing_credential' as const,
-      })
-    : sessionFeed?.feedAuthContext;
+
+  const investor = readInvestorSessionFlag(root);
 
   return {
     accessToken,
@@ -222,11 +263,7 @@ export const normalizeBrokerRefreshResponse = (
     expiresAt,
     ...(brokerId ? { brokerId } : {}),
     ...(accountLogin ? { accountLogin } : {}),
-    ...(feedToken ? { feedToken } : {}),
-    ...(feedAuthContext ? { feedAuthContext } : {}),
-    ...(feedGenerationReused
-      ? { feedContractFailure: 'feed_generation_reused' as const }
-      : {}),
+    ...(investor !== undefined ? { investor } : {}),
   };
 };
 
@@ -242,6 +279,37 @@ export const createBrokerRefreshRequestInit = (
   body: JSON.stringify({ refresh_token: refreshToken }),
   ...(signal ? { signal } : {}),
 });
+
+const accountLoginsMatch = (a: string | number, b: string | number): boolean => {
+  const left = String(a).trim();
+  const right = String(b).trim();
+  if (left === right) return true;
+  return /^\d+$/.test(left) && /^\d+$/.test(right) && BigInt(left) === BigInt(right);
+};
+
+/**
+ * Refresh identity checks: broker_id is compared ignoring case and
+ * account_login numerically or as a string. A field the response omits is not
+ * a mismatch.
+ */
+export const resolveRefreshIdentityMismatch = (
+  normalized: Readonly<{ brokerId?: string; accountLogin?: string }>,
+  session: Readonly<{ brokerId: string; accountLogin: string | number }>,
+): 'broker_identity_mismatch' | 'account_identity_mismatch' | null => {
+  if (
+    normalized.brokerId &&
+    normalized.brokerId.trim() !== String(session.brokerId).trim()
+  ) {
+    return 'broker_identity_mismatch';
+  }
+  if (
+    normalized.accountLogin &&
+    !accountLoginsMatch(normalized.accountLogin, session.accountLogin)
+  ) {
+    return 'account_identity_mismatch';
+  }
+  return null;
+};
 
 const appendQueryCredential = (
   baseUrl: string,
@@ -386,47 +454,16 @@ export class BrokerAPI {
     return appendQueryCredential(session.tradeWsBase!, [['token', lease.accessToken]]);
   }
 
+  /**
+   * Quote feed URL: exactly the validated `feedWsBase`
+   * (`wss://<host>/ws/feed`). Contract v3: no token, no query string. The
+   * optional `?broker_id` label is not sent because the session broker id is
+   * stored lower-cased and the server derives the broker from the host.
+   */
   async getQuoteWebSocketUrl(): Promise<string> {
-    const initialCapture = this.requireCapture();
-    const identity = getActiveBrokerSessionIdentity(initialCapture.session);
-    const effective = resolveEffectiveFeedAuthForSession({
-      brokerId: initialCapture.session.brokerId,
-      feedAuthContext: initialCapture.session.feedAuthContext,
-      feedToken: initialCapture.credentials.feedToken,
-    });
-    const auth = effective.feedAuthContext;
-    if (auth.mode === 'disabled_unconfigured') {
-      throw new Error(
-        auth.reason === 'missing_credential'
-          ? 'The active broker market-data credential is unavailable. Please sign in again.'
-          : 'The active broker market-data authentication contract is not configured.',
-      );
-    }
-    if (auth.mode === 'none') {
-      this.assertCurrent(identity);
-      return initialCapture.session.feedWsBase;
-    }
-
-    let credential = '';
-    if (auth.credential === 'access_token') {
-      const lease = await this.getValidAccessTokenForCapture(initialCapture, identity, false);
-      this.assertOwnerCurrent(lease.owner);
-      credential = lease.accessToken;
-    } else {
-      credential = effective.feedToken
-        || this.requireCurrentCapture(identity).credentials.feedToken
-        || '';
-    }
-    this.assertCurrent(identity);
-    if (!credential) {
-      throw new Error('The active broker market-data credential is unavailable. Please sign in again.');
-    }
-
-    const session = this.requireCurrentCapture(identity).session;
-    const params: Array<readonly [string, string]> = [[auth.tokenQueryParam, credential]];
-    if (auth.brokerIdQueryParam) params.push([auth.brokerIdQueryParam, session.brokerId]);
-    if (auth.accountLoginQueryParam) params.push([auth.accountLoginQueryParam, session.accountLogin]);
-    return appendQueryCredential(session.feedWsBase, params);
+    const capture = this.requireCapture();
+    this.assertCurrent(getActiveBrokerSessionIdentity(capture.session));
+    return capture.session.feedWsBase;
   }
 
   private async executeRequest(
@@ -503,6 +540,16 @@ export class BrokerAPI {
       if (!activeToken) return createUnauthenticatedResponse();
       headers.set('Authorization', `Bearer ${activeToken}`);
     }
+    const mutationPath = endpoint.startsWith('https://') ? new URL(endpoint).pathname : endpoint.split('?')[0];
+    const tradingMutation = method !== 'GET' && method !== 'HEAD' && /^\/(?:api\/v2\/)?(?:orders|positions)(?:\/|$)/.test(mutationPath);
+    if (tradingMutation) {
+      assertTradingSession(capture.session.cacheNamespace);
+      if (method === 'POST' && /^\/(?:api\/v2\/)?orders\/?$/.test(mutationPath)) {
+        const body = typeof options.body === 'string' ? JSON.parse(options.body) : null;
+        if (String(body?.account_login) !== capture.session.accountLogin) throw new Error('Order account does not match the current trading session.');
+        await assertOrderReadiness(capture.session.cacheNamespace, body, (path, init) => this.request(path, init));
+      }
+    }
     if (!headers.has('accept')) headers.set('accept', 'application/json');
     if (!headers.has('Content-Type') && (
       tradeIdempotencyAction || (options.body && !(options.body instanceof FormData))
@@ -513,14 +560,18 @@ export class BrokerAPI {
       headers.set('Idempotency-Key', createTradeIdempotencyKey(tradeIdempotencyAction));
     }
 
-    const url = buildApiUrl(endpoint, capture.session.apiBase);
+    const url = options.apiVersion
+      ? buildVersionedBrokerApiUrl(endpoint, capture.session.apiBase, options.apiVersion)
+      : buildApiUrl(endpoint, capture.session.apiBase);
     const {
       _retry: _ignoredRetry,
       skipAuth: _ignoredSkipAuth,
       skipRefresh: _ignoredSkipRefresh,
+      apiVersion: _ignoredApiVersion,
       signal: _ignoredSignal,
       timeoutMs,
       replayAfterAuthRefresh: _ignoredReplayAfterAuthRefresh,
+      onUploadProgress,
       ...fetchOptions
     } = options;
     const requestConfig: RequestInit = { ...fetchOptions, headers, signal };
@@ -531,13 +582,18 @@ export class BrokerAPI {
     } else {
       this.assertOwnerCurrent(ownership.owner);
     }
-    let response = await timedFetch(url, requestConfig, {
-      label: `apiClient.${method}`,
-      method,
-      endpoint,
-      source: 'apiClient',
-      timeoutMs,
-    });
+    const sendRequest = (config: RequestInit) => (
+      onUploadProgress && options.body instanceof FormData
+        ? xhrUpload(url, config, timeoutMs, onUploadProgress)
+        : timedFetch(url, config, {
+          label: `apiClient.${method}`,
+          method,
+          endpoint,
+          source: 'apiClient',
+          timeoutMs,
+        })
+    );
+    let response = await sendRequest(requestConfig);
     this.assertOwnerCurrent(ownership.owner);
 
     if (response.status === 401 && shouldAuthenticate && !options._retry) {
@@ -568,13 +624,7 @@ export class BrokerAPI {
       // Adopt only the refresh operation's exact owner immediately before the
       // replay. An unrelated credential rotation makes this lease stale.
       this.adoptCredentialLease(ownership, identity, refreshedLease);
-      response = await timedFetch(url, { ...requestConfig, headers: retryHeaders }, {
-        label: `apiClient.retryAfterRefresh.${method}`,
-        method,
-        endpoint,
-        source: 'apiClient',
-        timeoutMs,
-      });
+      response = await sendRequest({ ...requestConfig, headers: retryHeaders });
       this.assertOwnerCurrent(ownership.owner);
     }
 
@@ -592,6 +642,10 @@ export class BrokerAPI {
       return Object.freeze({ accessToken: '', owner });
     }
     const expiresAtMs = parseExpiresAtMs(current.credentials.expiresAt);
+    if (expiresAtMs > 0 && expiresAtMs <= Date.now() && !current.credentials.refreshToken) {
+      await this.invalidateAuthSession(identity);
+      return Object.freeze({ accessToken: '', owner });
+    }
     const shouldRefresh = forceRefresh || (
       Boolean(current.credentials.refreshToken) &&
       expiresAtMs > 0 &&
@@ -675,32 +729,18 @@ export class BrokerAPI {
       this.assertOwnerCurrent(refreshOwner);
       let normalized: NormalizedAuthResponse;
       try {
-        normalized = normalizeBrokerRefreshResponse(payload, {
-          brokerId: session.brokerId,
-          accountLogin: session.accountLogin,
-          previousFeedToken: credentials.feedToken,
-        });
+        normalized = normalizeBrokerRefreshResponse(payload);
       } catch {
         recordRefreshOutcome('invalid_rotation_payload');
         await this.invalidateAuthSession(identity);
         throw new Error(AUTH_SESSION_EXPIRED_MESSAGE);
       }
-      if (normalized.brokerId && normalized.brokerId !== session.brokerId) {
-        recordRefreshOutcome('broker_identity_mismatch');
+      const identityMismatch = resolveRefreshIdentityMismatch(normalized, session);
+      if (identityMismatch) {
+        recordRefreshOutcome(identityMismatch);
         await this.invalidateAuthSession(identity);
         throw new Error(AUTH_SESSION_EXPIRED_MESSAGE);
       }
-      if (normalized.accountLogin && normalized.accountLogin !== session.accountLogin) {
-        recordRefreshOutcome('account_identity_mismatch');
-        await this.invalidateAuthSession(identity);
-        throw new Error(AUTH_SESSION_EXPIRED_MESSAGE);
-      }
-      const strictAchiever = session.brokerId === ACHIEVER_BROKER_ID;
-      const nextFeedAuthContext =
-        normalized.feedAuthContext ?? session.feedAuthContext;
-      const feedToken = normalized.feedToken
-        || (!strictAchiever ? credentials.feedToken : undefined);
-
       // The current-owner check and queued secure replacement are invoked in
       // the same turn. A subsequent broker commit queues behind this write.
       this.assertOwnerCurrent(refreshOwner);
@@ -714,8 +754,6 @@ export class BrokerAPI {
           accessToken: normalized.accessToken,
           refreshToken: normalized.refreshToken,
           expiresAt: normalized.expiresAt,
-          feedToken,
-          feedAuthContext: nextFeedAuthContext,
         });
         this.assertOwnerCurrent(refreshOwner);
       } catch (error) {
@@ -727,14 +765,14 @@ export class BrokerAPI {
       }
       this.assertOwnerCurrent(refreshOwner);
 
+      // Token-rotation signal: this emits `credentials_updated` through
+      // subscribeActiveBrokerSession and bumps the owner-stamp
+      // credentialGeneration. The trade socket must reconnect on it.
       const updated = updateActiveBrokerSessionCredentials(identity, {
         accessToken: storedCredentials.accessToken,
         refreshToken: storedCredentials.refreshToken,
         expiresAt: storedCredentials.expiresAt,
-        ...(storedCredentials.feedToken
-          ? { feedToken: storedCredentials.feedToken }
-          : {}),
-      }, storedCredentials.feedAuthContext);
+      }, normalized.investor !== undefined ? { investor: normalized.investor } : undefined);
       if (!updated) throw new StaleBrokerSessionError();
       const owner = this.requireCurrentOwnerStamp(identity);
       const current = this.requireCurrentCapture(identity);
@@ -745,18 +783,7 @@ export class BrokerAPI {
         await import('../services/brokerSessionCoordinator');
       this.assertOwnerCurrent(owner);
       rebindActiveBrokerFeedHealthSession(this.requireCurrentCapture(identity));
-      recordRefreshOutcome(normalized.feedContractFailure ?? 'accepted', {
-        status: response.status,
-        feedContractAccepted:
-          storedCredentials.feedAuthContext.mode === 'none' ||
-          (
-            storedCredentials.feedAuthContext.mode === 'query' &&
-            (
-              storedCredentials.feedAuthContext.credential === 'access_token' ||
-              Boolean(storedCredentials.feedToken)
-            )
-          ),
-      });
+      recordRefreshOutcome('accepted', { status: response.status });
       return Object.freeze({
         accessToken: normalized.accessToken,
         owner,

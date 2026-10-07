@@ -21,7 +21,7 @@ const activate = () => activateBrokerSession(
     tradeWsBase: 'wss://services.broker-a.com/ws/v2',
     feedStatusUrl: 'https://services.broker-a.com/ws/feed/status',
     servicesDomain: 'services.broker-a.com',
-    feedAuthContext: { mode: 'none' as const },
+    investor: false,
     configVersion: 'cfg-1',
   },
   {
@@ -65,7 +65,7 @@ test('queued quote commit from broker A is discarded after broker B activates', 
       feedWsBase: 'wss://services.broker-b.com/ws/feed',
       feedStatusUrl: 'https://services.broker-b.com/ws/feed/status',
       servicesDomain: 'services.broker-b.com',
-      feedAuthContext: { mode: 'none' as const },
+      investor: false,
       configVersion: 'cfg-2',
     },
     {

@@ -21,7 +21,7 @@ test('candle helpers read credentials only from the active session epoch', () =>
     tradeWsBase: 'wss://services.broker-a.example/ws/v2',
     feedStatusUrl: 'https://services.broker-a.example/ws/feed/status',
     servicesDomain: 'services.broker-a.example',
-    feedAuthContext: { mode: 'none' },
+    investor: false,
     configVersion: 'v1',
   }, {
     accessToken: 'active-token',

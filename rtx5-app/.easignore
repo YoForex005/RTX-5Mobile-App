@@ -51,7 +51,6 @@ Thumbs.db
 qr.png
 
 # Unreferenced local image assets; keep them out of EAS build uploads.
-assets/adaptive-icon.png
 assets/splash-icon.png
 assets/image.png
 assets/image copy.png

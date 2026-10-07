@@ -8,7 +8,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  */
 
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -27,16 +27,23 @@ export function QRCodeSheet({ data, onClose }: Props) {
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const qrSize = Math.max(1, Math.min(220, width - insets.left - insets.right - spacing.xl * 2 - 32));
 
   return (
-    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, spacing.xl) }]}>
+    <ScrollView
+      keyboardShouldPersistTaps="always"
+      canCancelContentTouches={Platform.OS === 'ios'}
+      style={[styles.container, { maxHeight: Math.max(0, height - insets.top - 12) }]}
+      contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, spacing.xl) }]}
+    >
       <Text style={styles.title}>Connect from another device</Text>
 
       <View style={styles.qrContainer}>
         <View style={styles.qrWrapper}>
           <QRCode
             value={data || ' '}
-            size={220}
+            size={qrSize}
             backgroundColor="white"
             color="black"
           />
@@ -50,7 +57,7 @@ export function QRCodeSheet({ data, onClose }: Props) {
       <Text style={styles.descText}>
         Please treat the code carefully as it contains your account password.
       </Text>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -59,11 +66,15 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     backgroundColor: '#1E2530', // From screenshot, dark blue/grey
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    flexShrink: 1,
+  },
+  content: {
     padding: spacing.xl,
     paddingTop: 24,
     alignItems: 'center',
   },
   title: {
+    textAlign: 'center',
     color: '#fff',
     fontSize: 18,
     fontWeight: '500',

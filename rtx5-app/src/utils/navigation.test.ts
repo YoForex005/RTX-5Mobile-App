@@ -110,3 +110,38 @@ test('back navigation work starts only after the touch frame can paint', async (
     }
   }
 });
+
+test('Back recovers from an interrupted frame without running again on a late frame', async () => {
+  const originalFrame = globalThis.requestAnimationFrame;
+  let frame: FrameRequestCallback | undefined;
+  globalThis.requestAnimationFrame = callback => { frame = callback; return 1; };
+  try {
+    let calls = 0;
+    scheduleBackNavigationAfterVisualFrame(() => calls++);
+    await new Promise(resolve => setTimeout(resolve, 130));
+    assert.equal(calls, 1, 'Back must not wait indefinitely for a native frame');
+    frame?.(0);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(calls, 1);
+  } finally {
+    if (originalFrame) globalThis.requestAnimationFrame = originalFrame;
+    else Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+  }
+});
+
+test('repeated Back taps before a paint commit only the latest pending pop', async () => {
+  const originalFrame = globalThis.requestAnimationFrame;
+  const frames: FrameRequestCallback[] = [];
+  globalThis.requestAnimationFrame = callback => { frames.push(callback); return frames.length; };
+  try {
+    const calls: string[] = [];
+    scheduleBackNavigationAfterVisualFrame(() => calls.push('stale'));
+    scheduleBackNavigationAfterVisualFrame(() => calls.push('current'));
+    frames.forEach(frame => frame(0));
+    await new Promise(resolve => setTimeout(resolve, 130));
+    assert.deepEqual(calls, ['current'], 'queued taps must not unexpectedly pop multiple screens');
+  } finally {
+    if (originalFrame) globalThis.requestAnimationFrame = originalFrame;
+    else Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+  }
+});

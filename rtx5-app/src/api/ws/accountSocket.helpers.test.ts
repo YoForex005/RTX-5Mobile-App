@@ -15,7 +15,7 @@ const activeCapture = (overrides: Record<string, unknown> = {}) => ({
     tradeWsBase: 'wss://services.broker-a.example/ws/v2',
     feedStatusUrl: 'https://services.broker-a.example/ws/feed/status',
     servicesDomain: 'services.broker-a.example',
-    feedAuthContext: { mode: 'none' as const },
+    investor: false,
     cacheNamespace: 'broker-a:200101:7',
     sessionEpoch: 7,
     configVersion: 'v1',

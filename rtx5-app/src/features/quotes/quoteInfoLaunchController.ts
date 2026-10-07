@@ -1,3 +1,4 @@
+import { scheduleAfterVisualFrame, scheduleAfterVisualFrames } from '../../utils/afterVisualFrame';
 /**
  * Controls the short handoff from a symbol option to Properties or Market
  * Statistics: prepare the symbol, show a lightweight screen, then open the real route.
@@ -296,14 +297,7 @@ export function scheduleQuoteInfoLaunchNavigation(
 
   // Shell is already on the UI thread from show(). Push the real route after
   // one paint frame so open stays Brokers+/New-Order class.
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(runIfCurrent, 0);
-    return;
-  }
-
-  globalThis.requestAnimationFrame(() => {
-    setTimeout(runIfCurrent, 0);
-  });
+  return scheduleAfterVisualFrame(runIfCurrent);
 }
 
 /** Drop the back-cover shell after Quotes has had a chance to paint under it. */
@@ -312,12 +306,5 @@ export function scheduleQuoteInfoBackCoverRemoval(revision: number) {
     quoteInfoLaunchController.hide(revision);
   };
 
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(hideIfCurrent, 0);
-    return;
-  }
-
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(hideIfCurrent);
-  });
+  return scheduleAfterVisualFrames(hideIfCurrent);
 }

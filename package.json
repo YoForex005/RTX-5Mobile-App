@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
+    "start": "node ./rtx5-app/scripts/android/start-dev-client-usb.js --go --tunnel",
+    "start:lan": "node ./rtx5-app/scripts/android/start-dev-client-usb.js --go --lan",
+    "start:tunnel": "node ./rtx5-app/scripts/android/start-dev-client-usb.js --go --tunnel",
+    "android": "node ./rtx5-app/scripts/android/start-dev-client-usb.js --go --android",
+    "open:android": "node ./rtx5-app/scripts/android/start-dev-client-usb.js --go --reuse-only",
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit"

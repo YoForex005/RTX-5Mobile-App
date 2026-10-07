@@ -317,12 +317,16 @@ export function HistoryNetProfitLossScreen() {
     [],
   );
 
-  const { data: rawPositionHistory = [] } = usePositionHistoryQuery(accountLogin);
-  const { data: rawDeals = [] } = useAccountDealsQuery({ login: accountLogin });
   const { fromMs: effectiveHistoryFromMs, toMs: effectiveHistoryToMs } = useMemo(
     () => resolveEffectiveHistoryDateRange(historyRange, historyFromMs, historyToMs),
     [historyRange, historyFromMs, historyToMs],
   );
+  // Contract 6.4: closed history is paged by from/to time windows.
+  const { data: rawPositionHistory = [] } = usePositionHistoryQuery(accountLogin, {
+    from: effectiveHistoryFromMs != null ? Math.floor(effectiveHistoryFromMs / 1000) : undefined,
+    to: effectiveHistoryToMs != null ? Math.floor(effectiveHistoryToMs / 1000) : undefined,
+  });
+  const { data: rawDeals = [] } = useAccountDealsQuery({ login: accountLogin });
   // Mirror HistoryScreen's closed-position pipeline: the history endpoint can
   // lag behind freshly-closed trades (especially on demo brokers), so closed
   // positions are also rebuilt from the deals stream and merged. Without this
@@ -645,7 +649,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) =>
     headerTitle: {
       textAlign: 'center',
       fontSize: 17,
-      fontWeight: '700',
+      fontWeight: '500',
       letterSpacing: 0.2,
     },
     scrollView: {

@@ -33,7 +33,7 @@ function writeOrderTicketLaunchVisibilityNow(visible: boolean) {
     })(nextValue);
   } catch (error) {
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      console.warn('[OrderTicketLaunch] sync UI write unavailable, using async fallback:', error);
+      console.log('[OrderTicketLaunch] sync UI write unavailable, using async fallback:', error);
     }
     orderTicketLaunchVisibility.value = nextValue;
   }

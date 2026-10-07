@@ -5,10 +5,13 @@
  * React Query, SafeArea context, and GestureHandler support.
  */
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PropsWithChildren } from 'react';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PropsWithChildren, useEffect } from 'react';
+import { AppState, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
+import { bindNativeQueryFocus } from './nativeQueryFocus';
+import { bindNativeInteractionLifecycle } from '../../utils/interactionLifecycle';
 
 function getQueryErrorStatus(error: unknown): number | undefined {
   if (!error || typeof error !== 'object') {
@@ -56,6 +59,14 @@ export const appQueryClient = new QueryClient({
 });
 
 export function AppProviders({ children }: PropsWithChildren) {
+  useEffect(() => {
+    // Restore touch ownership before query polling/reconnects resume. UI
+    // recovery also runs for guests and never waits for token validation.
+    const unbindInteractions = bindNativeInteractionLifecycle(Platform.OS, AppState);
+    const unbindQueryFocus = bindNativeQueryFocus(Platform.OS, AppState, focusManager);
+    return () => { unbindInteractions(); unbindQueryFocus(); };
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>

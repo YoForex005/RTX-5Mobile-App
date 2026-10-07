@@ -9,7 +9,7 @@ const source = readFileSync(
 );
 
 test('broker directory hooks share the post-handoff versioned cache key', () => {
-  assert.match(source, /BROKER_DIRECTORY_QUERY_VERSION = 4/);
+  assert.match(source, /BROKER_DIRECTORY_QUERY_VERSION = 5/);
   assert.match(
     source,
     /const getBrokerDirectoryQueryKey = \(\) => \[[\s\S]*BROKER_SERVERS_KEY,[\s\S]*BROKER_DIRECTORY_QUERY_VERSION/,

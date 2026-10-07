@@ -7,7 +7,6 @@ import {
 import { getFeedHealthSnapshot } from './feedHealthRuntime';
 import {
   feedHealthAllowsFreshQuoteFallback,
-  feedHealthAllowsPriceActions,
   feedHealthStateMatchesIdentity,
 } from './feedHealthState';
 import { recordMarketDataEvent } from './marketDataTelemetry';
@@ -26,6 +25,7 @@ export type ExecutableQuoteInput = {
   stale?: boolean;
   tradable?: boolean;
   degraded?: boolean;
+  marketState?: string;
 };
 
 export type QuoteActionAvailability =
@@ -60,27 +60,7 @@ const isFreshTimestampMs = (timestampMs: number | undefined, now: number): boole
   return ageMs >= -5_000 && ageMs <= MARKET_QUOTE_STALE_AFTER_MS;
 };
 
-/**
- * Fail-closed policy for any action that can execute at the displayed price.
- *
- * Gate on **live websocket transport + fresh bid/ask**. Do not block on the
- * feed's optional `tradable` flag: many brokers (and REST→WS merges) leave it
- * false/missing while still streaming executable prices — which produced
- * "marked non-tradable by the market feed" on XAUUSD/BTCUSD with live candles.
- *
- * Freshness:
- * - A recent client receipt (`lastReceivedAt` / `lastTickAt`) of a websocket
- *   tick is enough. Receipt is stamped only when a live tick is ingested, so
- *   it is the reliable proof of life for Close / Order Ticket / SL·TP modify.
- * - Many brokers omit `feedTickAt` or send an unusable source clock. An ancient
- *   or wrong `feedTickAt` must not override a fresh websocket receipt (that
- *   produced false "live quote is stale" while bid/ask were still updating).
- * - When receipt is missing, a fresh `feedTickAt` alone can still pass.
- *
- * REST snapshots stay non-executable. Place-order on the broker gateway remains
- * the authority for session, margin, and market-hours rejects
- * (NO_FRESH_QUOTE / STALE_QUOTE / etc.).
- */
+/** Live bid/ask freshness never overrides explicit stale, degraded or non-tradable flags. */
 export const resolveQuoteActionAvailability = (
   quote: ExecutableQuoteInput | null | undefined,
   now = Date.now(),
@@ -88,6 +68,9 @@ export const resolveQuoteActionAvailability = (
   if (!quote) {
     return { allowed: false, reason: 'missing_quote' };
   }
+  if (quote.stale === true) return { allowed: false, reason: 'stale_quote' };
+  if (quote.degraded === true) return { allowed: false, reason: 'degraded_quote' };
+  if (quote.tradable === false || quote.marketState && !['open', 'live', 'quoting', 'active'].includes(quote.marketState.toLowerCase())) return { allowed: false, reason: 'not_tradable' };
 
   if (quote.transport !== 'websocket') {
     return { allowed: false, reason: 'snapshot_only' };
@@ -113,19 +96,6 @@ export const resolveQuoteActionAvailability = (
     return { allowed: false, reason: 'stale_quote' };
   }
 
-  // Broker `stale` / `degraded` flags alone must not block when we already have
-  // a fresh WS receipt (or source clock) and valid bid/ask. Several feeds set
-  // these while still streaming prices — Modify Position then showed
-  // "live quote is stale" with live bid/ask on screen.
-  if (quote.stale === true && !receiptFresh && !sourceFresh) {
-    return { allowed: false, reason: 'stale_quote' };
-  }
-
-  if (quote.degraded === true && !receiptFresh && !sourceFresh) {
-    return { allowed: false, reason: 'degraded_quote' };
-  }
-
-  // Intentionally ignore quote.tradable — see header comment.
   return { allowed: true, bid, ask };
 };
 
@@ -141,9 +111,7 @@ export const resolveSessionQuoteActionAvailability = (
   if (!capture) return { allowed: false, reason: 'feed_unavailable' };
   const identity = getActiveBrokerSessionIdentity(capture.session);
   const health = getFeedHealthSnapshot();
-  const healthAllowsActions = health.thresholds
-    ? feedHealthAllowsPriceActions(health, now)
-    : feedHealthAllowsFreshQuoteFallback(health, identity);
+  const healthAllowsActions = feedHealthAllowsFreshQuoteFallback(health, identity, now);
   if (
     !feedHealthStateMatchesIdentity(health, identity) ||
     !healthAllowsActions
@@ -201,3 +169,4 @@ export const recordBlockedPriceAction = (
     sessionEpoch: capture?.session.sessionEpoch,
   });
 };
+

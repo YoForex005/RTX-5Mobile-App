@@ -19,7 +19,7 @@ const activate = () => activateBrokerSession(beginActiveBrokerSessionTransition(
   feedWsBase: 'wss://services.broker-a.example/ws/feed',
   feedStatusUrl: 'https://services.broker-a.example/ws/feed/status',
   servicesDomain: 'services.broker-a.example',
-  feedAuthContext: { mode: 'none' },
+  investor: false,
   configVersion: 'cfg-1',
 }, {
   accessToken: 'access-a',

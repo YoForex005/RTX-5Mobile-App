@@ -163,9 +163,9 @@ test('pointer-down ownership covers both divided window shells before tap confir
   assert.match(screenSource, /onClaimPane=\{chartWindows\.claimToolbarTarget\}/);
 });
 
-test('secondary trade ownership uses immediate route focus without rerendering the heavy screen', () => {
-  assert.match(screenSource, /const immediateFocusRef = useRef\(isScreenFocused\)/);
-  assert.match(screenSource, /immediateFocusRef\.current = isScreenFocused/);
+test('secondary trade ownership requires immediate route focus and uncovered authentication without rerendering the heavy screen', () => {
+  assert.match(screenSource, /const immediateFocusRef = useRef\(isScreenFocused && marketDemandAllowed\)/);
+  assert.match(screenSource, /immediateFocusRef\.current = isScreenFocused && marketDemandAllowed/);
   assert.match(screenSource, /isTradeExecutionFocused=\{isTradeExecutionFocused\}/);
   assert.match(layoutSource, /focusResolver\(\) === true/);
   assert.match(layoutSource, /if \(!routeFocused \|\| !context\.paneId\) return false/);

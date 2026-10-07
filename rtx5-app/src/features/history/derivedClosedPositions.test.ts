@@ -181,3 +181,58 @@ test('mergeClosedPositionSources prefers history records when (ticket, time_clos
   // The deal-only record is preserved
   assert.ok(merged.some((r) => r.ticket === 200));
 });
+
+// Contract v3 6.4: deal rows have no position_ticket; /positions/{login}/history
+// may be missing closes made by the new close path (BACKEND PENDING).
+const v3Deal = (overrides: Partial<Deal>): Deal => {
+  const { position_ticket: _dropped, ...rest } = makeDeal(overrides);
+  return rest as Deal;
+};
+
+const historyRecord = (overrides: Partial<ClosedPosition>): ClosedPosition => ({
+  ticket: 2002,
+  account_login: 200074,
+  symbol: 'EURUSD',
+  side: 'buy',
+  volume: 0.01,
+  price_open: 1.13745,
+  price_close: 1.1376,
+  profit: 0.15,
+  swap: 0,
+  time_create: 1790241500,
+  time_update: 1790241600,
+  time_close: 1790241600,
+  ...overrides,
+});
+
+test('entry_out fallback fills closes missing from history and merges on the close execution', () => {
+  const deals = [
+    v3Deal({ ticket: 5001, symbol: 'EURUSD', action: 'deal_buy', entry: 'entry_in', volume: 0.01, price: 1.13745, time: 1790241500 }),
+    v3Deal({ ticket: 5005, symbol: 'EURUSD', action: 'deal_sell', entry: 'entry_out', volume: 0.01, price: 1.1376, profit: 0.15, time: 1790241600 }),
+    v3Deal({ ticket: 5006, symbol: 'XAUUSD', action: 'deal_buy', entry: 'entry_in', volume: 0.02, price: 2400, time: 1790241700 }),
+    v3Deal({ ticket: 5007, symbol: 'XAUUSD', action: 'deal_sell', entry: 'entry_out', volume: 0.02, price: 2410, profit: 20, time: 1790241800 }),
+  ];
+  const derived = deriveClosedPositionsFromDeals(deals);
+  assert.equal(derived.length, 2);
+
+  // History has the EURUSD close (position ticket 2002, 1 s rounding apart)
+  // but is missing the XAUUSD close.
+  const merged = mergeClosedPositionSources(
+    [historyRecord({ time_close: 1790241601, time_update: 1790241601 })],
+    derived,
+  );
+  assert.equal(merged.length, 2, 'EURUSD is not duplicated; XAUUSD is filled from deals');
+  assert.ok(merged.some((record) => record.ticket === 2002 && record.symbol === 'EURUSD'));
+  assert.ok(merged.some((record) => record.symbol === 'XAUUSD' && record.profit === 20));
+});
+
+test('two same-size closes in the same second are not collapsed when history has only one', () => {
+  const derived = deriveClosedPositionsFromDeals([
+    v3Deal({ ticket: 1, symbol: 'EURUSD', action: 'deal_buy', entry: 'entry_in', volume: 0.01, time: 1790241000 }),
+    v3Deal({ ticket: 2, symbol: 'EURUSD', action: 'deal_buy', entry: 'entry_in', volume: 0.01, time: 1790241001 }),
+    v3Deal({ ticket: 3, symbol: 'EURUSD', action: 'deal_sell', entry: 'entry_out', volume: 0.01, time: 1790241600 }),
+    v3Deal({ ticket: 4, symbol: 'EURUSD', action: 'deal_sell', entry: 'entry_out', volume: 0.01, time: 1790241600 }),
+  ]);
+  const merged = mergeClosedPositionSources([historyRecord({})], derived);
+  assert.equal(merged.length, 2);
+});

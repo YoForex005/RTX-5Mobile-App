@@ -61,6 +61,15 @@ export const getApiLatencyNow = () =>
 
 const createSampleId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+/**
+ * Slow-API monitor rule (dev builds only, never production):
+ * - >= API_LATENCY_SLOW_MS (3s, includes timeouts): console.warn, a delay the
+ *   user clearly feels and worth a LogBox toast;
+ * - >= API_LATENCY_WARN_MS (1s): console.log to Metro only;
+ * - faster: silent unless EXPO_PUBLIC_DEBUG_API_LATENCY=true (console.log).
+ * Fast failures (offline, 4xx) are expected and handled by callers, so they
+ * never warn here.
+ */
 const shouldLogApiLatency = (severity: 'ok' | 'warn' | 'slow') =>
   typeof __DEV__ !== 'undefined' &&
   __DEV__ &&
@@ -114,7 +123,10 @@ export function recordApiLatency(input: ApiLatencyInput): ApiLatencySample {
     const message =
       `[API ${severity}] ${sample.method} ${sample.endpoint} ${sample.status ?? 'ERR'} ` +
       `${sample.durationMs}ms (${sample.label})`;
-    if (severity === 'slow') {
+    // Cold TLS connections on mobile data routinely take 3s+ and are not
+    // actionable, so a LogBox toast is reserved for requests that reached the
+    // fetch timeout (a stuck request). Everything else stays in Metro logs.
+    if (sample.durationMs >= API_FETCH_TIMEOUT_MS) {
       console.warn(message);
     } else {
       console.log(message);

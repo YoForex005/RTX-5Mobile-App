@@ -17,7 +17,7 @@ export function makeObjectsScreenStyles(_T: ThemeColors, isDark: boolean) {
     headerTitle: {
       flex: 1, textAlign: 'center',
       color: isDark ? '#F8FAFC' : '#0F172A',
-      fontSize: 17, fontWeight: '700', paddingHorizontal: 8,
+      fontSize: 17, fontWeight: '500', paddingHorizontal: 8,
     },
     headerSubtitle: {
       color: isDark ? '#94A3B8' : '#64748B',

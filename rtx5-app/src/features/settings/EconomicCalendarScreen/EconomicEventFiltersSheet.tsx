@@ -4,15 +4,11 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
 import {
-  AccessibilityInfo,
-  Animated,
   BackHandler,
-  Easing,
   StyleSheet,
   Text,
   View,
@@ -27,74 +23,6 @@ import { makeEconomicCalendarStyles } from './styles';
 
 // Ignore the open-frame touch so the same finger cannot dismiss immediately.
 const EVENT_FILTER_OPEN_GUARD_MS = 220;
-const EVENT_FILTER_OPEN_BACKDROP_MS = 170;
-const EVENT_FILTER_OPEN_SHEET_MS = 195;
-const EVENT_FILTER_CLOSE_MS = 150;
-const EVENT_FILTER_ENTRY_TRANSLATE_Y = 32;
-
-const writeEventFilterHiddenValues = (
-  backdropOpacity: Animated.Value,
-  sheetTranslateY: Animated.Value,
-) => {
-  backdropOpacity.stopAnimation();
-  sheetTranslateY.stopAnimation();
-  backdropOpacity.setValue(0);
-  sheetTranslateY.setValue(EVENT_FILTER_ENTRY_TRANSLATE_Y);
-};
-
-const startEventFilterOpenAnimation = (
-  backdropOpacity: Animated.Value,
-  sheetTranslateY: Animated.Value,
-  reduceMotion: boolean,
-) => {
-  writeEventFilterHiddenValues(backdropOpacity, sheetTranslateY);
-  if (reduceMotion) {
-    backdropOpacity.setValue(1);
-    sheetTranslateY.setValue(0);
-    return;
-  }
-  Animated.parallel([
-    Animated.timing(backdropOpacity, {
-      toValue: 1,
-      duration: EVENT_FILTER_OPEN_BACKDROP_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }),
-    Animated.timing(sheetTranslateY, {
-      toValue: 0,
-      duration: EVENT_FILTER_OPEN_SHEET_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }),
-  ]).start();
-};
-
-const startEventFilterCloseAnimation = (
-  backdropOpacity: Animated.Value,
-  sheetTranslateY: Animated.Value,
-  reduceMotion: boolean,
-) => {
-  backdropOpacity.stopAnimation();
-  sheetTranslateY.stopAnimation();
-  if (reduceMotion) {
-    writeEventFilterHiddenValues(backdropOpacity, sheetTranslateY);
-    return;
-  }
-  Animated.parallel([
-    Animated.timing(backdropOpacity, {
-      toValue: 0,
-      duration: EVENT_FILTER_CLOSE_MS,
-      easing: Easing.in(Easing.quad),
-      useNativeDriver: true,
-    }),
-    Animated.timing(sheetTranslateY, {
-      toValue: EVENT_FILTER_ENTRY_TRANSLATE_Y,
-      duration: EVENT_FILTER_CLOSE_MS,
-      easing: Easing.in(Easing.quad),
-      useNativeDriver: true,
-    }),
-  ]).start();
-};
 
 export type EconomicEventFiltersSheetHandle = {
   open: () => void;
@@ -112,8 +40,8 @@ type EconomicEventFiltersSheetProps = {
  * behind it. The parent receives one update only after Apply is pressed.
  *
  * The host stays mounted and measured behind a React-owned visibility barrier.
- * Opening therefore performs only UI-thread opacity/translate work instead of
- * creating a new Android Modal window on the user's tap.
+ * Opening reveals its settled layout immediately, without creating a native
+ * Modal window or restarting an entrance when display preferences update.
  */
 export const EconomicEventFiltersSheet = React.memo(React.forwardRef<
   EconomicEventFiltersSheetHandle,
@@ -127,8 +55,6 @@ export const EconomicEventFiltersSheet = React.memo(React.forwardRef<
   );
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
-  const [openRevision, setOpenRevision] = useState(0);
-  const [reduceMotion, setReduceMotion] = useState(false);
   const [draftImpacts, setDraftImpacts] = useState<Set<ImpactLevel>>(
     () => new Set(selectedImpacts),
   );
@@ -136,86 +62,24 @@ export const EconomicEventFiltersSheet = React.memo(React.forwardRef<
   const selectedImpactsRef = useRef(selectedImpacts);
   selectedImpactsRef.current = selectedImpacts;
   const openedAtRef = useRef(0);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const sheetTranslateY = useRef(
-    new Animated.Value(EVENT_FILTER_ENTRY_TRANSLATE_Y),
-  ).current;
   const backdropColor = isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)';
-
-  const clearCloseTimer = useCallback(() => {
-    if (closeTimerRef.current !== null) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-  }, []);
-
-  const finishHidden = useCallback(() => {
-    clearCloseTimer();
-    writeEventFilterHiddenValues(backdropOpacity, sheetTranslateY);
-    setVisible(false);
-    setDraftImpacts(new Set(selectedImpactsRef.current));
-  }, [
-    backdropOpacity,
-    clearCloseTimer,
-    sheetTranslateY,
-  ]);
 
   const hideNow = useCallback(() => {
     if (!visibleRef.current) return;
     visibleRef.current = false;
-    clearCloseTimer();
-    startEventFilterCloseAnimation(backdropOpacity, sheetTranslateY, reduceMotion);
-    if (reduceMotion) {
-      finishHidden();
-      return;
-    }
-    closeTimerRef.current = setTimeout(finishHidden, EVENT_FILTER_CLOSE_MS);
-  }, [
-    backdropOpacity,
-    clearCloseTimer,
-    finishHidden,
-    reduceMotion,
-    sheetTranslateY,
-  ]);
-
-  const open = useCallback(() => {
-    clearCloseTimer();
-    visibleRef.current = true;
-    openedAtRef.current = Date.now();
-    setVisible(true);
-    setOpenRevision((current) => current + 1);
-  }, [clearCloseTimer]);
-
-  useImperativeHandle(ref, () => ({ open, close: hideNow }), [hideNow, open]);
-
-  useLayoutEffect(() => {
-    if (!visible || !visibleRef.current) return;
-    startEventFilterOpenAnimation(backdropOpacity, sheetTranslateY, reduceMotion);
-  }, [
-    backdropOpacity,
-    openRevision,
-    reduceMotion,
-    sheetTranslateY,
-    visible,
-  ]);
-
-  useEffect(() => {
-    let mounted = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
-      if (mounted) setReduceMotion(enabled);
-    });
-    const subscription = AccessibilityInfo.addEventListener(
-      'reduceMotionChanged',
-      setReduceMotion,
-    );
-    return () => {
-      mounted = false;
-      subscription.remove();
-    };
+    setVisible(false);
+    setDraftImpacts(new Set(selectedImpactsRef.current));
   }, []);
 
-  useEffect(() => () => clearCloseTimer(), [clearCloseTimer]);
+  const open = useCallback(() => {
+    if (visibleRef.current) return;
+    visibleRef.current = true;
+    openedAtRef.current = Date.now();
+    setDraftImpacts(new Set(selectedImpactsRef.current));
+    setVisible(true);
+  }, []);
+
+  useImperativeHandle(ref, () => ({ open, close: hideNow }), [hideNow, open]);
 
   useEffect(() => {
     if (!visibleRef.current) {
@@ -270,12 +134,11 @@ export const EconomicEventFiltersSheet = React.memo(React.forwardRef<
       >
         <View style={styles.modalOverlay} testID="economic-event-filters-sheet">
           {/* Backdrop is a sibling of the sheet — never parent opacity of the card. */}
-          <Animated.View
+          <View
             pointerEvents="none"
             style={[
               StyleSheet.absoluteFillObject,
               { backgroundColor: backdropColor },
-              { opacity: backdropOpacity },
             ]}
           />
           <FastPressable
@@ -287,12 +150,9 @@ export const EconomicEventFiltersSheet = React.memo(React.forwardRef<
             unstable_pressDelay={0}
           />
 
-          <Animated.View
+          <View
             collapsable={false}
-            style={[
-              styles.modalCard,
-              { transform: [{ translateY: sheetTranslateY }] },
-            ]}
+            style={styles.modalCard}
             testID="economic-event-filters-card"
           >
             <View style={styles.modalHeader}>
@@ -389,7 +249,7 @@ export const EconomicEventFiltersSheet = React.memo(React.forwardRef<
               />
               <Text style={styles.modalDoneBtnText}>{t('Apply Filters')}</Text>
             </FastPressable>
-          </Animated.View>
+          </View>
         </View>
       </View>
     </View>

@@ -14,10 +14,33 @@ export class PendingOrderPayloadError extends Error {
   }
 }
 
+/**
+ * Types the server can return in the pending list (contract 6.3). The two
+ * stop-limit types are readable but remain rejected for local placement.
+ */
+const READABLE_PENDING_ORDER_TYPES = new Set<PendingOrderType>([
+  ...PENDING_ORDER_TYPES,
+  'buy_stop_limit',
+  'sell_stop_limit',
+]);
+
+const canonicalPendingTypeText = (value: unknown): string | null =>
+  typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/[\s-]+/g, '_')
+    : null;
+
+/** Placement types (stop-limit stays locked locally). */
 export const normalizePendingOrderType = (value: unknown): PendingOrderType | null => {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
-  return PENDING_ORDER_TYPES.has(normalized as PendingOrderType)
+  const normalized = canonicalPendingTypeText(value);
+  return normalized && PENDING_ORDER_TYPES.has(normalized as PendingOrderType)
+    ? (normalized as PendingOrderType)
+    : null;
+};
+
+/** Read-model types, including buy_stop_limit / sell_stop_limit rows. */
+export const normalizePendingOrderReadType = (value: unknown): PendingOrderType | null => {
+  const normalized = canonicalPendingTypeText(value);
+  return normalized && READABLE_PENDING_ORDER_TYPES.has(normalized as PendingOrderType)
     ? (normalized as PendingOrderType)
     : null;
 };
@@ -110,11 +133,18 @@ export function buildPendingOrderRequestBody(payload: PlacePendingOrderPayload):
   }
   const sl = hasOwn(payload, 'sl') ? payload.sl : payload.price_sl;
   const tp = hasOwn(payload, 'tp') ? payload.tp : payload.price_tp;
-  if (sl !== undefined && sl !== null) {
-    body.sl = toCanonicalDecimalString(sl, 'Pending Stop Loss');
+  // Contract 6.3: "no SL/TP" is an omitted field (or null), NEVER 0. A 0 /
+  // empty input from the ticket UI therefore omits the field.
+  const isUnsetProtection = (value: unknown) =>
+    value === undefined ||
+    value === null ||
+    (typeof value === 'string' && value.trim() === '') ||
+    Number(value) === 0;
+  if (!isUnsetProtection(sl)) {
+    body.sl = toCanonicalDecimalString(sl as number | string, 'Pending Stop Loss');
   }
-  if (tp !== undefined && tp !== null) {
-    body.tp = toCanonicalDecimalString(tp, 'Pending Take Profit');
+  if (!isUnsetProtection(tp)) {
+    body.tp = toCanonicalDecimalString(tp as number | string, 'Pending Take Profit');
   }
 
   if (hasOwn(payload, 'expiry') && hasOwn(payload, 'expiration')) {
@@ -135,12 +165,7 @@ export function buildPendingOrderRequestBody(payload: PlacePendingOrderPayload):
   } else if (hasOwn(payload, 'expiry') && expiry === null) {
     body.expiry = null;
   }
-  if (payload.fill_mode !== undefined) {
-    if (payload.fill_mode !== 'return' && payload.fill_mode !== 'fok') {
-      throw new PendingOrderPayloadError('Pending order fill mode is invalid.');
-    }
-    body.fill_mode = payload.fill_mode;
-  }
+  // `fill_mode` is not part of the v3 pending contract and is never sent.
   if (typeof payload.comment === 'string' && payload.comment.length > 0) {
     if (utf8ByteLength(payload.comment) > 1024) {
       throw new PendingOrderPayloadError('Pending order comment must not exceed 1024 bytes.');

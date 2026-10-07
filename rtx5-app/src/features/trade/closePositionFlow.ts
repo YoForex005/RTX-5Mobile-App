@@ -47,7 +47,6 @@ const CLOSE_INVALIDATION_KEYS = [
   'positions',
   'ordersByLogin',
   'accountSummary',
-  'exposure',
   'transactions',
 ];
 

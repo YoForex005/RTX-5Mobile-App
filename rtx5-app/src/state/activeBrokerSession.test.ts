@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
@@ -24,12 +24,6 @@ const sessionInput = (brokerId = 'broker-a') => ({
   tradeWsBase: `wss://services.${brokerId}.com/ws/v2`,
   feedStatusUrl: `https://services.${brokerId}.com/ws/feed/status`,
   servicesDomain: `services.${brokerId}.com`,
-  feedAuthContext: {
-    mode: 'query' as const,
-    credential: 'feed_token' as const,
-    tokenQueryParam: 'token',
-    brokerIdQueryParam: 'broker_id',
-  },
   configVersion: 'cfg-1',
 });
 
@@ -37,7 +31,6 @@ const credentials = (accessToken = 'access-a') => ({
   accessToken,
   refreshToken: 'refresh-a',
   expiresAt: '2099-01-01T00:00:00.000Z',
-  feedToken: 'feed-a',
 });
 
 test.beforeEach(() => __resetActiveBrokerSessionForTests());
@@ -60,7 +53,7 @@ test('activation commits one immutable identity, endpoint set, and cache namespa
   assert.equal(Object.isFrozen(capture), true);
   assert.equal(Object.isFrozen(capture.session), true);
   assert.equal(Object.isFrozen(capture.credentials), true);
-  assert.equal(capture.session.brokerId, 'broker-a');
+  assert.equal(capture.session.brokerId, 'BROKER-A');
   assert.match(capture.session.cacheNamespace, /^broker-a:10001:[a-z0-9-]+:1$/i);
   assert.equal(capture.session.sessionEpoch, 1);
   assert.equal(capture.session.servicesDomain, 'services.broker-a.com');
@@ -123,7 +116,7 @@ test('credential refresh can update only the matching active identity', () => {
   assert.equal(captureActiveBrokerSession(), null);
 });
 
-test('credential refresh replaces feed token and context in one generation', () => {
+test('credential refresh rotates tokens in one generation and never adds feed auth', () => {
   const capture = activateBrokerSession(
     beginActiveBrokerSessionTransition(),
     sessionInput(),
@@ -137,23 +130,18 @@ test('credential refresh replaces feed token and context in one generation', () 
     identity,
     {
       ...credentials('access-new'),
-      feedToken: undefined,
-    },
-    {
-      mode: 'disabled_unconfigured',
-      reason: 'missing_contract',
-    },
+      // A legacy (pre-v3) caller passing a feed token is ignored.
+      feedToken: 'legacy-feed-token',
+    } as ReturnType<typeof credentials>,
   ), true);
 
   const current = captureActiveBrokerSession();
   const currentOwner = captureActiveBrokerSessionOwnerStamp();
   assert.ok(current);
   assert.ok(currentOwner);
-  assert.equal(current.credentials.feedToken, undefined);
-  assert.deepEqual(current.session.feedAuthContext, {
-    mode: 'disabled_unconfigured',
-    reason: 'missing_contract',
-  });
+  assert.equal(current.credentials.accessToken, 'access-new');
+  assert.equal('feedToken' in current.credentials, false);
+  assert.equal('feedAuthContext' in current.session, false);
   assert.equal(isActiveBrokerSessionOwnerStampCurrent(previousOwner), false);
   assert.equal(
     currentOwner.credentialGeneration,
@@ -203,7 +191,7 @@ test('subscribers observe invalidation before activation', () => {
   assert.deepEqual(events, ['transition', 'activated']);
 });
 
-test('invalid transport endpoints and feed-auth metadata fail closed', () => {
+test('invalid transport endpoints fail closed', () => {
   const insecure = beginActiveBrokerSessionTransition();
   assert.throws(
     () => activateBrokerSession(
@@ -214,22 +202,6 @@ test('invalid transport endpoints and feed-auth metadata fail closed', () => {
     /invalid WSS feed endpoint/,
   );
 
-  const badParam = beginActiveBrokerSessionTransition();
-  assert.throws(
-    () => activateBrokerSession(
-      badParam,
-      {
-        ...sessionInput(),
-        feedAuthContext: {
-          mode: 'query',
-          credential: 'feed_token',
-          tokenQueryParam: 'token&broker_id',
-        },
-      },
-      credentials(),
-    ),
-    /invalid token query parameter/,
-  );
 });
 
 test('activation rejects missing versions and endpoint hosts outside approved services domain', () => {
@@ -254,21 +226,24 @@ test('activation rejects missing versions and endpoint hosts outside approved se
   );
 });
 
-test('unconfigured feed auth is explicit and never mistaken for an anonymous feed', () => {
-  const capture = activateBrokerSession(
-    beginActiveBrokerSessionTransition(),
+test('every session uses the no-token feed, even when a legacy feed auth context is passed', () => {
+  for (const legacyFeedAuthContext of [
+    undefined,
+    { mode: 'disabled_unconfigured' as const, reason: 'missing_contract' as const },
     {
-      ...sessionInput(),
-      feedAuthContext: {
-        mode: 'disabled_unconfigured',
-        reason: 'missing_contract',
-      },
+      mode: 'query' as const,
+      credential: 'feed_token' as const,
+      tokenQueryParam: 'token&broker_id',
     },
-    credentials(),
-  );
+  ]) {
+    const capture = activateBrokerSession(
+      beginActiveBrokerSessionTransition(),
+      { ...sessionInput(), feedAuthContext: legacyFeedAuthContext } as ReturnType<typeof sessionInput>,
+      { ...credentials(), feedToken: 'legacy-feed-token' } as ReturnType<typeof credentials>,
+    );
 
-  assert.deepEqual(capture.session.feedAuthContext, {
-    mode: 'disabled_unconfigured',
-    reason: 'missing_contract',
-  });
+    assert.equal('feedAuthContext' in capture.session, false);
+    assert.equal('feedToken' in capture.credentials, false);
+  }
 });
+

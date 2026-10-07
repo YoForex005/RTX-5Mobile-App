@@ -27,6 +27,15 @@ const TERMINAL_POSITION_STATES = new Set([
   'DELETED',
 ]);
 
+/** `close_reason` values sent with `position_closed` (normalized). */
+const TERMINAL_CLOSE_REASONS = new Set([
+  'SL',
+  'TP',
+  'STOP OUT',
+  'NETTING CLOSE',
+  'NETTING REVERSE',
+]);
+
 export function findExistingPosition(positions: PositionItem[], dto: any): PositionItem | undefined {
   const incomingId = dto?.ticket ?? dto?.position_ticket ?? dto?.order_ticket ?? dto?.id;
   if (incomingId !== undefined && incomingId !== null) {
@@ -50,6 +59,12 @@ export function isTerminalPositionUpdate(dto: any): boolean {
   }
 
   const source = dto as Record<string, unknown>;
+  // Contract v3: SL/TP hits, stop-outs and netting closes arrive as
+  // `position_closed` rows carrying `close_reason`. A row with a known close
+  // reason is terminal even when the event name was stripped from it.
+  if (TERMINAL_CLOSE_REASONS.has(normalizeLifecycleState(source.close_reason))) {
+    return true;
+  }
   return [
     source.status,
     source.state,

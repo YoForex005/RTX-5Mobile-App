@@ -1,17 +1,13 @@
 /**
- * Price Alerts API (V2)
+ * Price Alerts API (V2, contract v3)
  *
  * Manage server-side price alerts. All endpoints are JWT-resolved (no login param).
  *
  * Endpoints:
- *  POST   /api/v2/alerts       — create a price alert
- *  GET    /api/v2/alerts       — list all active alerts
- *  DELETE /api/v2/alerts/{id}  — delete a specific alert
- *
- * NOTE on real vs. Swagger response:
- *  - POST returns 201 (not 200 as documented)
- *  - POST response omits `message` and `created_at`
- *  - GET response includes `triggered: boolean` (not in Swagger schema)
+ *  POST   /api/v2/alerts       — body `{symbol, condition:"above"|"below"|"cross", price, message?}`;
+ *                                returns `201 {id, symbol, condition, price}`
+ *  GET    /api/v2/alerts       — returns a bare array
+ *  DELETE /api/v2/alerts/{id}  — returns `{id, status:"deleted"}`
  */
 
 import { apiClient } from './apiClient';
@@ -21,11 +17,13 @@ import { apiClient } from './apiClient';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Condition direction for a price alert */
-export type AlertCondition = 'above' | 'below';
+export type AlertCondition = 'above' | 'below' | 'cross';
+
+const ALERT_CONDITIONS: readonly AlertCondition[] = ['above', 'below', 'cross'];
 
 /**
  * A price alert returned by GET /api/v2/alerts.
- * `triggered` is true once the server has fired the alert.
+ * `triggered` is true once the server has fired the alert (false when absent).
  */
 export interface PriceAlert {
   id: number;
@@ -35,7 +33,7 @@ export interface PriceAlert {
   message: string;
   /** Whether the alert has already been triggered */
   triggered: boolean;
-  /** Unix timestamp (seconds) when the alert was created */
+  /** Unix timestamp (seconds) when the alert was created; 0 when absent. */
   created_at: number;
 }
 
@@ -48,6 +46,72 @@ export interface CreateAlertPayload {
   message?: string;
 }
 
+export interface DeleteAlertResult {
+  id: number;
+  status: 'deleted';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mapping
+// ─────────────────────────────────────────────────────────────────────────────
+
+const finiteNumber = (value: unknown): number | undefined => {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'string' && value.trim() === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+export function normalizeAlertCondition(value: unknown): AlertCondition | null {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return (ALERT_CONDITIONS as readonly string[]).includes(normalized)
+    ? (normalized as AlertCondition)
+    : null;
+}
+
+/** Maps one alert row; rows without an id, symbol, condition or price are dropped. */
+export function mapPriceAlert(row: unknown): PriceAlert | null {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+  const record = row as Record<string, unknown>;
+  const id = finiteNumber(record.id);
+  const price = finiteNumber(record.price);
+  const condition = normalizeAlertCondition(record.condition);
+  const symbol = typeof record.symbol === 'string' ? record.symbol.trim() : '';
+  if (id === undefined || price === undefined || !condition || !symbol) return null;
+  return {
+    id,
+    symbol,
+    condition,
+    price,
+    message: typeof record.message === 'string' ? record.message : '',
+    triggered: record.triggered === true,
+    created_at: finiteNumber(record.created_at) ?? 0,
+  };
+}
+
+export function mapPriceAlertList(body: unknown): PriceAlert[] {
+  // Contract: a bare array. `{data:[...]}` is tolerated for older gateways.
+  const rows = Array.isArray(body)
+    ? body
+    : Array.isArray((body as { data?: unknown } | null)?.data)
+      ? (body as { data: unknown[] }).data
+      : [];
+  return rows
+    .map(mapPriceAlert)
+    .filter((alert): alert is PriceAlert => alert !== null);
+}
+
+/** Builds the POST body with only the contract keys. */
+export function buildCreateAlertBody(payload: CreateAlertPayload): CreateAlertPayload {
+  const message = payload.message?.trim();
+  return {
+    symbol: payload.symbol,
+    condition: payload.condition,
+    price: payload.price,
+    ...(message ? { message } : {}),
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // API
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,9 +120,7 @@ export const alertsApi = {
   /**
    * Fetch all price alerts for the authenticated user.
    *
-   * GET /api/v2/alerts
-   *
-   * @returns Array of PriceAlert objects (includes triggered=false active alerts)
+   * GET /api/v2/alerts — a bare array.
    */
   getAlerts: async (): Promise<PriceAlert[]> => {
     const response = await apiClient('/alerts');
@@ -66,46 +128,39 @@ export const alertsApi = {
       const err = await response.json().catch(() => ({}));
       throw { response: { data: err, status: response.status } };
     }
-    const json = await response.json();
-    if (Array.isArray(json)) return json;
-    if (Array.isArray(json?.data)) return json.data;
-    return [];
+    return mapPriceAlertList(await response.json());
   },
 
   /**
    * Create a new price alert.
    *
-   * POST /api/v2/alerts
-   * Returns 201 on success (Swagger says 200 — the real server returns 201).
-   *
-   * @param payload - Alert definition: symbol, condition, price, optional message
-   * @returns Partial alert record from server (id, symbol, condition, price)
+   * POST /api/v2/alerts — returns 201 `{id, symbol, condition, price}`.
    */
   createAlert: async (payload: CreateAlertPayload): Promise<Partial<PriceAlert>> => {
     const response = await apiClient('/alerts', {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(buildCreateAlertBody(payload)),
     });
-    // Server returns 201 Created — treat both 200 and 201 as success
-    if (!response.ok && response.status !== 201) {
+    if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       throw { response: { data: err, status: response.status } };
     }
-    return response.json().catch(() => ({}));
+    const created = await response.json().catch(() => ({}));
+    return mapPriceAlert({ message: payload.message ?? '', ...(created as object) }) ?? {};
   },
 
   /**
    * Delete a price alert by ID.
    *
-   * DELETE /api/v2/alerts/{id}
-   *
-   * @param id - Alert ID returned by getAlerts or createAlert
+   * DELETE /api/v2/alerts/{id} — returns `{id, status:"deleted"}`.
    */
-  deleteAlert: async (id: number): Promise<void> => {
-    const response = await apiClient(`/alerts/${id}`, { method: 'DELETE' });
+  deleteAlert: async (id: number): Promise<DeleteAlertResult> => {
+    const response = await apiClient(`/alerts/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       throw { response: { data: err, status: response.status } };
     }
+    const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+    return { id: finiteNumber(body?.id) ?? id, status: 'deleted' };
   },
 };

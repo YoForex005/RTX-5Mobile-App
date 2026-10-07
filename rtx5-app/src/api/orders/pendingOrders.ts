@@ -9,29 +9,39 @@ import { assertActivePendingProtectionAllowed } from '../sltpCapabilityGuard';
 import { createTradeIdempotencyKey } from '../tradeIdempotency';
 import { createTradingApiError } from '../tradingErrors';
 import { normalizePositiveSafeIntegerPathSegment } from '../positions/modifyPositionWire';
-import { normalizePendingOrderType } from './pendingOrderPayload';
+import { normalizePendingOrderReadType } from './pendingOrderPayload';
 import type { PendingOrderType } from './types';
 
 type UnknownRecord = Record<string, unknown>;
 
+/**
+ * Pending list row (contract 6.3): `ticket, account_login, symbol, type,
+ * volume, price, status, time_setup, state_version, price_limit,
+ * trigger_phase` plus optional `price_sl, price_tp, time_expiry, time_done,
+ * comment`. Stop-limit rows are readable (placing them stays locked).
+ */
 export type PendingOrderReadModel = Readonly<{
   ticket: number;
   accountLogin: number;
   symbol: string;
-  type: Exclude<PendingOrderType, 'buy_stop_limit' | 'sell_stop_limit'>;
+  type: PendingOrderType;
   status: string;
   timeSetup: number;
   volume: string | null;
   price: string | null;
+  priceLimit: string | null;
   sl: string | null;
   tp: string | null;
   expiry: number | null;
   timeDone: number | null;
   comment: string | null;
+  stateVersion: string | null;
+  triggerPhase: string | null;
 }>;
 
 export type ModifyPendingOrderInput = Readonly<{
   price?: number | string;
+  price_limit?: number | string;
   sl?: number | string | null;
   tp?: number | string | null;
   expiry?: number | null;
@@ -187,10 +197,10 @@ export const normalizePendingOrderDto = (
   const symbol = typeof record.symbol === 'string'
     ? record.symbol.trim().toUpperCase()
     : '';
-  const type = normalizePendingOrderType(record.type);
+  const type = normalizePendingOrderReadType(record.type);
   const status = typeof record.status === 'string' ? record.status.trim() : '';
   const timeSetup = readOptionalUnixSeconds(record, ['time_setup'], 'setup time');
-  if (!symbol || !type || type.includes('stop_limit') || !status || timeSetup === null) {
+  if (!symbol || !type || !status || timeSetup === null) {
     throw createTradingApiError(502, {
       error: 'INVALID_RESPONSE',
       message: 'Pending-order identity or lifecycle fields are malformed.',
@@ -201,11 +211,12 @@ export const normalizePendingOrderDto = (
     ticket,
     accountLogin,
     symbol,
-    type: type as PendingOrderReadModel['type'],
+    type,
     status,
     timeSetup,
     volume: readDecimalFamily(record, ['volume_exact', 'volume'], 'volume'),
     price: readDecimalFamily(record, ['price_exact', 'price'], 'trigger price'),
+    priceLimit: readDecimalFamily(record, ['price_limit'], 'limit price'),
     sl: readDecimalFamily(
       record,
       ['sl_exact', 'price_sl_exact', 'sl', 'price_sl'],
@@ -223,6 +234,10 @@ export const normalizePendingOrderDto = (
     ),
     timeDone: readOptionalUnixSeconds(record, ['time_done'], 'completion time'),
     comment: typeof record.comment === 'string' ? record.comment : null,
+    stateVersion: record.state_version === undefined || record.state_version === null
+      ? null
+      : String(record.state_version),
+    triggerPhase: typeof record.trigger_phase === 'string' ? record.trigger_phase : null,
   });
 };
 
@@ -242,10 +257,23 @@ export const buildModifyPendingOrderRequestBody = (
     }
     body.price = toCanonicalDecimalString(input.price, 'Pending trigger price');
   }
+  if (hasOwn(source, 'price_limit')) {
+    if (input.price_limit === null || input.price_limit === undefined) {
+      throw createTradingApiError(400, {
+        error: 'INVALID_INPUT',
+        message: 'Pending limit price cannot be null.',
+      });
+    }
+    body.price_limit = toCanonicalDecimalString(input.price_limit, 'Pending limit price');
+  }
   for (const key of ['sl', 'tp'] as const) {
     if (!hasOwn(source, key)) continue;
     const value = input[key];
-    body[key] = value === null
+    // Contract 6.3: clearing SL/TP is `null`, never 0.
+    const clears = value === null ||
+      (typeof value === 'string' && value.trim() === '') ||
+      Number(value) === 0;
+    body[key] = clears
       ? null
       : toCanonicalDecimalString(
         value as number | string,
@@ -383,9 +411,10 @@ export const modifyPendingOrder = async (
     if (response.status !== 200) {
       throw createTradingApiError(response.status, await readError(response));
     }
-    // Parse the source-style complete row as a response-integrity check, but
-    // do not commit it. The captured-owner list below remains authoritative.
-    normalizePendingOrderDto(await response.json());
+    // v3 answers with a PARTIAL row: {ticket, status:"modified",
+    // state_version, price_limit, ...sent fields}. Only check identity; the
+    // captured-owner list re-fetch below is always authoritative.
+    parseModifyPendingOrderResponse(await response.json(), ticket.numeric);
     assertPendingOrderOwnerCurrent(owner);
   } catch (error) {
     primaryError = error;
@@ -409,14 +438,37 @@ export const modifyPendingOrder = async (
   });
 };
 
-const parseCancelPendingOrderResponse = (
+const responseTicketMatches = (value: unknown, expectedTicket: number): boolean =>
+  (typeof value === 'number' || typeof value === 'string') &&
+  String(value).trim() === String(expectedTicket);
+
+/** Partial modify acknowledgement; extra fields are allowed and ignored. */
+export const parseModifyPendingOrderResponse = (
   value: unknown,
   expectedTicket: number,
 ): void => {
   const record = asRecord(value);
   if (
     !record ||
-    record.ticket !== expectedTicket ||
+    !responseTicketMatches(record.ticket, expectedTicket) ||
+    record.status !== 'modified'
+  ) {
+    throw createTradingApiError(502, {
+      error: 'INVALID_RESPONSE',
+      message: 'Pending-order modification acknowledgement is malformed.',
+    });
+  }
+};
+
+/** `{ticket,status:"cancelled",time,state_version}`; extra keys allowed. */
+export const parseCancelPendingOrderResponse = (
+  value: unknown,
+  expectedTicket: number,
+): void => {
+  const record = asRecord(value);
+  if (
+    !record ||
+    !responseTicketMatches(record.ticket, expectedTicket) ||
     record.status !== 'cancelled' ||
     typeof record.time !== 'number' ||
     !Number.isSafeInteger(record.time) ||

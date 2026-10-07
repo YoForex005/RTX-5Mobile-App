@@ -104,7 +104,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
     color: T.text,
     fontSize: 21,
     lineHeight: 27,
-    fontWeight: '600',
+    fontWeight: '500',
     letterSpacing: 0,
     textAlign: 'center',
   },
@@ -135,6 +135,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
     borderRadius: 4,
   },
   statusText: {
+    flexShrink: 1,
     color: T.text,
     fontSize: 10,
     fontWeight: '600',
@@ -143,7 +144,8 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   },
   searchBox: {
     marginTop: spacing.md,
-    height: 42,
+    minHeight: 42,
+    paddingVertical: 8,
     borderRadius: radius.md,
     backgroundColor: isDark ? 'rgba(2,6,23,0.38)' : 'rgba(15,23,42,0.04)',
     borderWidth: 1,
@@ -164,10 +166,12 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   telemetryRow: {
     marginTop: spacing.sm,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   metric: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 96,
     minWidth: 0,
     paddingHorizontal: spacing.sm,
     paddingVertical: 7,
@@ -198,7 +202,8 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
     gap: spacing.sm,
   },
   filterPill: {
-    height: 34,
+    minHeight: 34,
+    paddingVertical: 8,
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
     borderRadius: radius.lg,

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FastPressable as Pressable } from './FastPressable';
 import { GDark, GLight } from '../theme/glass';
@@ -34,39 +34,9 @@ export const TradeFeedbackModal = React.memo(({
   isDark?: boolean;
 }) => {
   const insets = useSafeAreaInsets();
-  const slideAnim = useRef(new Animated.Value(0)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (!state.visible) return;
-
-    slideAnim.setValue(0);
-    opacityAnim.setValue(0);
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: 1,
-        duration: 170,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 160,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [
-    opacityAnim,
-    slideAnim,
-    state.executedAt,
-    state.side,
-    state.symbol,
-    state.ticket,
-    state.visible,
-    state.volume,
-  ]);
-
+  // Absolute overlays span their parent's padding box, including Screen insets.
+  const leftInset = insets.left;
+  const rightInset = insets.right;
   if (!state.visible) return null;
 
   const receipt = resolveConfirmedTradeReceipt(state);
@@ -122,12 +92,8 @@ export const TradeFeedbackModal = React.memo(({
       : 'The broker rejected this order.'
   );
 
-  // Fade/slide only - no scale. Absolute overlay (not RN Modal): on iOS a Modal
-  // presentation often forces the chart WebView to recompose and blink.
-  const translateY = slideAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [8, 0],
-  });
+  // Reveal immediately and keep receipt updates stable. An absolute overlay
+  // also avoids forcing the chart WebView to recompose during presentation.
 
   if (receipt) {
     const sideColor = receipt.side === 'buy' ? BUY_HEX : SELL_HEX;
@@ -136,11 +102,15 @@ export const TradeFeedbackModal = React.memo(({
       <View
         style={[
           tfmStyles.receiptOverlay,
-          { paddingBottom: Math.max(112, insets.bottom + 104) },
+          {
+            paddingBottom: Math.max(112, insets.bottom + 104),
+            paddingLeft: leftInset + 16,
+            paddingRight: rightInset + 16,
+          },
         ]}
         pointerEvents="box-none"
       >
-        <Animated.View
+        <View
           accessibilityLiveRegion="polite"
           accessibilityRole="alert"
           accessibilityLabel={
@@ -154,8 +124,6 @@ export const TradeFeedbackModal = React.memo(({
               borderColor: subtleBorder,
               shadowColor: isDark ? '#000000' : '#64748B',
               shadowOpacity: isDark ? 0.30 : 0.12,
-              opacity: opacityAnim,
-              transform: [{ translateY }],
             },
           ]}
         >
@@ -197,25 +165,32 @@ export const TradeFeedbackModal = React.memo(({
               {receipt.doneLabel}
             </Text>
           </Pressable>
-        </Animated.View>
+        </View>
       </View>
     );
   }
 
   return (
-    <View style={tfmStyles.overlay} pointerEvents="box-none">
+    <View style={[
+      tfmStyles.overlay,
+      {
+        paddingTop: insets.top + 12,
+        paddingBottom: insets.bottom + 12,
+        paddingLeft: leftInset + 18,
+        paddingRight: rightInset + 18,
+      },
+    ]} pointerEvents="box-none">
       <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
-      <Animated.View
+      <View
         style={[
           tfmStyles.card,
           {
             backgroundColor: cardBg,
             borderColor: subtleBorder,
-            opacity: opacityAnim,
-            transform: [{ translateY }],
           },
         ]}
       >
+        <ScrollView style={tfmStyles.detailScroll} keyboardShouldPersistTaps="always" canCancelContentTouches={Platform.OS === 'ios'}>
         <View style={tfmStyles.statusRow}>
           <View style={[tfmStyles.statusIcon, { backgroundColor: accentSoft, borderColor: accent }]}>
             <Ionicons
@@ -225,11 +200,11 @@ export const TradeFeedbackModal = React.memo(({
             />
           </View>
           <View style={tfmStyles.statusTextCol}>
-            <Text style={[tfmStyles.statusTitle, { color: textPrimary }]} numberOfLines={2}>
+            <Text style={[tfmStyles.statusTitle, { color: textPrimary }]}>
               {detailedTitle}
             </Text>
             {isSuccess && successSummaryText ? (
-              <Text style={[tfmStyles.statusSubtitle, { color: textMuted }]} numberOfLines={1}>
+              <Text style={[tfmStyles.statusSubtitle, { color: textMuted }]}>
                 {successSummaryText}
               </Text>
             ) : null}
@@ -261,7 +236,8 @@ export const TradeFeedbackModal = React.memo(({
             </Text>
           </Pressable>
         </View>
-      </Animated.View>
+        </ScrollView>
+      </View>
     </View>
   );
 });
@@ -350,6 +326,7 @@ const tfmStyles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 328,
+    maxHeight: '100%',
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
@@ -360,6 +337,7 @@ const tfmStyles = StyleSheet.create({
     shadowRadius: 26,
     elevation: 20,
   },
+  detailScroll: { flexGrow: 0, flexShrink: 1 },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',

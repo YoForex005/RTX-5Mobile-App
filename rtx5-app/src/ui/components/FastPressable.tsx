@@ -1,4 +1,5 @@
 import React, { memo, useCallback } from 'react';
+import { interactionLifecycle, registerInteractionLifecycleHandler } from '../../utils/interactionLifecycle';
 import {
   Pressable,
   type GestureResponderEvent,
@@ -99,7 +100,7 @@ export const FastPressable = memo(function FastPressable({
   hitSlop,
   pressRetentionOffset,
   unstable_pressDelay,
-  latencyLabel = 'fastPress',
+  latencyLabel: explicitLatencyLabel,
   latencyBudgetMs,
   journalActionLabel,
   journalActionSource = 'Actions',
@@ -129,6 +130,14 @@ export const FastPressable = memo(function FastPressable({
   const onTouchStartRef = React.useRef(onTouchStart);
   const activateOnPressInRef = React.useRef(activateOnPressIn);
   const activateOnTouchStartRef = React.useRef(activateOnTouchStart);
+  const disabledRef = React.useRef(disabled);
+  // Unlabelled presses used to all report as `fastPress`, which made a slow
+  // control impossible to find. Fall back to the control's own identity.
+  const latencyLabel = explicitLatencyLabel
+    ?? (typeof props.testID === 'string' && props.testID ? `fastPress:${props.testID}` : undefined)
+    ?? (typeof props.accessibilityLabel === 'string' && props.accessibilityLabel
+      ? `fastPress:${props.accessibilityLabel}`
+      : 'fastPress');
   const latencyLabelRef = React.useRef(latencyLabel);
   const latencyBudgetMsRef = React.useRef(latencyBudgetMs);
   const journalActionLabelRef = React.useRef(journalActionLabel);
@@ -143,6 +152,7 @@ export const FastPressable = memo(function FastPressable({
   onTouchStartRef.current = onTouchStart;
   activateOnPressInRef.current = activateOnPressIn;
   activateOnTouchStartRef.current = activateOnTouchStart;
+  disabledRef.current = disabled;
   latencyLabelRef.current = latencyLabel;
   latencyBudgetMsRef.current = latencyBudgetMs;
   journalActionLabelRef.current = journalActionLabel;
@@ -158,8 +168,16 @@ export const FastPressable = memo(function FastPressable({
 
   React.useEffect(() => clearPressGuardTimer, [clearPressGuardTimer]);
 
+  React.useEffect(() => registerInteractionLifecycleHandler(() => {
+    // App switching can terminate a touch without onPressOut/onPress. Its
+    // deduplication guard must not swallow the first new gesture after resume.
+    clearPressGuardTimer();
+    handledOnPressInRef.current = false;
+    deliveredExplicitPressInRef.current = false;
+  }), [clearPressGuardTimer]);
+
   const runPressAction = useCallback((action: null | FastPressCallback | undefined, event: FastPressEvent) => {
-    if (!action) return;
+    if (!action || !interactionLifecycle.isForeground()) return;
     const startedAtMs = getInteractionNow();
     const latencyLabel = latencyLabelRef.current;
     const latencyBudgetMs = latencyBudgetMsRef.current;
@@ -200,6 +218,16 @@ export const FastPressable = memo(function FastPressable({
     const onPress = onPressRef.current;
     const activateOnTouchStart = activateOnTouchStartRef.current;
     const pressAlreadyHandled = handledOnPressInRef.current;
+
+    // Pressable withholds its press callbacks while disabled, but onTouchStart
+    // reaches the host View untouched, so touch-start activation must honour
+    // `disabled` itself (a disabled LOGIN otherwise still submits).
+    if (disabledRef.current) {
+      if (onTouchStart && onTouchStart !== onPress) {
+        runPressAction(onTouchStart, event);
+      }
+      return;
+    }
 
     if (onTouchStart) {
       runPressAction(onTouchStart, event);

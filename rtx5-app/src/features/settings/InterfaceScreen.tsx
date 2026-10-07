@@ -222,7 +222,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     inactiveBody: { flex: 1 },
     sectionLabel: {
       fontSize: 12,
-      fontWeight: '700',
+      fontWeight: '500',
       letterSpacing: 1,
       color: T.textMuted,
       textTransform: 'uppercase',

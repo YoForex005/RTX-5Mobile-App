@@ -6,7 +6,6 @@ export const CHART_LINE_STYLE = {
   SparseDotted: 4,
 } as const;
 
-export const CHART_OVERLAY_DEBUG = false;
 export const STOP_OUT_MARGIN_LEVEL_FRACTION = 0.5;
 export const MAX_CLOSED_POSITION_MARKERS = 8;
 export const MAX_HMR_MARKERS = 3;

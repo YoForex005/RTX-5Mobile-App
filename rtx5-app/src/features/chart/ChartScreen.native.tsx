@@ -1,3 +1,4 @@
+import { GDark, GLight } from '../../ui/theme/glass';
 import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Core Charting Interface for iOS/Android
@@ -12,10 +13,12 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  * - Micro-Components: Extracts fast-updating UI (like the live price pill) into memoized blocks isolated from the main layout.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { AppMenuIcon } from '../../ui/components/AppMenuIcon';
 import { useIsFocused } from '@react-navigation/native';
+import { useAuthMarketDemandAllowed } from '../trade/useAuthMarketVisibility';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Dimensions, Keyboard, PanResponder, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, type AppStateStatus, Dimensions, Keyboard, PanResponder, Platform, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Gesture } from 'react-native-gesture-handler';
 import Animated, {
@@ -64,6 +67,11 @@ import {
 } from './components/ChartTradeOverlayLiveBridge';
 import { ChartTradeButtons } from './components/ChartTradeButtonsFeature';
 import {
+  INVESTOR_READ_ONLY_MESSAGE,
+  INVESTOR_READ_ONLY_TITLE,
+  isActiveSessionInvestorReadOnly,
+} from '../../state/investorReadOnlySession';
+import {
   ChartTradeReceiptStack,
   createChartTradeReceiptStackController,
   type ChartTradeQueueEvent,
@@ -101,6 +109,7 @@ import {
   ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE,
 } from '../../api/orrnnDemoPublicMarket';
 import { useLiveAccountState } from '../../state/liveAccountState';
+import { recordAppActionJournalEvent } from '../../state/terminalJournalState';
 import { useOrdersByLoginQuery } from '../../query/orders';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
 import { ChartTradeFeedbackPortal } from '../../ui/navigation/ChartTradeSheetPortal';
@@ -144,6 +153,7 @@ import { usePositionHistoryQuery } from '../../query/positions';
 import { useChartDealsQuery } from '../../query/deals';
 import { useAlertsQuery } from '../../query/alerts';
 import { useMarketSymbols } from '../../query/market';
+import { buildAvailableChartSymbols, resolveBrokerChartSymbol } from './chartBrokerSymbols';
 import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketStatus } from '../../query/marketStatus';
@@ -312,7 +322,7 @@ import { PendingOrderPreviewChart } from "./components/PendingOrderPreviewChart"
 import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { resolveChartTradeButtonQuote } from "./components/ChartTradeButtonsFeature/quoteFallback";
-import { TvLayers } from "./components/ChartToolbarIcons";
+import { CHART_HEADER_GLYPH_SIZE, CHART_HEADER_ICON_SIZE, TvCrosshair, TvLayers, TvTradeClock } from "./components/ChartToolbarIcons";
 import { ChartWindowManagerOverlay } from './components/ChartWindowManagerOverlay';
 import {
   ChartWindowsLayout,
@@ -351,7 +361,6 @@ import {
 } from './chartWindowRadialMenu';
 import { ChartTapMenuViewport, CHART_AREA_TIME_SCALE_MIN_BAR_SPACING, CHART_AXIS_DIVIDER_DARK_COLOR as MT5_DARK_AXIS_BORDER_COLOR, CHART_AXIS_DIVIDER_LIGHT_COLOR as MT5_LIGHT_AXIS_BORDER_COLOR, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveVisibleTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent, type ChartVisiblePriceRange } from "./ChartScreen.constants";
 import {
-  DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
   SYMBOL_LOGOS,
   resolveChartSymbolCategory,
@@ -384,29 +393,7 @@ import {
 
 // Quotes own Bid/Ask display and execution eligibility; candles independently
 // own O/H/L/C. Never substitute a candle close for a missing quote side.
-const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
-  const ordered: string[] = [];
-  const indexByKey = new Map<string, number>();
-  const push = (symbol: string | null | undefined) => {
-    const trimmed = symbol?.trim();
-    if (!trimmed) return;
-    const key = trimmed.toUpperCase();
-    const existingIndex = indexByKey.get(key);
-    if (existingIndex !== undefined) {
-      if (trimmed === key && ordered[existingIndex] !== key) {
-        ordered[existingIndex] = trimmed;
-      }
-      return;
-    }
-    indexByKey.set(key, ordered.length);
-    ordered.push(trimmed);
-  };
 
-  push(chartSymbol);
-  apiSymbols.forEach(push);
-  DEFAULT_CHART_SYMBOLS.forEach(push);
-  return ordered;
-};
 
 const getSentimentForSymbol = (symbol: string) => {
   const now = new Date();
@@ -426,7 +413,7 @@ const CHART_SOURCE = { html: CH_HTML };
 const chartTradeResultRefreshScheduler = createCoalescedSessionRefreshScheduler();
 const CHART_DEV_SOURCE_KEY = getDevRefreshKey(
   'chart-native-webview',
-  hashDevRefreshSource(CH_HTML),
+  typeof __DEV__ !== 'undefined' && __DEV__ ? hashDevRefreshSource(CH_HTML) : '',
 );
 const CHART_BRIDGE_DEBUG = false;
 // The tiny Buy/Sell button and canonical WebView live-paint bridge own their
@@ -439,7 +426,7 @@ const CHART_LIVE_PAINT_FALLBACK_MS = 64;
 const CHART_SYMBOL_HEADER_HIT_SLOP = { top: 10, bottom: 18, left: 16, right: 48 };
 const CHART_OHLC_NEUTRAL_DARK_COLOR = '#FFFFFF';
 const CHART_OHLC_NEUTRAL_LIGHT_COLOR = '#0F172A';
-const CHART_OHLC_HIGH_COLOR = '#089981';
+const CHART_OHLC_HIGH_COLOR = GDark.trading.profit;
 const CHART_OHLC_LOW_COLOR = '#F23645';
 // The chart document recognizes double taps for 350 ms. Leave enough bridge
 // margin for CHART_DOUBLE_TAP to cancel promotion on a busy JS thread; toolbar
@@ -521,7 +508,7 @@ const ChartLiveOhlcRow = React.memo(function ChartLiveOhlcRow({
     Number.isFinite(value) ? Number(value).toFixed(displayDecimals) : '--';
   const items = [
     { label: 'O', value: formatValue(candle?.open), color: neutralColor },
-    { label: 'H', value: formatValue(candle?.high), color: CHART_OHLC_HIGH_COLOR },
+    { label: 'H', value: formatValue(candle?.high), color: isDark ? CHART_OHLC_HIGH_COLOR : GLight.trading.profit },
     { label: 'L', value: formatValue(candle?.low), color: CHART_OHLC_LOW_COLOR },
     { label: 'C', value: formatValue(candle?.close), color: neutralColor },
   ];
@@ -728,9 +715,11 @@ const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
 const ChartScreenInner = React.memo(function ChartScreenInner({
   isChartRouteActive,
   isTradeExecutionFocused,
+  marketDemandAllowed,
 }: {
   isChartRouteActive: boolean;
   isTradeExecutionFocused: () => boolean;
+  marketDemandAllowed: boolean;
 }) {
   const T = useTheme();
   const { t } = useTranslation();
@@ -756,7 +745,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   // atomic candle+Bid WebView bridge and isolated Buy/Sell footer listener
   // remain warm so the first revealed frame is complete and current.
   const chartSurfaceActivated = useDeferredActiveFlag(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS);
-  const chartSurfaceStartupBooted = useChartSurfaceStartupBoot(chartSurfaceActivated);
+  // Cancel pending startup boot under authentication; an already-mounted surface stays retained.
+  const chartSurfaceStartupBooted = useChartSurfaceStartupBoot(chartSurfaceActivated || !marketDemandAllowed);
   const chartSurfaceReady = useLatchedFlag(chartSurfaceActivated || chartSurfaceStartupBooted);
   // Derive login reactively from Zustand so the positions fetch re-triggers
   // when auth completes (login goes from undefined → valid number).
@@ -875,7 +865,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [chartSymbol]);
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
+  const HEADER_CONTROL_COLOR = T.text;
   const retainedChartPositionsRef = useRef(usePositionsState.getState().positions);
+  const retainedChartPositionSignatureRef = useRef<string | null>(null);
+  if (retainedChartPositionSignatureRef.current === null) {
+    retainedChartPositionSignatureRef.current = buildChartPositionStructuralSignature(retainedChartPositionsRef.current);
+  }
   // Position pushes replace currentPrice/P&L at feed cadence. Open-line
   // geometry only changes when the structural fields below change; live labels
   // are calculated from the separately coalesced quote. Selecting a primitive
@@ -883,8 +878,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const chartPositionStructuralSignature = usePositionsState((state) => (
     chartRuntimeActive
       ? buildChartPositionStructuralSignature(state.positions)
-      : buildChartPositionStructuralSignature(retainedChartPositionsRef.current)
+      : retainedChartPositionSignatureRef.current!
   ));
+  if (chartRuntimeActive) {
+    // Zustand evaluates every selector on every ledger publication. A hidden
+    // chart must reuse its last signature rather than serializing the retained
+    // positions again for each live price or P/L update on another screen.
+    retainedChartPositionSignatureRef.current = chartPositionStructuralSignature;
+  }
   const positions = useMemo(() => {
     if (!chartRuntimeActive) {
       return retainedChartPositionsRef.current;
@@ -1056,10 +1057,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   );
 
   const { data: apiSymbolsData } = useMarketSymbols(chartRuntimeActive);
-  const apiSymbols = apiSymbolsData ?? EMPTY_CHART_QUERY_ROWS;
   const availableSymbols = useMemo(
-    () => buildAvailableChartSymbols(chartSymbol, apiSymbols),
-    [apiSymbols, chartSymbol],
+    () => buildAvailableChartSymbols(chartSymbol, apiSymbolsData),
+    [apiSymbolsData, chartSymbol],
   );
   const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, chartRuntimeActive);
   // The retained chart surface preloads this lightweight session boundary so
@@ -1580,8 +1580,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const preloadScopedActionSheet = useUIState((s) => s.preloadScopedActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const safeInsets = useSafeAreaInsets();
+  const { width: screenWidth, height: screenHeight, fontScale } = useWindowDimensions();
   useEffect(() => {
-    if (!showChartTradeSheet || !isPendingChartOrderType(chartTradeOrderType)) {
+    if (!chartRuntimeActive || !showChartTradeSheet || !isPendingChartOrderType(chartTradeOrderType)) {
       return;
     }
 
@@ -1590,7 +1591,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     // performs its own synchronous press-time check below.
     const timer = setInterval(() => refreshChartPendingQuoteGuard((revision) => revision + 1), 1_000);
     return () => clearInterval(timer);
-  }, [chartTradeOrderType, showChartTradeSheet]);
+  }, [chartRuntimeActive, chartTradeOrderType, showChartTradeSheet]);
   const chartPendingQuoteAvailability = resolveSessionQuoteActionAvailability(chartLiveQuote, Date.now());
   const chartPendingLiveBid = chartPendingQuoteAvailability.allowed
     ? chartPendingQuoteAvailability.bid
@@ -1644,8 +1645,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     () => resolveBottomTabBarHeight({
       safeAreaBottom: safeInsets.bottom,
       isChartTab: true,
+      viewportHeight: screenHeight,
+      fontScale,
+      isLandscape: screenWidth > screenHeight,
     }),
-    [safeInsets.bottom],
+    [safeInsets.bottom, screenHeight, screenWidth, fontScale],
   );
   const footerKeyboardAvoidanceOffset = useMemo(() => {
     if (chartTabBarKeyboardLift <= 0) {
@@ -1738,8 +1742,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       dockOffset: nextDockOffset,
     };
   }, [readKeyboardMetricsFrame, recomputeKeyboardDockOffset]);
-  const screenHeight = Dimensions.get('window').height;
-  const fullscreenChartMinHeight = Math.max(320, screenHeight);
+  const fullscreenChartMinHeight = Math.max(
+    1,
+    chartTradeSheetHostHeight || screenHeight - safeInsets.top - safeInsets.bottom,
+  );
   const chartTradeSheetPortalEnabled = !isChartExpanded;
   // Expanded/fullscreen geometry still needs enough room for the complete
   // pinned chrome. The normal compact state replaces exactly the app-menu
@@ -1786,7 +1792,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       bottomNavigationReserve +
       inlineFooterHeight;
 
-    return Math.max(320, Math.round(hostViewportHeight - reservedBottomStack));
+    return Math.max(1, Math.round(hostViewportHeight - reservedBottomStack));
   }, [
     chartBottomTabBarHeight,
     chartHeaderTopPadding,
@@ -1980,7 +1986,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const pendingChartCommand = useUIState((s) => s.pendingChartCommand);
   const clearPendingChartCommand = useUIState((s) => s.clearPendingChartCommand);
   const shouldCaptureChartGestures =
-    isChartExpanded || chartDrawingInputActive || Boolean(pendingChartDrawingTool);
+    isChartExpanded || activeTool === CHART_CROSSHAIR_TOOL || chartDrawingInputActive || Boolean(pendingChartDrawingTool);
 
   const webViewRef = useRef<WebView>(null);
 
@@ -2872,6 +2878,20 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     if (displayDecimals <= 0) return 1;
     return Math.pow(10, -displayDecimals);
   }, [displayDecimals]);
+  const chartCrosshairPointSize = useMemo(() => {
+    // The ruler counts broker points, which can differ from the trade tick size.
+    const candidates = [
+      chartInstrumentMeta?.point,
+      hasCoherentLiveChartQuote ? chartLiveQuote?.point : undefined,
+    ];
+    for (const point of candidates) {
+      if (typeof point === 'number' && Number.isFinite(point) && point > 0) {
+        return point;
+      }
+    }
+    // Clear the previous symbol's metadata on the retained chart surface.
+    return null;
+  }, [chartInstrumentMeta?.point, chartLiveQuote?.point, hasCoherentLiveChartQuote]);
   const chartPendingOffset = useMemo(() => {
     if (baseSymbol.includes('BTC')) return 250;
     if (baseSymbol.includes('XAU') || baseSymbol.includes('XAG')) return 1.5;
@@ -4239,6 +4259,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       });
       if (!validation.valid) {
         const feedback = createFrontendTradingError('Invalid SL/TP', validation.message);
+        setTradeFeedback({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: position.side });
+        return false;
+      }
+
+      // Investor (read-only) login: SL/TP line edits are not allowed.
+      if (isActiveSessionInvestorReadOnly()) {
+        const feedback = createFrontendTradingError(INVESTOR_READ_ONLY_TITLE, INVESTOR_READ_ONLY_MESSAGE);
         setTradeFeedback({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: position.side });
         return false;
       }
@@ -5723,7 +5750,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   // layer an explicit fixed height equal to the frozen host height. This
   // makes the layer independent of parent bounds (which shrink due to
   // adjustResize). When the keyboard is not visible, use 0 to signal
-  // "use absoluteFillObject as normal".
+  // "use absoluteFill as normal".
   const chartTradeSheetFrozenLayerHeight =
     shouldFreezeChartTradeSheetHostHeight && chartTradeSheetPresentationHostHeight > 0
       ? chartTradeSheetPresentationHostHeight
@@ -5906,7 +5933,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         chartTradeTpPrice,
         tradeVolume,
       );
-      const tpColor = resolvedChartColors.tradeTpSl || '#089981';
+      const tpColor = resolvedChartColors.tradeTpSl || T.trading.profit;
       previewLines.push({
         id: 'chart-trade-tp-preview',
         price: chartTradeTpPrice,
@@ -6367,7 +6394,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const startupChartPrefetchKeyRef = useRef('');
 
   useEffect(() => {
-    if (!preferencesHydrated || !chartSymbol || !chartTimeframe) {
+    if (!marketDemandAllowed || !preferencesHydrated || !chartSymbol || !chartTimeframe) {
       return undefined;
     }
 
@@ -6416,7 +6443,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     // extra paint frame) so the first Chart visit has candles ready sooner.
     void prefetchChartTimeframeHistory(chartSymbol, normalizedTimeframe).catch((error) => {
       if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-        console.warn('[CHART-BRIDGE] startup_history_prefetch_failed', {
+        console.log('[CHART-BRIDGE] startup_history_prefetch_failed', {
           symbol: chartSymbol,
           timeframe: normalizedTimeframe,
           message: error instanceof Error ? error.message : String(error),
@@ -6430,6 +6457,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     chartTimeframe,
     isPublicDemoMarket,
     isLoggedIn,
+    marketDemandAllowed,
     preferencesHydrated,
     prefetchChartTimeframeHistory,
   ]);
@@ -6450,7 +6478,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     useCallback(() => {
       // This focus signal is immediate; the prop intentionally reaches the
       // retained Chart tree one frame later to protect tab-switch performance.
-      isScreenFocusedRef.current = true;
+      isScreenFocusedRef.current = marketDemandAllowed;
       return () => {
         isScreenFocusedRef.current = false;
         cancelPendingChartContextActivation();
@@ -6461,6 +6489,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       cancelPendingChartContextActivation,
       cancelPendingSymbolUiReset,
       chartContextCommitScheduler,
+      marketDemandAllowed,
     ]),
   );
   useEffect(() => {
@@ -6490,6 +6519,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         const selectionChanged =
           preferences.chartSymbol !== nextSymbol ||
           preferences.chartTimeframe !== nextTimeframe;
+        if (selectionChanged) {
+          // Dispatch the public candle request before the retained Chart tree
+          // re-renders for the new symbol; its query joins this in-flight fetch
+          // instead of starting only after that render.
+          void prefetchChartSelectionHistory(nextSymbol, nextTimeframe);
+        }
         if (preferences.chartSymbol !== nextSymbol) {
           preferences.setChartSymbol(nextSymbol);
         }
@@ -6551,6 +6586,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       setChartTimeframe,
     ],
   );
+  useEffect(() => {
+    if (!chartRuntimeActive) return;
+    const nextSymbol = resolveBrokerChartSymbol(chartSymbol, apiSymbolsData);
+    if (nextSymbol) warmChartContextAndCommit(nextSymbol, chartTimeframe);
+  }, [apiSymbolsData, chartRuntimeActive, chartSymbol, chartTimeframe, warmChartContextAndCommit]);
+
   const commitPreactivatedChartContext = useCallback((
     nextSymbol: string,
     nextTimeframe: string,
@@ -7479,6 +7520,23 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
    */
   const chartMoreActions = useMemo(
     () => [
+      {
+        label: t('Chart Preferences'),
+        icon: <Ionicons name="options-outline" size={20} color={TEXT_MUTED} />,
+        activateOnPressIn: true,
+        onPress: () => {
+          hideChartActionSheet();
+          handleOpenSettingsScreen();
+        },
+      },
+      {
+        label: t(isChartExpanded ? 'Exit fullscreen' : 'Fullscreen'),
+        icon: <Ionicons name={isChartExpanded ? 'contract-outline' : 'expand-outline'} size={20} color={TEXT_MUTED} />,
+        onPress: () => {
+          hideChartActionSheet();
+          handleToggleChartExpanded();
+        },
+      },
       // Toggles the visibility of the volume histogram pane at the bottom of the chart
       {
         label: t(showChartVolumePane ? 'Hide Volume Bar' : 'Show Volume Bar'),
@@ -7565,8 +7623,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       handleOpenChartTradingCalculator,
       handleOpenChartTypePicker,
       handleOpenObjectsScreen,
+      handleOpenSettingsScreen,
       handleResetChartViewport,
       handleToggleChartDisplayAction,
+      handleToggleChartExpanded,
+      hideChartActionSheet,
       isChartExpanded,
       setChartViewportShowDrawingToolbar,
       setChartViewportShowVolumePane,
@@ -7687,14 +7748,27 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     });
   }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet]);
 
+  const handleToggleChartCrosshair = useCallback((
+    confirmation: ChartWindowToolbarTargetConfirmation,
+  ) => {
+    clearPendingChartDrawingTool();
+    const nextTool = activeTool === CHART_CROSSHAIR_TOOL
+      ? CHART_NO_DRAWING_TOOL
+      : CHART_CROSSHAIR_TOOL;
+    handleSetTool(nextTool);
+    chartDrawingToolOwnerPaneIdRef.current = nextTool === CHART_NO_DRAWING_TOOL
+      ? null
+      : resolveChartWindowCommandOwnerPaneId(confirmation);
+  }, [activeTool, clearPendingChartDrawingTool, handleSetTool]);
+
   const routeChartWindowToolbarAction = useChartWindowToolbarRouter(
     chartWindows.runOnToolbarTarget,
     {
+      crosshair: handleToggleChartCrosshair,
       timeframe: handleOpenTimeframePicker,
       sltp: handleActivateDirectChartProtection,
       drawings: handleOpenDrawingTools,
       settings: handleOpenSettingsScreen,
-      fullscreen: handleToggleChartExpanded,
       more: handleOpenMoreMenu,
     },
   );
@@ -7879,6 +7953,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     customCrosshair: {
       symbol: chartSymbol,
       timeframe: chartTimeframe,
+      pointSize: chartCrosshairPointSize,
       areaSeriesInspector: chartType === 'area',
       lineColor: isDark ? 'rgba(148, 163, 184, 0.64)' : 'rgba(71, 85, 105, 0.58)',
       labelBackground: isDark ? 'rgba(15, 23, 42, 0.96)' : 'rgba(15, 23, 42, 0.94)',
@@ -7904,6 +7979,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     areaVisibleBarTarget,
     chartDisplay.showGrid,
     chartGridColor,
+    chartCrosshairPointSize,
     chartSymbol,
     chartTimeframe,
     chartType,
@@ -8157,6 +8233,59 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     (!chartSurfaceReady || isLoading || candlesAvailable);
   const isError = hasChartDataError;
   const isNoMarketData = !candlesAvailable && !isLoading && !isError && loadingFallback;
+
+  // Field diagnostics: a chart that still has no drawable history after the
+  // 10 s fallback records what it saw in the Journal (Settings > Journal,
+  // Network), once per symbol/timeframe visit, so a screenshot identifies the
+  // failing stage without device logs.
+  const chartNoHistoryJournalKeyRef = useRef('');
+  useEffect(() => {
+    if (!chartRuntimeActive || !loadingFallback || candlesAvailable || hasUsableRetainedChart) {
+      return;
+    }
+    const journalKey = `${chartSymbol}:${chartTimeframe}`;
+    if (chartNoHistoryJournalKeyRef.current === journalKey) {
+      return;
+    }
+    chartNoHistoryJournalKeyRef.current = journalKey;
+    try {
+      recordAppActionJournalEvent({
+        source: 'Network',
+        level: 'error',
+        message:
+          `Chart ${chartSymbol} ${chartTimeframe} has no history after 10 s: `
+          + `mode=${isPublicDemoMarket ? 'public' : 'broker'}, `
+          + `loading=${chartDataLoading ? 'yes' : 'no'}, `
+          + `error=${chartDisplayError || 'none'}, `
+          + `candles=${candles.length}, history=${chartHasHistoryCandles ? 'yes' : 'no'}, `
+          + `drawable=${sanitizedCandles.length}, `
+          + `webView=${webViewReady ? 'ready' : 'not ready'}, canvas=${chartCanvasReady ? 'ready' : 'not ready'}`,
+      });
+    } catch {
+      // Diagnostics must never affect the chart.
+    }
+  }, [
+    candles.length,
+    candlesAvailable,
+    chartCanvasReady,
+    chartDataLoading,
+    chartDisplayError,
+    chartHasHistoryCandles,
+    chartRuntimeActive,
+    chartSymbol,
+    chartTimeframe,
+    hasUsableRetainedChart,
+    isPublicDemoMarket,
+    loadingFallback,
+    sanitizedCandles.length,
+    webViewReady,
+  ]);
+  useEffect(() => {
+    if (candlesAvailable) {
+      // A later visit to the same symbol/timeframe may report again.
+      chartNoHistoryJournalKeyRef.current = '';
+    }
+  }, [candlesAvailable]);
 
   useEffect(() => {
     if (!webViewReady || !chartCanvasReady) return;
@@ -8469,6 +8598,26 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     length: number;
     signature: string;
   } | null>(null);
+  // The retained Chart tab receives candles while hidden behind another tab or
+  // with the app backgrounded, and the WebView only paints once it is shown.
+  // Paint latency is therefore measured from when the chart became visible,
+  // not from when data arrived, or hidden time reads as a slow paint.
+  const chartVisibleSinceRef = useRef<number | null>(
+    isScreenFocused && AppState.currentState === 'active' ? Date.now() : null,
+  );
+  useEffect(() => {
+    const syncChartVisibility = (appState: AppStateStatus) => {
+      const visible = isScreenFocused && appState === 'active';
+      if (!visible) {
+        chartVisibleSinceRef.current = null;
+      } else if (chartVisibleSinceRef.current === null) {
+        chartVisibleSinceRef.current = Date.now();
+      }
+    };
+    syncChartVisibility(AppState.currentState);
+    const subscription = AppState.addEventListener('change', syncChartVisibility);
+    return () => subscription.remove();
+  }, [isScreenFocused]);
   const issueChartDataPaintToken = useCallback((
     dataContextSig: string,
     confirmsUsableChart: boolean,
@@ -8519,7 +8668,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     if (!frontendPaint) {
       return;
     }
-    const frontendMs = Date.now() - frontendPaint.availableAt;
+    const visibleSince = chartVisibleSinceRef.current;
+    if (visibleSince === null) {
+      // Painted while hidden: nobody waited on it, so there is no latency.
+      chartCandleFrontendPaintRef.current = null;
+      return;
+    }
+    const frontendMs = Date.now() - Math.max(frontendPaint.availableAt, visibleSince);
     recordUiFeedGap(
       'chart.candles.frontend.paint',
       frontendMs,
@@ -8606,7 +8761,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       return;
     }
     lastRecoveredChartWebViewGenerationRef.current = failedGeneration;
-    console.warn(`[CHART WEBVIEW] ${platformName} render process terminated.`);
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`[CHART WEBVIEW] ${platformName} render process terminated.`);
+    }
     resetChartBridgeState();
     setWebViewReady(false);
 
@@ -8789,11 +8946,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       // backend has no candle for (illiquid symbols, no-trade gaps) simply
       // collapse — matching MT5/TradingView. Fabricating flat bars here would
       // render zero-height dashes that read as broken whitespace.
-    }
-
-    if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG && result.length > 0) {
-      const lastFew = result.slice(-3);
-      console.log('CHART DATA DEBUG: Last 3 candles mapped:', JSON.stringify(lastFew));
     }
     return result;
   }, [chartType, resolveCachedRenkoBrickSize]);
@@ -9123,6 +9275,36 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     webViewReady,
   ]);
 
+  // Retain the chart document and live data, but stop its housekeeping clocks
+  // when another screen is visible or the app is in the background.
+  useEffect(() => {
+    const webView = webViewRef.current;
+    if (!webView || !webViewReady) return;
+    let disposed = false;
+    const syncRuntime = (state: AppStateStatus) => {
+      if (disposed) return;
+      const active = chartRuntimeActive && (state == null || state === 'active');
+      try {
+        webView.injectJavaScript(`
+          if (typeof setChartRuntimeActive === 'function') setChartRuntimeActive(${active});
+          true;
+        `);
+      } catch (_error) { /* The retained WebView may have been disposed. */ }
+    };
+    syncRuntime(AppState.currentState);
+    const subscription = AppState.addEventListener('change', syncRuntime);
+    return () => {
+      disposed = true;
+      subscription.remove();
+      try {
+        webView.injectJavaScript(`
+          if (typeof setChartRuntimeActive === 'function') setChartRuntimeActive(false);
+          true;
+        `);
+      } catch (_error) { /* The retained WebView may have been disposed. */ }
+    };
+  }, [chartRuntimeActive, chartWebViewGeneration, webViewReady]);
+
   // Core init function — safe to call repeatedly.
   // The WebView's initChart tears down any existing chart and rebuilds.
   const sendInit = useCallback((force: boolean = false) => {
@@ -9223,6 +9405,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
    */
   useEffect(() => {
     if (
+      !marketDemandAllowed ||
       !chartSurfaceReady ||
       (!isPublicDemoMarket && (!isLoggedIn || !activeChartSessionCacheNamespace))
     ) {
@@ -9544,6 +9727,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     isLoggedIn,
     isPublicDemoMarket,
     isChartMarketClosed,
+    marketDemandAllowed,
     issueChartDataPaintToken,
     retainChartDataPaintRetryScript,
     publishChartLiveOhlc,
@@ -10438,9 +10622,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     chartDisplay.showQuickTradingButtons || chartDirectProtectionActive;
   const compactVerticalChartWindow =
     chartWindows.isSplit && chartWindows.state.layout === 'vertical';
-  const isDrawingToolActive = activeTool !== CHART_NO_DRAWING_TOOL || Boolean(pendingChartDrawingTool);
-  const compactHeaderDrawingIconColor = isDrawingToolActive ? BLUE : TEXT_MUTED;
-  const compactHeaderFullscreenIconColor = isChartExpanded ? BLUE : TEXT_MUTED;
+  const isDrawingToolActive = isChartDrawingInputTool(activeTool) || isChartDrawingInputTool(pendingChartDrawingTool);
+  const compactHeaderDrawingIconColor = isDrawingToolActive ? BLUE : HEADER_CONTROL_COLOR;
   const chartSlTpBackendLocked = newMarketOrderProtectionBackendLocked;
   // Shared by two mount points: inline in the chart layer (normal flow) and
   // through ChartTradeFeedbackPortal while the SL/TP trade sheet is open, so
@@ -10501,14 +10684,33 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   );
   const renderCompactHeaderToolbar = () => (
     <>
-      <View style={[styles.compactHeaderToolbarSlot, { width: 'auto' }]}>
+      <View style={styles.compactHeaderToolbarSlot}>
+        <Pressable
+          testID="chart-crosshair-toggle"
+          accessibilityRole="button"
+          accessibilityLabel={t('Crosshair')}
+          accessibilityHint={activeTool === CHART_CROSSHAIR_TOOL
+            ? 'Drag to move the cursor; tap to measure price and time'
+            : 'Show the chart cursor to inspect price and time'}
+          accessibilityState={{ selected: activeTool === CHART_CROSSHAIR_TOOL }}
+          style={styles.chartCrosshairButton}
+          onPress={() => routeChartWindowToolbarAction('crosshair')}
+          latencyLabel="chart.crosshair.toggle"
+        >
+          <TvCrosshair
+            size={CHART_HEADER_ICON_SIZE}
+            strokeWidth={2}
+            color={HEADER_CONTROL_COLOR}
+            active={activeTool === CHART_CROSSHAIR_TOOL}
+          />
+        </Pressable>
+      </View>
+      <View style={styles.compactHeaderToolbarSlot}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('Select Timeframe')}
           style={styles.toolbarTimeframeButton}
           onPress={() => routeChartWindowToolbarAction('timeframe')}
-          activateOnPressIn
-          activateOnTouchStart
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -10518,7 +10720,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         </Pressable>
       </View>
 
-      <View style={[styles.compactHeaderToolbarSlot, styles.compactHeaderToolbarTradeSlot]}>
+      <View style={styles.compactHeaderToolbarSlot}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={chartSlTpBackendLocked ? 'SL/TP locked' : 'SL/TP'}
@@ -10531,22 +10733,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
             styles.toolbarTradeButton,
             chartSlTpBackendLocked && styles.toolbarTradeButtonLocked,
           ]}
-          onPressIn={() => routeChartWindowToolbarAction('sltp')}
+          onPress={() => routeChartWindowToolbarAction('sltp')}
           hitSlop={8}
           unstable_pressDelay={0}
         >
-          <Text
-            style={[
-              styles.toolbarTradeText,
-              chartDirectProtectionActive && { color: BLUE },
-            ]}
-            numberOfLines={1}
-            allowFontScaling={false}
-          >
-            SL/TP
-          </Text>
+          <TvTradeClock
+            size={CHART_HEADER_ICON_SIZE}
+            color={chartDirectProtectionActive ? BLUE : (isDark ? '#B0BEC5' : HEADER_CONTROL_COLOR)}
+          />
           {chartSlTpBackendLocked ? (
-            <Ionicons name="lock-closed" size={10} color={TEXT_MUTED} />
+            <Ionicons name="lock-closed" size={10} color={HEADER_CONTROL_COLOR} />
           ) : null}
         </Pressable>
       </View>
@@ -10557,53 +10753,22 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
           accessibilityLabel="Drawing tools"
           style={styles.toolbarIconButton}
           onPress={() => routeChartWindowToolbarAction('drawings')}
-          activateOnPressIn
-          activateOnTouchStart
           hitSlop={8}
           unstable_pressDelay={0}
         >
-          <Ionicons name="pencil-outline" size={18} color={compactHeaderDrawingIconColor} />
+          <Ionicons name="pencil-outline" size={CHART_HEADER_GLYPH_SIZE} color={compactHeaderDrawingIconColor} allowFontScaling={false} />
         </Pressable>
       </View>
       <View style={styles.compactHeaderToolbarSlot}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Chart settings"
-          style={styles.toolbarIconButton}
-          onPress={() => routeChartWindowToolbarAction('settings')}
-          activateOnPressIn
-          activateOnTouchStart
-          hitSlop={8}
-          unstable_pressDelay={0}
-          latencyLabel="chart.settings.open"
-        >
-          <Ionicons name="options-outline" size={18} color={TEXT_MUTED} />
-        </Pressable>
-      </View>
-      <View style={styles.compactHeaderToolbarSlot}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Toggle Fullscreen"
-          style={styles.toolbarIconButton}
-          onPressIn={() => routeChartWindowToolbarAction('fullscreen')}
-          hitSlop={8}
-          unstable_pressDelay={0}
-        >
-          <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={compactHeaderFullscreenIconColor} />
-        </Pressable>
-      </View>
-      <View style={[styles.compactHeaderToolbarSlot, styles.compactHeaderToolbarLastSlot]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="More chart actions"
           style={styles.toolbarIconButton}
           onPress={() => routeChartWindowToolbarAction('more')}
-          activateOnPressIn
-          activateOnTouchStart
           hitSlop={8}
           unstable_pressDelay={0}
         >
-          <Ionicons name="ellipsis-vertical" size={18} color={TEXT_MUTED} />
+          <Ionicons name="ellipsis-vertical" size={CHART_HEADER_GLYPH_SIZE} color={HEADER_CONTROL_COLOR} allowFontScaling={false} />
         </Pressable>
       </View>
     </>
@@ -10615,23 +10780,27 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         useMtPendingTradeSheetLayout && styles.chartTradeSheetHeaderPending,
       ]}
     >
-      <Pressable
-        style={styles.chartTradeSheetSymbolBlock}
-        onPress={handleOpenSymbolPicker}
-        activateOnPressIn
-        activateOnTouchStart
-        unstable_pressDelay={0}
-      >
-        <View style={styles.chartTradeSheetSymbolRow}>
-          <Text style={styles.chartTradeSheetSymbolText} numberOfLines={1} adjustsFontSizeToFit>
-            {displaySymbol}
+      <View style={styles.chartTradeSheetSymbolBlock}>
+        <Pressable
+          style={styles.chartTradeSheetSymbolButton}
+          hitSlop={0}
+          pressRetentionOffset={0}
+          onPress={handleOpenSymbolPicker}
+          activateOnPressIn
+          activateOnTouchStart
+          unstable_pressDelay={0}
+        >
+          <View style={styles.chartTradeSheetSymbolRow}>
+            <Text style={styles.chartTradeSheetSymbolText} numberOfLines={1} adjustsFontSizeToFit>
+              {displaySymbol}
+            </Text>
+            <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+          </View>
+          <Text style={styles.chartTradeSheetSymbolMeta} numberOfLines={1} adjustsFontSizeToFit>
+            {symbolName}
           </Text>
-          <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
-        </View>
-        <Text style={styles.chartTradeSheetSymbolMeta} numberOfLines={1} adjustsFontSizeToFit>
-          {symbolName}
-        </Text>
-      </Pressable>
+        </Pressable>
+      </View>
       <LiveQuotePairHeader
         bid={chartBid}
         ask={chartAsk}
@@ -10943,10 +11112,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
             hitSlop={{ top: 8, bottom: 8, left: 16, right: 6 }}
             unstable_pressDelay={0}
           >
-            <Ionicons name="menu" size={24} color={T.text} />
+            <AppMenuIcon color={HEADER_CONTROL_COLOR} />
           </Pressable>
 
-          {renderCompactHeaderToolbar()}
+          <ScrollView
+            horizontal
+            style={styles.compactHeaderActionsViewport}
+            contentContainerStyle={styles.compactHeaderActionsContent}
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="always"
+          >
+            {renderCompactHeaderToolbar()}
+          </ScrollView>
         </View>
       </View>
 
@@ -11166,18 +11343,36 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                   )}
 
                   {chartSurfaceReady && isError && !isLoading && (
-                    <View pointerEvents="none" style={styles.chartOverlay}>
+                    <View pointerEvents="box-none" style={styles.chartOverlay}>
                       <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
                       <Text style={styles.overlayText}>{t('Unable to load chart')}</Text>
                       <Text style={styles.overlaySubText}>{chartDisplayError ?? t('Waiting for market data connection...')}</Text>
+                      <View style={styles.overlayActions}>
+                        {!chartSurfaceRecoveryExhausted && (
+                          <Pressable accessibilityRole="button" style={styles.overlayAction} onPress={refreshChartHistory}>
+                            <Text style={styles.overlayActionText}>{t('Retry')}</Text>
+                          </Pressable>
+                        )}
+                        <Pressable accessibilityRole="button" style={styles.overlayAction} onPress={handleOpenSymbolPicker}>
+                          <Text style={styles.overlayActionText}>{t('Select Symbol')}</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   )}
 
                   {chartSurfaceReady && isNoMarketData && !isError && (
-                    <View pointerEvents="none" style={styles.chartOverlay}>
+                    <View pointerEvents="box-none" style={styles.chartOverlay}>
                       <Ionicons name="analytics-outline" size={36} color={TEXT_MUTED} />
                       <Text style={styles.overlayText}>{t('No market data available')}</Text>
                       <Text style={styles.overlaySubText}>{t('Waiting for backend candle data...')}</Text>
+                      <View style={styles.overlayActions}>
+                        <Pressable accessibilityRole="button" style={styles.overlayAction} onPress={refreshChartHistory}>
+                          <Text style={styles.overlayActionText}>{t('Retry')}</Text>
+                        </Pressable>
+                        <Pressable accessibilityRole="button" style={styles.overlayAction} onPress={handleOpenSymbolPicker}>
+                          <Text style={styles.overlayActionText}>{t('Select Symbol')}</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   )}
 
@@ -11233,11 +11428,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                           if (msg.type === 'CHART_CONTEXT_ACTIVATED') {
                             settleChartContextActivation(msg);
                           } else if (msg.type === 'READY') {
-                            if (typeof __DEV__ !== 'undefined' && __DEV__) {
-                              if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-                                console.log('[CHART] webview READY (surface boot complete)');
-                              }
-                            }
                             // WebView loaded — reset state and mark ready.
                             // The watchdog + Effect 1 will push initChart as soon as data exists.
                             resetChartBridgeState();
@@ -11920,8 +12110,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                               return nextPlotArea;
                             });
                           } else if (msg.type === 'ERROR') {
-                            // Log but don't alert — the watchdog will auto-retry.
-                            console.warn('[CHART WEBVIEW ERROR]', msg.message);
+                            // Recoverable: the watchdog auto-retries, so this is a
+                            // dev-only diagnostic (console.log, no LogBox toast).
+                            if (typeof __DEV__ !== 'undefined' && __DEV__) {
+                              console.log('[CHART WEBVIEW ERROR]', msg.message);
+                            }
                             const bridgeErrorMessage = typeof msg.message === 'string' ? msg.message : '';
                             if (/initChart|updateChartData|flushPendingTick|series not initialized|recoverChartSurface/.test(bridgeErrorMessage)) {
                               chartInitializedRef.current = false;
@@ -12447,7 +12640,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                               >
                                 <View style={styles.chartTradeStopPairHeader}>
                                   <View style={[styles.chartTradeStopPairBadge, styles.chartTradeStopPairBadgeTp]}>
-                                    <Ionicons name="trending-up-outline" size={16} color="#16A34A" />
+                                    <Ionicons name="trending-up-outline" size={16} color={T.trading.profit} />
                                   </View>
                                   {chartTradeStopUnit === 'Pips' && (
                                     <Pressable
@@ -12939,17 +13132,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
  */
 export function ChartScreen() {
   const isScreenFocused = useIsFocused();
-  const immediateFocusRef = useRef(isScreenFocused);
-  immediateFocusRef.current = isScreenFocused;
+  const marketDemandAllowed = useAuthMarketDemandAllowed();
+  const immediateFocusRef = useRef(isScreenFocused && marketDemandAllowed);
+  immediateFocusRef.current = isScreenFocused && marketDemandAllowed;
   const isTradeExecutionFocused = useCallback(
     () => immediateFocusRef.current,
     [],
   );
-  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused && marketDemandAllowed);
   return (
     <ChartScreenInner
-      isChartRouteActive={deferredScreenFocused}
+      isChartRouteActive={marketDemandAllowed && deferredScreenFocused}
       isTradeExecutionFocused={isTradeExecutionFocused}
+      marketDemandAllowed={marketDemandAllowed}
     />
   );
 }

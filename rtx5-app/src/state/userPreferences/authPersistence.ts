@@ -13,7 +13,6 @@ export type LegacyPreferenceCredentials = {
   accessToken: string;
   refreshToken: string;
   expiresAt: string;
-  feedToken: string;
 };
 
 export type SanitizedPreferenceAuthSnapshot = {
@@ -84,13 +83,6 @@ export function sanitizePreferenceAuthStorageValue(
         accessToken,
         refreshToken: firstString(credentialSources, ['refreshToken', 'refresh_token']),
         expiresAt: firstString(credentialSources, ['expiresAt', 'expires_at']),
-        feedToken: firstString(credentialSources, [
-          'feedToken',
-          'feed_broker_token',
-          'broker_feed_token',
-          'feed_token',
-          'ws_feed_token',
-        ]),
       }
     : null;
 

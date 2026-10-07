@@ -152,12 +152,57 @@ export function mergeClosedPositionSources(
   historyRecords: ClosedPosition[],
   derivedRecords: ClosedPosition[],
 ): ClosedPosition[] {
+  // Contract v3 deal rows carry no position_ticket, so a derived record is
+  // usually keyed by its close-deal ticket and cannot match the history
+  // record's position ticket. Merge on ticket where possible, otherwise on
+  // the close execution itself: same symbol, same volume, close time within
+  // one second.
+  // A multiset: each history close can absorb at most one derived close, so
+  // two same-size closes in the same second are not collapsed into one.
+  const historyExecutionCounts = new Map<string, number>();
+  for (const record of historyRecords) {
+    const [exactKey] = closedPositionExecutionKeys(record);
+    if (exactKey) {
+      historyExecutionCounts.set(exactKey, (historyExecutionCounts.get(exactKey) ?? 0) + 1);
+    }
+  }
+  const historyTicketKeys = new Set(historyRecords.map(closedPositionDedupKey));
+
   const byKey = new Map<string, ClosedPosition>();
   for (const record of derivedRecords) {
-    byKey.set(closedPositionDedupKey(record), record);
+    const dedupKey = closedPositionDedupKey(record);
+    const matchedKey = closedPositionExecutionKeys(record).find(
+      (key) => (historyExecutionCounts.get(key) ?? 0) > 0,
+    );
+    if (matchedKey) {
+      historyExecutionCounts.set(matchedKey, (historyExecutionCounts.get(matchedKey) ?? 0) - 1);
+    }
+    // Same ticket (history wins below) or same close execution: drop it.
+    if (historyTicketKeys.has(dedupKey) || matchedKey) continue;
+    byKey.set(dedupKey, record);
   }
   for (const record of historyRecords) {
     byKey.set(closedPositionDedupKey(record), record);
   }
   return Array.from(byKey.values());
+}
+
+/**
+ * Execution identity keys for a close: the exact second first, then the
+ * second before/after so a 1 s rounding difference still collides.
+ */
+function closedPositionExecutionKeys(record: ClosedPosition): string[] {
+  const source = record as unknown as Record<string, unknown>;
+  const symbol = typeof record.symbol === 'string' ? record.symbol.trim().toUpperCase() : '';
+  const volume = Number(record.volume);
+  const closeSeconds = normalizeTimestampToSeconds(
+    source.time_close ?? source.time_update,
+  );
+  if (!symbol || !Number.isFinite(volume) || volume <= 0 || closeSeconds === null) {
+    return [];
+  }
+  const volumeKey = volume.toFixed(8);
+  return [closeSeconds, closeSeconds - 1, closeSeconds + 1].map(
+    (seconds) => `${symbol}|${volumeKey}|${seconds}`,
+  );
 }

@@ -1,3 +1,5 @@
+﻿import { acceptTradingHydration } from '../services/tradingAccess';
+import { useTradingState } from '../state/tradingState';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -8,16 +10,20 @@ import {
   captureActiveBrokerSession,
   captureActiveBrokerSessionOwnerStamp,
   getActiveBrokerSessionIdentity,
+  subscribeActiveBrokerSession,
   updateActiveBrokerSessionCredentials,
+  type ActiveBrokerSessionEvent,
 } from '../state/activeBrokerSession';
 import {
+  AUTH_REFRESH_TIMEOUT_MS,
   BrokerAPI,
   StaleBrokerSessionError,
   createBrokerRefreshRequestInit,
   normalizeBrokerRefreshResponse,
+  resolveRefreshIdentityMismatch,
 } from './brokerApi';
 
-const activate = (brokerId = 'broker-a') => activateBrokerSession(
+const activateUnhydrated = (brokerId = 'broker-a') => activateBrokerSession(
   beginActiveBrokerSessionTransition(),
   {
     brokerId,
@@ -27,22 +33,22 @@ const activate = (brokerId = 'broker-a') => activateBrokerSession(
     tradeWsBase: `wss://services.${brokerId}.com/ws/v2`,
     feedStatusUrl: `https://services.${brokerId}.com/ws/feed/status`,
     servicesDomain: `services.${brokerId}.com`,
-    feedAuthContext: {
-      mode: 'query',
-      credential: 'feed_token',
-      tokenQueryParam: 'token',
-      brokerIdQueryParam: 'broker_id',
-    },
     configVersion: 'cfg-1',
   },
   {
     accessToken: `access-${brokerId}`,
     refreshToken: `refresh-${brokerId}`,
     expiresAt: '2099-01-01T00:00:00.000Z',
-    feedToken: `feed-${brokerId}`,
   },
 );
 
+const testOrderBody = JSON.stringify({ account_login: 10001, symbol: 'XAUUSD', side: 'buy', volume: '.03' });
+const activate = (brokerId = 'broker-a') => {
+  const capture = activateUnhydrated(brokerId);
+  acceptTradingHydration(capture.session.cacheNamespace, {}, { login: 10001 }, [{ symbol: 'XAUUSD', trade_mode: 4, volume_min: .01, volume_max: 100, volume_step: .01 }]);
+  useTradingState.getState().setQuote('XAUUSD', { bid: 2000, ask: 2001, transport: 'websocket', lastReceivedAt: Date.now(), stale: false, tradable: true });
+  return capture;
+};
 type TestCredentialLease = Readonly<{
   accessToken: string;
   owner: NonNullable<ReturnType<typeof captureActiveBrokerSessionOwnerStamp>>;
@@ -149,131 +155,125 @@ test('refresh response requires both rotated access and refresh credentials', ()
   );
 });
 
-test('Achiever refresh validates exact identity and atomic feed contract', () => {
+test('refresh response ignores any feed token and never returns feed auth', () => {
   const normalized = normalizeBrokerRefreshResponse({
     access_token: 'access-2',
-    refresh_token: 'refresh-2',
-    expires_in: 3600,
-    broker_id: 'achiever-financials',
-    account_login: 10001,
-    feed_token: '  opaque+feed==  ',
-    feed_auth_context: {
-      mode: 'query',
-      credential: 'feed_token',
-      token_query_param: 'token',
-      broker_id_query_param: 'broker_id',
-    },
-  }, {
-    brokerId: 'achiever-financials',
-    accountLogin: '10001',
+    refresh_token: 'rtx5_rt_2',
+    expires_in: 86_400,
+    broker_id: 'trivanta-markets',
+    account_login: 200074,
+    feed_token: 'must-be-ignored',
+    feed_auth_context: { mode: 'query', credential: 'feed_token', token_query_param: 'token' },
   });
 
-  assert.equal(normalized.brokerId, 'achiever-financials');
-  assert.equal(normalized.accountLogin, '10001');
-  assert.equal(normalized.feedToken, '  opaque+feed==  ');
-  assert.deepEqual(normalized.feedAuthContext, {
-    mode: 'query',
-    credential: 'feed_token',
-    tokenQueryParam: 'token',
-    brokerIdQueryParam: 'broker_id',
-  });
+  assert.deepEqual(Object.keys(normalized).sort(), [
+    'accessToken',
+    'accountLogin',
+    'brokerId',
+    'expiresAt',
+    'refreshToken',
+  ]);
+  assert.equal(normalized.brokerId, 'trivanta-markets');
+  assert.equal(normalized.accountLogin, '200074');
 });
 
-test('Achiever accepts a first refresh feed generation when no prior token exists', () => {
-  const normalized = normalizeBrokerRefreshResponse({
-    access_token: 'access-2',
-    refresh_token: 'refresh-2',
-    expires_in: 3600,
-    broker_id: 'achiever-financials',
-    account_login: 10001,
-    feed_token: 'first-feed-generation',
-    feed_auth_context: {
-      mode: 'query',
-      credential: 'feed_token',
-      token_query_param: 'token',
-      broker_id_query_param: 'broker_id',
-    },
-  }, {
-    brokerId: 'achiever-financials',
-    accountLogin: '10001',
+test('refresh expires_at is read as epoch seconds (and ms is still tolerated)', () => {
+  const seconds = normalizeBrokerRefreshResponse({
+    access_token: 'a',
+    refresh_token: 'r',
+    expires_at: 1_790_327_807,
+    expires_in: 86_400,
   });
+  assert.equal(seconds.expiresAt, new Date(1_790_327_807_000).toISOString());
 
-  assert.equal(normalized.feedToken, 'first-feed-generation');
-  assert.equal(normalized.feedContractFailure, undefined);
+  const milliseconds = normalizeBrokerRefreshResponse({
+    access_token: 'a',
+    refresh_token: 'r',
+    expires_at: 1_790_327_807_000,
+  });
+  assert.equal(milliseconds.expiresAt, new Date(1_790_327_807_000).toISOString());
 });
 
-test('Achiever refresh disables a repeated feed generation while keeping rotated REST credentials', () => {
-  const normalized = normalizeBrokerRefreshResponse({
-    access_token: 'access-2',
-    refresh_token: 'refresh-2',
-    expires_in: 3600,
-    broker_id: 'achiever-financials',
-    account_login: 10001,
-    feed_token: 'same-feed-generation',
-    feed_auth_context: {
-      mode: 'query',
-      credential: 'feed_token',
-      token_query_param: 'token',
-      broker_id_query_param: 'broker_id',
-    },
-  }, {
-    brokerId: 'achiever-financials',
-    accountLogin: '10001',
-    previousFeedToken: 'same-feed-generation',
-  });
-
-  assert.equal(normalized.accessToken, 'access-2');
-  assert.equal(normalized.refreshToken, 'refresh-2');
-  assert.equal(normalized.feedToken, undefined);
-  assert.equal(normalized.feedContractFailure, 'feed_generation_reused');
-  assert.deepEqual(normalized.feedAuthContext, {
-    mode: 'disabled_unconfigured',
-    reason: 'missing_credential',
-  });
-});
-
-test('Achiever refresh omission clears the feed pair instead of retaining it', () => {
-  const normalized = normalizeBrokerRefreshResponse({
-    access_token: 'access-2',
-    refresh_token: 'refresh-2',
-    broker_id: 'achiever-financials',
-    account_login: 10001,
-  }, {
-    brokerId: 'achiever-financials',
-    accountLogin: '10001',
-  });
-
-  assert.equal(normalized.feedToken, undefined);
-  assert.deepEqual(normalized.feedAuthContext, {
-    mode: 'disabled_unconfigured',
-    reason: 'missing_contract',
-  });
-});
-
-test('Achiever refresh rejects missing or cross-account identity', () => {
-  assert.throws(
-    () => normalizeBrokerRefreshResponse({
-      access_token: 'access-2',
-      refresh_token: 'refresh-2',
-      account_login: 10001,
-    }, {
-      brokerId: 'achiever-financials',
-      accountLogin: '10001',
-    }),
-    /broker identity/,
+test('refresh identity: broker_id preserves case and account_login preserves integer identity', () => {
+  const orrnnSession = { brokerId: 'orrnn', accountLogin: '200074' };
+  assert.equal(resolveRefreshIdentityMismatch({ brokerId: 'orrnn', accountLogin: '200074' }, orrnnSession), null);
+  assert.equal(
+    resolveRefreshIdentityMismatch(
+      normalizeBrokerRefreshResponse({ access_token: 'a', refresh_token: 'r', broker_id: 'orrnn', account_login: 200074 }),
+      orrnnSession,
+    ),
+    null,
   );
-  assert.throws(
-    () => normalizeBrokerRefreshResponse({
-      access_token: 'access-2',
-      refresh_token: 'refresh-2',
-      broker_id: 'achiever-financials',
-      account_login: 20002,
-    }, {
-      brokerId: 'achiever-financials',
-      accountLogin: '10001',
-    }),
-    /requested account/,
+  assert.equal(
+    resolveRefreshIdentityMismatch({ brokerId: 'trivanta-markets' }, { brokerId: 'trivanta-markets', accountLogin: 1 }),
+    null,
   );
+  assert.equal(resolveRefreshIdentityMismatch({ accountLogin: '200074.0' }, orrnnSession), 'account_identity_mismatch');
+  assert.equal(resolveRefreshIdentityMismatch({}, orrnnSession), null);
+
+  assert.equal(
+    resolveRefreshIdentityMismatch({ brokerId: 'trivanta-markets' }, orrnnSession),
+    'broker_identity_mismatch',
+  );
+  assert.equal(
+    resolveRefreshIdentityMismatch({ brokerId: 'orrnn', accountLogin: '200075' }, orrnnSession),
+    'account_identity_mismatch',
+  );
+});
+
+test('refresh timeout is 8 seconds (contract v3)', () => {
+  assert.equal(AUTH_REFRESH_TIMEOUT_MS, 8000);
+});
+
+test('refresh is single-flight: concurrent callers share one rotation', async () => {
+  activate();
+  const api = new BrokerAPI();
+  const capture = captureActiveBrokerSession();
+  assert.ok(capture);
+  const identity = getActiveBrokerSessionIdentity(capture.session);
+  let performCount = 0;
+  let releaseRefresh: (() => void) | null = null;
+  const testApi = api as unknown as {
+    performRefresh: (identity: unknown) => Promise<TestCredentialLease>;
+    getValidAccessTokenForCapture: (
+      capture: unknown,
+      identity: unknown,
+      forceRefresh: boolean,
+    ) => Promise<TestCredentialLease>;
+  };
+  testApi.performRefresh = async () => {
+    performCount += 1;
+    await new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    return rotateCredentials('access-rotated-once');
+  };
+
+  const callers = Array.from({ length: 5 }, () =>
+    testApi.getValidAccessTokenForCapture(capture, identity, true));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(performCount, 1, 'only one /auth/refresh may be in flight per session');
+  releaseRefresh!();
+  const leases = await Promise.all(callers);
+
+  assert.equal(performCount, 1);
+  assert.deepEqual(new Set(leases.map((lease) => lease.accessToken)), new Set(['access-rotated-once']));
+  api.dispose();
+});
+
+test('every credential rotation emits the credentials_updated signal for the trade socket', () => {
+  activate();
+  const events: ActiveBrokerSessionEvent[] = [];
+  const unsubscribe = subscribeActiveBrokerSession((event) => events.push(event));
+  const before = captureActiveBrokerSessionOwnerStamp();
+  assert.ok(before);
+
+  rotateCredentials('access-after-refresh');
+  unsubscribe();
+
+  const after = captureActiveBrokerSessionOwnerStamp();
+  assert.ok(after);
+  assert.deepEqual(events.map((event) => event.type), ['credentials_updated']);
+  assert.equal(after.credentialGeneration, before.credentialGeneration + 1);
+  assert.notEqual(after.credentialIdentity, before.credentialIdentity);
 });
 
 test('REST request uses only the atomically captured broker endpoint and token', async () => {
@@ -290,6 +290,25 @@ test('REST request uses only the atomically captured broker endpoint and token',
   const response = await api.request('/positions');
   assert.equal(response.status, 200);
   assert.equal(capturedUrl, 'https://services.broker-a.com/api/v2/positions');
+  assert.equal(capturedAuthorization, 'Bearer access-broker-a');
+  api.dispose();
+});
+
+test('versioned REST request keeps the active broker and bearer session', async () => {
+  activate();
+  const api = new BrokerAPI();
+  let capturedUrl = '';
+  let capturedAuthorization = '';
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input);
+    capturedAuthorization = new Headers(init?.headers).get('Authorization') ?? '';
+    return new Response('{"count":0,"logs":[]}', { status: 200 });
+  }) as typeof globalThis.fetch;
+
+  const response = await api.request('/journal?mode=2&type=0&filter=%20', { apiVersion: 'v1' });
+
+  assert.equal(response.status, 200);
+  assert.equal(capturedUrl, 'https://services.broker-a.com/api/v1/journal?mode=2&type=0&filter=%20');
   assert.equal(capturedAuthorization, 'Bearer access-broker-a');
   api.dispose();
 });
@@ -328,6 +347,8 @@ test('trade mutations receive scoped idempotency keys while non-trade calls do n
   const api = new BrokerAPI();
   const requests: Array<{ url: string; headers: Headers; body: BodyInit | null | undefined }> = [];
   globalThis.fetch = (async (input, init) => {
+    if (String(input).includes('/market/status/')) return new Response('{"trade_open":true}');
+    if (String(input).includes('/calculate/margin')) return new Response('{"required_margin":1,"free_margin":100000,"max_lots":100}');
     requests.push({
       url: String(input),
       headers: new Headers(init?.headers),
@@ -336,7 +357,7 @@ test('trade mutations receive scoped idempotency keys while non-trade calls do n
     return new Response('{}', { status: 200 });
   }) as typeof globalThis.fetch;
 
-  await api.request('/orders', { method: 'POST', body: '{}' });
+  await api.request('/orders', { method: 'POST', body: testOrderBody });
   await api.request('/orders/pending', { method: 'POST', body: '{}' });
   await api.request('/orders/pending/42', { method: 'PUT', body: '{}' });
   await api.request('/orders/pending/42', { method: 'DELETE' });
@@ -374,6 +395,8 @@ test('50 parallel order mutations enter transport before any settles and use dis
     notifyAllStarted = resolve;
   });
   globalThis.fetch = (async (_input, init) => {
+    if (String(_input).includes('/market/status/')) return new Response('{"trade_open":true}');
+    if (String(_input).includes('/calculate/margin')) return new Response('{"required_margin":1,"free_margin":100000,"max_lots":100}');
     requestHeaders.push(new Headers(init?.headers));
     return new Promise<Response>((resolve) => {
       resolveResponses.push(resolve);
@@ -416,13 +439,15 @@ test('trade idempotency preserves a caller-provided retry key', async () => {
   const api = new BrokerAPI();
   let capturedKey = '';
   globalThis.fetch = (async (_input, init) => {
+    if (String(_input).includes('/market/status/')) return new Response(JSON.stringify({ trade_open: true }));
+    if (String(_input).includes('/calculate/margin')) return new Response(JSON.stringify({ required_margin: 1, free_margin: 100000, max_lots: 100 }));
     capturedKey = new Headers(init?.headers).get('Idempotency-Key') ?? '';
     return new Response('{}', { status: 200 });
   }) as typeof globalThis.fetch;
 
   await api.request('/orders', {
     method: 'POST',
-    body: '{}',
+    body: testOrderBody,
     headers: { 'Idempotency-Key': 'order-retry-abc123' },
   });
 
@@ -650,55 +675,49 @@ test('absolute endpoints outside the active API base are rejected', async () => 
   api.dispose();
 });
 
-test('feed URL uses only committed non-secret auth metadata and in-memory credential', async () => {
+test('quote feed URL is the plain feedWsBase with no token or query (contract v3)', async () => {
   activate();
   const api = new BrokerAPI();
 
   const url = await api.getQuoteWebSocketUrl();
-  assert.equal(
-    url,
-    'wss://services.broker-a.com/ws/feed?token=feed-broker-a&broker_id=broker-a',
-  );
+  assert.equal(url, 'wss://services.broker-a.com/ws/feed');
+  assert.doesNotMatch(url, /[?&]token=|\?/);
   api.dispose();
 });
 
-test('Achiever feed URL uses the exact host and one-pass opaque query encoding', async () => {
-  const opaqueFeedToken = ' opaque+feed=%value&part?# ';
+test('a legacy feed token or feed auth context passed at activation is never used', async () => {
   activateBrokerSession(
     beginActiveBrokerSessionTransition(),
     {
-      brokerId: 'achiever-financials',
-      accountLogin: '10001',
-      apiBase: 'https://service.achieverfinancials.com/api/v2',
-      feedWsBase: 'wss://service.achieverfinancials.com/ws/feed',
-      tradeWsBase: 'wss://service.achieverfinancials.com/ws/v2',
-      feedStatusUrl: 'https://service.achieverfinancials.com/ws/feed/status',
-      servicesDomain: 'service.achieverfinancials.com',
+      brokerId: 'Orrnn',
+      accountLogin: '200074',
+      apiBase: 'https://service.orrnn.com/api/v2',
+      feedWsBase: 'wss://service.orrnn.com/ws/feed',
+      tradeWsBase: 'wss://service.orrnn.com/ws/v2',
+      feedStatusUrl: 'https://service.orrnn.com/ws/feed/status',
+      servicesDomain: 'service.orrnn.com',
+      // Pre-v3 callers could still hand over a feed auth context.
       feedAuthContext: {
         mode: 'query',
         credential: 'feed_token',
         tokenQueryParam: 'token',
         brokerIdQueryParam: 'broker_id',
       },
-      configVersion: 'cfg-achiever',
-    },
+      configVersion: 'v2:4:1789643254',
+    } as Parameters<typeof activateBrokerSession>[1],
     {
-      accessToken: 'access-achiever',
-      refreshToken: 'refresh-achiever',
+      accessToken: 'access-orrnn',
+      refreshToken: 'rtx5_rt_orrnn',
       expiresAt: '2099-01-01T00:00:00.000Z',
-      feedToken: opaqueFeedToken,
     },
   );
-  const api = new BrokerAPI();
+  const capture = captureActiveBrokerSession();
+  assert.ok(capture);
+  assert.equal('feedAuthContext' in capture.session, false);
+  assert.equal('feedToken' in capture.credentials, false);
 
-  const parsed = new URL(await api.getQuoteWebSocketUrl());
-  assert.equal(parsed.protocol, 'wss:');
-  assert.equal(parsed.host, 'service.achieverfinancials.com');
-  assert.equal(parsed.pathname, '/ws/feed');
-  assert.deepEqual([...parsed.searchParams.keys()].sort(), ['broker_id', 'token']);
-  assert.equal(parsed.searchParams.getAll('token').length, 1);
-  assert.equal(parsed.searchParams.get('token'), opaqueFeedToken);
-  assert.equal(parsed.searchParams.get('broker_id'), 'achiever-financials');
+  const api = new BrokerAPI();
+  assert.equal(await api.getQuoteWebSocketUrl(), 'wss://service.orrnn.com/ws/feed');
   api.dispose();
 });
 
@@ -712,7 +731,6 @@ test('trade socket uses the validated /ws/v2 route derived during session commit
       feedWsBase: 'wss://services.broker-a.com/ws/feed',
       feedStatusUrl: 'https://services.broker-a.com/ws/feed/status',
       servicesDomain: 'services.broker-a.com',
-      feedAuthContext: { mode: 'none' },
       configVersion: 'cfg-1',
     },
     {
@@ -858,3 +876,4 @@ test('cache commit helper rejects a parsed response after credential rotation', 
   );
   api.dispose();
 });
+

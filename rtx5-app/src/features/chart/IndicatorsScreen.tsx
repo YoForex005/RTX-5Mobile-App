@@ -94,7 +94,7 @@ export function IndicatorsScreen() {
 
   return (
     <Screen style={s.screen}>
-      <View style={[s.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+      <View style={[s.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <Pressable
           onPress={() => safeRouterBack(router, '/(tabs)/chart')}
           activateOnPressIn
@@ -160,7 +160,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: T.text,
       fontSize: 20,
-      fontWeight: '600',
+      fontWeight: '500',
       marginLeft: 8,
     },
     scrollContent: {

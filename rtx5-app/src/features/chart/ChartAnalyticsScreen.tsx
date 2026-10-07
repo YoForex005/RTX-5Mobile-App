@@ -10,12 +10,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, Image, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Image, LayoutAnimation, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 import { Screen } from '../../ui/components/Screen';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useIsDarkTheme } from '../../state/themeMode';
@@ -217,7 +214,7 @@ export function ChartAnalyticsScreen() {
       style={styles.screen}
     >
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <View style={styles.headerRow}>
           <Pressable
             onPress={() => safeRouterBack(router, '/(tabs)/chart')}
@@ -268,7 +265,7 @@ export function ChartAnalyticsScreen() {
           const change = current - rangeData.open;
           const changePct = rangeData.open > 0 ? (change / rangeData.open) * 100 : 0;
           const isUp = change >= 0;
-          const accentColor = isUp ? T.trading.buy.primary : T.trading.sell.primary;
+          const accentColor = isUp ? T.trading.profit : T.trading.sell.primary;
           const volatilityPct = current > 0 ? (range / current) * 100 : 0;
 
           const priceStr = current.toFixed(decimals);
@@ -299,7 +296,7 @@ export function ChartAnalyticsScreen() {
                 <Text style={styles.rangeHeroPrice} numberOfLines={1} adjustsFontSizeToFit>
                   {priceStr}
                 </Text>
-                <View style={[styles.rangeChangePill, { backgroundColor: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', borderColor: isUp ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)' }]}>
+                <View style={[styles.rangeChangePill, { backgroundColor: isUp ? T.upGlow : 'rgba(239,68,68,0.12)', borderColor: isUp ? `${T.trading.profit}60` : 'rgba(239,68,68,0.25)' }]}>
                   <Ionicons name={isUp ? 'caret-up' : 'caret-down'} size={11} color={accentColor} />
                   <Text style={[styles.rangeChangePillText, { color: accentColor }]}>
                     {formatSigned(changePct, 2, '%')}
@@ -578,7 +575,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: T.text,
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     card: {
@@ -663,18 +660,18 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 8,
       paddingVertical: 3,
       borderRadius: 999,
-      backgroundColor: isDark ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
+      backgroundColor: T.upGlow,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)',
+      borderColor: `${T.trading.profit}33`,
     },
     rangeLiveDot: {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: '#22C55E',
+      backgroundColor: T.trading.profit,
     },
     rangeLiveText: {
-      color: '#22C55E',
+      color: T.trading.profit,
       fontSize: 11,
       fontWeight: '600',
       letterSpacing: 0.4,
@@ -966,7 +963,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: isDark ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.12)',
+      backgroundColor: T.upGlow,
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: 12,
@@ -999,15 +996,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
     },
     signalBadgeActive: {
-      backgroundColor: isDark ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
-      borderColor: isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)',
+      backgroundColor: T.upGlow,
+      borderColor: `${T.trading.profit}33`,
     },
     signalActiveDot: {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: '#22C55E',
-      shadowColor: '#22C55E',
+      backgroundColor: T.trading.profit,
+      shadowColor: T.trading.profit,
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0.8,
       shadowRadius: 4,
@@ -1027,7 +1024,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       letterSpacing: 0.4,
     },
     signalBadgeTextActive: {
-      color: '#22C55E',
+      color: T.trading.profit,
     },
     signalBody: {
       marginBottom: 4,

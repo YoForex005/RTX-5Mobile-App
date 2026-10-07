@@ -82,19 +82,73 @@ test('mapRawAccount accepts margin_used and skips blank aliases', () => {
   assert.equal(account.marginLevel, 8007.97);
 });
 
-test('mapRawAccount derives omitted free margin and margin level from account values', () => {
+test('mapRawAccount maps the contract v3 GET /account/{login} example', () => {
+  const account = mapRawAccount({
+    login: 200074,
+    name: 'John Doe',
+    group: 'real\\standard',
+    leverage: 100,
+    currency: 'USD',
+    balance: 10000,
+    credit: 0,
+    status: 'active',
+    created_at: 1789659971,
+    updated_at: 1790241500,
+    equity: 10000.15,
+    used_margin: 11.37,
+    free_margin: 9988.78,
+    margin_level: 87952.5,
+    floating_pnl: 0.15,
+    total_swap: 0,
+  } satisfies TradingAccountRaw);
+
+  assert.equal(account.login, 200074);
+  assert.equal(account.name, 'John Doe');
+  assert.equal(account.usedMargin, 11.37);
+  assert.equal(account.freeMargin, 9988.78);
+  assert.equal(account.marginLevel, 87952.5);
+  assert.equal(account.floatingPnl, 0.15);
+  // open_positions is not sent; the UI derives it from the positions list.
+  assert.equal(account.openPositions, 0);
+  assert.deepEqual(account.staleMetrics, []);
+});
+
+test('mapRawAccount keeps last known values for omitted server metrics and flags them stale', () => {
+  const previous = mapRawAccount({
+    login: 200082,
+    leverage: 500,
+    balance: 10000,
+    credit: 0,
+    equity: 10100,
+    used_margin: 100,
+    free_margin: 10000,
+    margin_level: 10100,
+    floating_pnl: 100,
+  } satisfies TradingAccountRaw);
+
   const account = mapRawAccount({
     login: 200082,
     currency: 'USD',
     leverage: 500,
     balance: 10000,
     credit: 0,
-    equity: 10100,
-    margin_used: 100,
-  } satisfies TradingAccountRaw);
+    equity: 10150,
+  } satisfies TradingAccountRaw, previous);
 
+  assert.equal(account.equity, 10150);
+  assert.equal(account.usedMargin, 100);
   assert.equal(account.freeMargin, 10000);
   assert.equal(account.marginLevel, 10100);
+  assert.equal(account.floatingPnl, 100);
+  assert.deepEqual(
+    [...account.staleMetrics].sort(),
+    ['floatingPnl', 'freeMargin', 'marginLevel', 'usedMargin'],
+  );
+
+  // Values from a different account are never reused.
+  const other = mapRawAccount({ login: 200083, leverage: 500, balance: 1, credit: 0, equity: undefined }, previous);
+  assert.equal(other.equity, 0);
+  assert.equal(other.staleMetrics.includes('equity'), true);
 });
 
 test('mapRawAccount falls back to zero for missing numeric fields', () => {
@@ -179,4 +233,19 @@ test('mapRawAccount preserves explicit environment aliases before UI normalizati
   assert.equal(nestedContest.accountEnvironment, 'contest');
   assert.equal(nestedContest.accountEnvironmentSource, 'backend-explicit');
   assert.equal(nestedContest.group, '  contest/raw-group  ');
+});
+
+test('mapRawAccount preserves an unrecognized group as undefined environment evidence', () => {
+  const account = mapRawAccount({
+    login: 200086,
+    group: 'standard',
+    leverage: 500,
+    balance: 10000,
+    credit: 0,
+    equity: 10000,
+  } satisfies TradingAccountRaw);
+
+  assert.equal(account.group, 'standard');
+  assert.equal(account.accountEnvironment, 'unknown');
+  assert.equal(account.accountEnvironmentSource, 'backend-group');
 });

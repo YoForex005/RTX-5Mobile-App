@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import type { ThemeColors } from '../../ui/theme/glass';
+import { useResponsiveLayout } from '../../ui/layout/useResponsiveLayout';
 import {
   getHeaderGradient,
   type SettingsEnterpriseScreenStyles,
@@ -60,6 +61,27 @@ export function SettingsEnterpriseHeader({
   search?: SearchConfig;
   metrics: SettingsMetric[];
 }) {
+  const layout = useResponsiveLayout();
+  const compactHeader = layout.availableWidth / Math.max(1, layout.fontScale) < 600;
+  const headerIcon = (
+    <View style={[styles.headerIcon, { backgroundColor: tintFor(accent), borderColor: borderFor(accent) }]}>
+      <Ionicons name={icon} size={21} color={accent} />
+    </View>
+  );
+  const headerCopy = <>
+    <View style={styles.eyebrowRow}>
+      <View style={[styles.eyebrowBullet, { backgroundColor: accent }]} />
+      <Text style={styles.eyebrow}>{eyebrow}</Text>
+    </View>
+    <Text style={styles.title}>{title}</Text>
+    <Text style={styles.headerSubtitle}>{subtitle}</Text>
+  </>;
+  const statusBadge = (
+    <View style={styles.statusBadge}>
+      {status.icon ? <Ionicons name={status.icon} size={12} color={status.color} /> : <View style={[styles.statusDot, { backgroundColor: status.color }]} />}
+      <Text style={styles.statusText}>{status.label}</Text>
+    </View>
+  );
   return (
     <View style={styles.commandHeader}>
       <LinearGradient
@@ -69,33 +91,16 @@ export function SettingsEnterpriseHeader({
         style={styles.commandHeaderGradient}
       >
         <View style={[styles.headerAccentBar, { backgroundColor: accent }]} />
-        <View style={styles.centeredHeaderRow}>
-          <View style={styles.headerSide}>
-            <View style={[styles.headerIcon, { backgroundColor: tintFor(accent), borderColor: borderFor(accent) }]}>
-              <Ionicons name={icon} size={21} color={accent} />
-            </View>
+        {compactHeader ? <View style={{ gap: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            {headerIcon}{statusBadge}
           </View>
-
-          <View style={styles.headerCenter}>
-            <View style={styles.eyebrowRow}>
-              <View style={[styles.eyebrowBullet, { backgroundColor: accent }]} />
-              <Text style={styles.eyebrow} numberOfLines={1}>{eyebrow}</Text>
-            </View>
-            <Text style={styles.title} numberOfLines={1}>{title}</Text>
-            <Text style={styles.headerSubtitle} numberOfLines={1}>{subtitle}</Text>
-          </View>
-
-          <View style={styles.headerSideRight}>
-            <View style={styles.statusBadge}>
-              {status.icon ? (
-                <Ionicons name={status.icon} size={12} color={status.color} />
-              ) : (
-                <View style={[styles.statusDot, { backgroundColor: status.color }]} />
-              )}
-              <Text style={styles.statusText} numberOfLines={1}>{status.label}</Text>
-            </View>
-          </View>
-        </View>
+          <View style={[styles.headerCenter, { flex: 0, width: '100%' }]}>{headerCopy}</View>
+        </View> : <View style={styles.centeredHeaderRow}>
+          <View style={styles.headerSide}>{headerIcon}</View>
+          <View style={styles.headerCenter}>{headerCopy}</View>
+          <View style={styles.headerSideRight}>{statusBadge}</View>
+        </View>}
 
         {search ? (
           <View style={styles.searchBox}>
@@ -137,10 +142,10 @@ export function EnterpriseMetric({
 }) {
   return (
     <View style={styles.metric}>
-      <Text style={[styles.metricValue, metric.accent ? { color: metric.accent } : null]} numberOfLines={1}>
+      <Text style={[styles.metricValue, metric.accent ? { color: metric.accent } : null]}>
         {metric.value}
       </Text>
-      <Text style={styles.metricLabel} numberOfLines={1}>{metric.label}</Text>
+      <Text style={styles.metricLabel}>{metric.label}</Text>
     </View>
   );
 }
@@ -195,12 +200,12 @@ export function EnterpriseCoverageStrip({
     <View style={styles.coverageStrip}>
       <View style={styles.coverageBlock}>
         <Text style={styles.coverageValue} numberOfLines={1}>{value}</Text>
-        <Text style={styles.coverageLabel} numberOfLines={2}>{label}</Text>
+        <Text style={styles.coverageLabel}>{label}</Text>
       </View>
       <View style={styles.coverageDivider} />
       <View style={styles.coverageBlockWide}>
-        <Text style={styles.coverageTitle} numberOfLines={1}>{title}</Text>
-        <Text style={styles.coverageText} numberOfLines={2}>{text}</Text>
+        <Text style={styles.coverageTitle}>{title}</Text>
+        <Text style={styles.coverageText}>{text}</Text>
       </View>
     </View>
   );
@@ -220,8 +225,8 @@ export function EnterpriseSectionHeader({
   return (
     <View style={styles.sectionHeader}>
       <View style={styles.sectionHeaderCopy}>
-        <Text style={styles.sectionTitle} numberOfLines={1}>{title}</Text>
-        <Text style={styles.sectionSubtitle} numberOfLines={1}>{subtitle}</Text>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={styles.sectionSubtitle}>{subtitle}</Text>
       </View>
       <Text style={styles.sectionCount} numberOfLines={1}>{count}</Text>
     </View>

@@ -5,9 +5,13 @@
  * based on the user's specific broker tenant. This configures the entire UI theme.
  */
 
+import { withPinnedBrokerEndpoints } from '../config/pinnedBrokerEndpoints';
 import { timedFetch } from '../utils/apiLatency';
 import { recordMarketDataEvent } from '../market/marketDataTelemetry';
+import { createBrokerDirectoryReadCache } from './brokerDirectoryReadCache';
 import {
+  ADDITIONAL_BROKER_DIRECTORY_BASE_URL,
+  ADDITIONAL_BROKER_DIRECTORY_IDS,
   PUBLIC_BROKER_DIRECTORY_BASE_URL,
   buildBrokerHealthUrl,
   ensureBrokerRestApiBase,
@@ -92,6 +96,10 @@ export interface BrokerConfigResponse {
  * broker exposes more than one server (region, demo/live, fallback IPs).
  */
 export interface BrokerServer {
+  extended_api_url?: string;
+  extended_api_origin?: string;
+  feed_broker_id?: string;
+  protocol_mode?: string;
   directory_source?: 'rich' | 'v2_raw';
   id: number;
   broker_id: string;
@@ -193,6 +201,9 @@ export type BrokerDirectoryResult = Readonly<{
   entries: readonly BrokerDirectoryEntry[];
   approvedServers: readonly RichValidatedBrokerServer[];
   selectableServers: readonly ValidatedBrokerServer[];
+  /** Display-only identities returned by the primary directory, never secondary discovery. */
+  reportedBrokers?: readonly BrokerDirectoryIdentity[];
+  primarySelectableServers?: readonly ValidatedBrokerServer[];
   warningCode?: string;
 }>;
 
@@ -273,6 +284,13 @@ const optionalDirectoryString = (
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 };
 
+const readPublicRoutingFields = (record: Record<string, unknown>) => ({
+  ...(optionalDirectoryString(record, 'extended_api_url') ? { extended_api_url: optionalDirectoryString(record, 'extended_api_url') } : {}),
+  ...(optionalDirectoryString(record, 'extended_api_origin') ? { extended_api_origin: optionalDirectoryString(record, 'extended_api_origin') } : {}),
+  ...(optionalDirectoryString(record, 'feed_broker_id') ? { feed_broker_id: optionalDirectoryString(record, 'feed_broker_id') } : {}),
+  ...(optionalDirectoryString(record, 'protocol_mode') ? { protocol_mode: optionalDirectoryString(record, 'protocol_mode') } : {}),
+});
+
 const parseDirectoryRecord = (
   value: unknown,
   schemaVersion: string,
@@ -333,6 +351,7 @@ const parseDirectoryRecord = (
     directory_source: 'rich' as const,
     id: requiredDirectoryNumber(record, 'id', recordIndex),
     broker_id: endpoints.brokerId,
+    ...readPublicRoutingFields(record),
     broker_name: requiredDirectoryString(record, 'broker_name', recordIndex),
     enabled: true,
     active: true,
@@ -498,12 +517,88 @@ const requiredLegacyIdentityId = (
 
 const RAW_V2_SCHEMA_VERSION = 'broker-directory.v2.raw' as const;
 
+const acceptRawV2BrokerRecord = (
+  record: Readonly<Record<string, unknown>>,
+  recordIndex: number,
+): RawV2BrokerServer => {
+  const id = requiredDirectoryNumber(record, 'id', recordIndex);
+  const createdAt = requiredDirectoryNumber(record, 'created_at', recordIndex);
+  const server = requiredDirectoryString(record, 'server', recordIndex);
+  const serverIp = requiredDirectoryString(record, 'server_ip', recordIndex);
+  const protocol = requiredDirectoryString(record, 'protocol', recordIndex);
+  requiredDirectoryString(record, 'server_url', recordIndex);
+  requiredDirectoryString(record, 'feed_wss_url', recordIndex);
+  requiredDirectoryString(record, 'feed_status_https_url', recordIndex);
+  if (protocol.toLowerCase() !== 'https') {
+    throw new BrokerDirectorySchemaError(
+      'invalid_protocol',
+      `Broker directory record ${recordIndex} must declare HTTPS protocol.`,
+      recordIndex,
+    );
+  }
+  const localConfigVersion = `v2:${id}:${createdAt}`;
+  const candidate = {
+    ...record,
+    directory_source: 'v2_raw' as const,
+    config_version: localConfigVersion,
+  };
+  const resolution = resolveBrokerEndpointSet(candidate);
+  if (!resolution.ok) {
+    throw new BrokerDirectorySchemaError(
+      resolution.code,
+      `Broker directory record ${recordIndex} was rejected: ${resolution.message}`,
+      recordIndex,
+    );
+  }
+
+  const { endpoints } = resolution;
+  // Handoff contract: store directory server_url exactly as the service root.
+  // REST/login uses {server_url}/api/v2 via ensureBrokerRestApiBase.
+  const exactServerUrl = toBrokerServiceRoot(endpoints.apiBase);
+  if (!exactServerUrl || !isBrokerServerUrlForApiBase(exactServerUrl, endpoints.apiBase)) {
+    throw new BrokerDirectorySchemaError(
+      'invalid_server_url',
+      `Broker directory record ${recordIndex} must bind server_url to its broker service root.`,
+      recordIndex,
+    );
+  }
+  return Object.freeze({
+    directory_source: 'v2_raw' as const,
+    id,
+    broker_id: endpoints.brokerId,
+    ...readPublicRoutingFields(record),
+    broker_name: requiredDirectoryString(record, 'broker_name', recordIndex),
+    enabled: true as const,
+    ...(typeof record.active === 'boolean' ? { active: record.active } : {}),
+    ...(typeof record.license_active === 'boolean' ? { license_active: record.license_active } : {}),
+    ...(typeof record.licensed === 'boolean' ? { licensed: record.licensed } : {}),
+    config_version: endpoints.configVersion,
+    schema_version: RAW_V2_SCHEMA_VERSION,
+    server_url: exactServerUrl,
+    // Not used for routing (server_url is authority). Kept as derived REST
+    // base for any rich-style revalidation of the same host.
+    market_api_url: ensureBrokerRestApiBase(exactServerUrl),
+    services_domain: endpoints.servicesDomain,
+    feed_wss_url: endpoints.feedWsBase,
+    feed_status_https_url: endpoints.feedStatusUrl,
+    ...(endpoints.tradeWsBase ? { trade_wss_url: endpoints.tradeWsBase } : {}),
+    ...(optionalDirectoryString(record, 'logo_url') ? { logo_url: optionalDirectoryString(record, 'logo_url') } : {}),
+    protocol: 'https',
+    region: optionalDirectoryString(record, 'region') ?? '',
+    server,
+    server_ip: serverIp,
+    server_port: requiredDirectoryNumber(record, 'server_port', recordIndex),
+    created_at: createdAt,
+  });
+};
+
 const parseRawV2BrokerDirectory = (
   rows: readonly unknown[],
 ): BrokerDirectoryResult => {
   const accepted: RawV2BrokerServer[] = [];
   const rejected: BrokerDirectorySchemaError[] = [];
   let blockedTestNetCount = 0;
+  let pinnedFallbackCount = 0;
 
   rows.forEach((value, recordIndex) => {
     const record = asDirectoryRecord(value);
@@ -523,80 +618,26 @@ const parseRawV2BrokerDirectory = (
     }
 
     try {
-      const id = requiredDirectoryNumber(record, 'id', recordIndex);
-      const createdAt = requiredDirectoryNumber(record, 'created_at', recordIndex);
-      const server = requiredDirectoryString(record, 'server', recordIndex);
-      const serverIp = requiredDirectoryString(record, 'server_ip', recordIndex);
-      const protocol = requiredDirectoryString(record, 'protocol', recordIndex);
-      requiredDirectoryString(record, 'server_url', recordIndex);
-      requiredDirectoryString(record, 'feed_wss_url', recordIndex);
-      requiredDirectoryString(record, 'feed_status_https_url', recordIndex);
-      if (protocol.toLowerCase() !== 'https') {
-        throw new BrokerDirectorySchemaError(
-          'invalid_protocol',
-          `Broker directory record ${recordIndex} must declare HTTPS protocol.`,
-          recordIndex,
-        );
-      }
-      const localConfigVersion = `v2:${id}:${createdAt}`;
-      const candidate = {
-        ...record,
-        directory_source: 'v2_raw' as const,
-        config_version: localConfigVersion,
-      };
-      const resolution = resolveBrokerEndpointSet(candidate);
-      if (!resolution.ok) {
-        throw new BrokerDirectorySchemaError(
-          resolution.code,
-          `Broker directory record ${recordIndex} was rejected: ${resolution.message}`,
-          recordIndex,
-        );
-      }
-
-      const { endpoints } = resolution;
-      // Handoff contract: store directory server_url exactly as the service root.
-      // REST/login uses {server_url}/api/v2 via ensureBrokerRestApiBase.
-      const exactServerUrl = toBrokerServiceRoot(endpoints.apiBase);
-      if (!exactServerUrl || !isBrokerServerUrlForApiBase(exactServerUrl, endpoints.apiBase)) {
-        throw new BrokerDirectorySchemaError(
-          'invalid_server_url',
-          `Broker directory record ${recordIndex} must bind server_url to its broker service root.`,
-          recordIndex,
-        );
-      }
-      accepted.push(Object.freeze({
-        directory_source: 'v2_raw' as const,
-        id,
-        broker_id: endpoints.brokerId,
-        broker_name: requiredDirectoryString(record, 'broker_name', recordIndex),
-        enabled: true as const,
-        ...(typeof record.active === 'boolean' ? { active: record.active } : {}),
-        ...(typeof record.license_active === 'boolean' ? { license_active: record.license_active } : {}),
-        ...(typeof record.licensed === 'boolean' ? { licensed: record.licensed } : {}),
-        config_version: endpoints.configVersion,
-        schema_version: RAW_V2_SCHEMA_VERSION,
-        server_url: exactServerUrl,
-        // Not used for routing (server_url is authority). Kept as derived REST
-        // base for any rich-style revalidation of the same host.
-        market_api_url: ensureBrokerRestApiBase(exactServerUrl),
-        services_domain: endpoints.servicesDomain,
-        feed_wss_url: endpoints.feedWsBase,
-        feed_status_https_url: endpoints.feedStatusUrl,
-        ...(endpoints.tradeWsBase ? { trade_wss_url: endpoints.tradeWsBase } : {}),
-        ...(optionalDirectoryString(record, 'logo_url') ? { logo_url: optionalDirectoryString(record, 'logo_url') } : {}),
-        protocol: 'https',
-        region: optionalDirectoryString(record, 'region') ?? '',
-        server,
-        server_ip: serverIp,
-        server_port: requiredDirectoryNumber(record, 'server_port', recordIndex),
-        created_at: createdAt,
-      }));
+      accepted.push(acceptRawV2BrokerRecord(record, recordIndex));
     } catch (error) {
-      if (error instanceof BrokerDirectorySchemaError) {
-        rejected.push(error);
-        return;
+      if (!(error instanceof BrokerDirectorySchemaError)) {
+        throw error;
       }
-      throw error;
+      // Contract v3 brokers whose directory row is unusable (raw IP / ws://)
+      // fall back to their published hostnames. See pinnedBrokerEndpoints.ts.
+      const pinnedRecord = withPinnedBrokerEndpoints(record);
+      if (pinnedRecord) {
+        try {
+          accepted.push(acceptRawV2BrokerRecord(pinnedRecord, recordIndex));
+          pinnedFallbackCount += 1;
+          return;
+        } catch (pinnedError) {
+          if (!(pinnedError instanceof BrokerDirectorySchemaError)) {
+            throw pinnedError;
+          }
+        }
+      }
+      rejected.push(error);
     }
   });
 
@@ -616,6 +657,7 @@ const parseRawV2BrokerDirectory = (
     acceptedCount: selectableServers.length,
     rejectedCount: rejected.length,
     blockedTestNetCount,
+    pinnedFallbackCount,
   });
 
   return Object.freeze({
@@ -771,6 +813,10 @@ const HTTP_ERROR_MESSAGES: Record<number, string> = {
 // setup on a mobile network. Keep enough headroom for transient/cold latency;
 // the query layer still owns bounded retries and the UI remains fail-closed.
 const BROKER_SERVERS_TIMEOUT_MS = 10000;
+
+/** Shown when the directory answers with something other than JSON. */
+export const BROKER_LIST_UNAVAILABLE_MESSAGE =
+  'Broker list unavailable: the broker directory returned a non-JSON response.';
 // Matches the Settings/Accounts gate (SELECTED_BROKER_HEALTH_TIMEOUT_MS). The
 // first probe after logout pays a cold DNS + TCP + TLS handshake before the
 // backend responds, so a tighter budget false-fired "broker unavailable" on
@@ -848,23 +894,29 @@ export async function getBrokerConfig(brokerId?: string): Promise<BrokerConfigRe
   return response.json();
 }
 
-/**
- * GET /broker/servers
- *
- * Returns every enabled broker server known to the platform. Used by the
- * Brokers screen so users can search for a broker by name (e.g. "Flexy",
- * "MetaQuotes") and pick which server to log in / register against.
- */
-export async function getBrokerDirectory(): Promise<BrokerDirectoryResult> {
-  let response: Response;
-  if (!PUBLIC_BROKER_DIRECTORY_BASE_URL) {
-    throw new BrokerConfigError(
-      0,
-      'Broker directory is not configured for this release.',
-    );
+/** Retain returned names even when a row's endpoints cannot authorize a connection. */
+export function readReportedBrokerIdentities(payload: unknown): readonly BrokerDirectoryIdentity[] {
+  const envelope = asDirectoryRecord(payload);
+  const rows = Array.isArray(payload) ? payload : Array.isArray(envelope?.brokers) ? envelope.brokers : Array.isArray(envelope?.value) ? envelope.value : [];
+  const identities = new Map<string, BrokerDirectoryIdentity>();
+  for (const value of rows) {
+    const record = asDirectoryRecord(value);
+    if (!record || record.enabled === false || record.active === false) continue;
+    const brokerId = typeof record.broker_id === 'string' ? record.broker_id.trim() : '';
+    const brokerName = typeof record.broker_name === 'string' ? record.broker_name.trim() : '';
+    if (!brokerId || !brokerName || identities.has(brokerId)) continue;
+    identities.set(brokerId, Object.freeze({ kind: 'identity_only', id: String(record.id ?? brokerId), brokerId, brokerName }));
   }
+  return Object.freeze([...identities.values()]);
+}
+
+/** Public broker directory; names and validated endpoints share one response. */
+const fetchBrokerDirectoryFromBase = async (
+  baseUrl: string,
+): Promise<BrokerDirectoryResult> => {
+  let response: Response;
   try {
-    response = await timedFetch(`${PUBLIC_BROKER_DIRECTORY_BASE_URL}/broker/servers`, {
+    response = await timedFetch(`${baseUrl}/broker/servers`, {
       headers: { accept: 'application/json' },
     }, {
       label: 'broker.servers',
@@ -900,18 +952,25 @@ export async function getBrokerDirectory(): Promise<BrokerDirectoryResult> {
     throw new BrokerConfigError(response.status, fullMessage);
   }
 
+  // A non-JSON body (for example an HTML page from a wrong host) is an error,
+  // never an empty list, so the query layer cannot cache it as 'no brokers'.
   let data: unknown;
   try {
     data = await response.json();
   } catch {
     throw new BrokerDirectoryContractError(
       'invalid_json',
-      'Broker directory returned invalid JSON.',
+      BROKER_LIST_UNAVAILABLE_MESSAGE,
     );
   }
 
   try {
-    return parseBrokerDirectoryListingPayload(data);
+    const directory = parseBrokerDirectoryListingPayload(data);
+    return Object.freeze({
+      ...directory,
+      reportedBrokers: readReportedBrokerIdentities(data),
+      primarySelectableServers: directory.selectableServers,
+    });
   } catch (error) {
     if (error instanceof BrokerDirectoryContractError) {
       throw error;
@@ -923,6 +982,133 @@ export async function getBrokerDirectory(): Promise<BrokerDirectoryResult> {
       );
     }
     throw error;
+  }
+};
+
+const directoryEntryBrokerId = (entry: BrokerDirectoryEntry): string =>
+  entry.kind === 'identity_only' ? entry.brokerId : entry.server.broker_id;
+
+const mergeAdditionalBrokerDirectory = (
+  primary: BrokerDirectoryResult,
+  additional: BrokerDirectoryResult,
+  allowedBrokerIds: readonly string[],
+): BrokerDirectoryResult => {
+  const allowed = new Set(allowedBrokerIds.map((brokerId) => brokerId.trim().toLowerCase()));
+  const primaryEntryIds = new Set(
+    primary.entries.map((entry) => directoryEntryBrokerId(entry).trim().toLowerCase()),
+  );
+  const primarySelectableIds = new Set(
+    primary.selectableServers.map((server) => server.broker_id.trim().toLowerCase()),
+  );
+  const primaryApprovedIds = new Set(
+    primary.approvedServers.map((server) => server.broker_id.trim().toLowerCase()),
+  );
+  const isAllowed = (brokerId: string) => allowed.has(brokerId.trim().toLowerCase());
+
+  const extraEntries = additional.entries.filter((entry) => {
+    const brokerId = directoryEntryBrokerId(entry).trim().toLowerCase();
+    return allowed.has(brokerId) && !primaryEntryIds.has(brokerId);
+  });
+  const extraSelectableServers = additional.selectableServers.filter((server) => {
+    const brokerId = server.broker_id.trim().toLowerCase();
+    return isAllowed(brokerId) && !primarySelectableIds.has(brokerId);
+  });
+  const extraApprovedServers = additional.approvedServers.filter((server) => {
+    const brokerId = server.broker_id.trim().toLowerCase();
+    return isAllowed(brokerId) && !primaryApprovedIds.has(brokerId);
+  });
+
+  if (extraEntries.length === 0 && extraSelectableServers.length === 0) {
+    return primary;
+  }
+
+  return Object.freeze({
+    mode: primary.mode === 'identity_only' && extraSelectableServers.length > 0
+      ? additional.mode
+      : primary.mode,
+    entries: Object.freeze([...primary.entries, ...extraEntries]),
+    approvedServers: Object.freeze([...primary.approvedServers, ...extraApprovedServers]),
+    selectableServers: Object.freeze([
+      ...primary.selectableServers,
+      ...extraSelectableServers,
+    ]),
+    reportedBrokers: primary.reportedBrokers,
+    primarySelectableServers: primary.primarySelectableServers,
+    ...(primary.warningCode ? { warningCode: primary.warningCode } : {}),
+  });
+};
+
+const brokerDirectoryReadCache = createBrokerDirectoryReadCache<BrokerDirectoryResult>(30_000);
+
+/** Test seam; cached records are process-local and never stored as routing authority. */
+export const __clearBrokerDirectoryReadCacheForTests = () => brokerDirectoryReadCache.clear();
+
+export async function getBrokerDirectory(): Promise<BrokerDirectoryResult> {
+  if (!PUBLIC_BROKER_DIRECTORY_BASE_URL) {
+    throw new BrokerConfigError(
+      0,
+      'Broker directory is not configured for this release.',
+    );
+  }
+
+  // Full directory refreshes stay fresh while sharing any read already underway.
+  const primaryRequest = brokerDirectoryReadCache.read(
+    PUBLIC_BROKER_DIRECTORY_BASE_URL,
+    () => fetchBrokerDirectoryFromBase(PUBLIC_BROKER_DIRECTORY_BASE_URL),
+    true,
+  );
+  // The independent, approved public origins can load together. Waiting for
+  // primary first added its entire network round trip to the search popup.
+  // Handle optional rejection immediately even if primary is still pending.
+  const additionalRequest = ADDITIONAL_BROKER_DIRECTORY_BASE_URL
+    && ADDITIONAL_BROKER_DIRECTORY_IDS.length > 0
+    && ADDITIONAL_BROKER_DIRECTORY_BASE_URL !== PUBLIC_BROKER_DIRECTORY_BASE_URL
+    ? brokerDirectoryReadCache.read(
+      ADDITIONAL_BROKER_DIRECTORY_BASE_URL,
+      () => fetchBrokerDirectoryFromBase(ADDITIONAL_BROKER_DIRECTORY_BASE_URL),
+      true,
+    ).catch(() => null)
+    : null;
+  const primary = await primaryRequest;
+  const additional = await additionalRequest;
+  // Primary remains mandatory and authoritative; optional discovery only
+  // contributes explicitly allowed rows after the normal endpoint validation.
+  return additional
+    ? mergeAdditionalBrokerDirectory(primary, additional, ADDITIONAL_BROKER_DIRECTORY_IDS)
+    : primary;
+}
+
+/** Revalidates one broker without waiting for an unrelated optional directory. */
+export async function getBrokerDirectoryForBroker(brokerId: string): Promise<BrokerDirectoryResult> {
+  if (!PUBLIC_BROKER_DIRECTORY_BASE_URL) {
+    throw new BrokerConfigError(0, 'Broker directory is not configured for this release.');
+  }
+  const primary = await brokerDirectoryReadCache.read(
+    PUBLIC_BROKER_DIRECTORY_BASE_URL,
+    () => fetchBrokerDirectoryFromBase(PUBLIC_BROKER_DIRECTORY_BASE_URL),
+  );
+  const requestedId = brokerId.trim().toLowerCase();
+  // Match merge precedence here; the session coordinator still requires the
+  // exact directory ID and approved endpoints before accepting credentials.
+  if (primary.selectableServers.some((server) => server.broker_id.toLowerCase() === requestedId)) {
+    return primary;
+  }
+  if (
+    !ADDITIONAL_BROKER_DIRECTORY_BASE_URL
+    || ADDITIONAL_BROKER_DIRECTORY_BASE_URL === PUBLIC_BROKER_DIRECTORY_BASE_URL
+    || !ADDITIONAL_BROKER_DIRECTORY_IDS.some((id) => id.trim().toLowerCase() === requestedId)
+  ) return primary;
+
+  try {
+    const additional = await brokerDirectoryReadCache.read(
+      ADDITIONAL_BROKER_DIRECTORY_BASE_URL,
+      () => fetchBrokerDirectoryFromBase(ADDITIONAL_BROKER_DIRECTORY_BASE_URL),
+    );
+    return mergeAdditionalBrokerDirectory(primary, additional, ADDITIONAL_BROKER_DIRECTORY_IDS);
+  } catch {
+    // A missing optional broker remains unsupported; it never replaces the
+    // primary source or authorizes saved endpoint addresses.
+    return primary;
   }
 }
 
@@ -981,3 +1167,64 @@ export async function checkBrokerServerHealth(serverUrl: string): Promise<void> 
   }
 }
 
+
+// ─── Public broker config / sign-up gate (contract v3) ──────────────────────────
+
+/** Subset of the public GET {server_url}/api/v2/broker/config used before login. */
+export type PublicBrokerSignUpConfig = Readonly<{
+  registration_enabled?: boolean;
+  demo_registration_enabled?: boolean;
+  server_name?: string;
+  broker_name?: string;
+}>;
+
+export type BrokerSignUpAvailability = 'enabled' | 'disabled' | 'unknown';
+
+const PUBLIC_BROKER_CONFIG_TIMEOUT_MS = 5000;
+
+/**
+ * Unauthenticated read of `/broker/config` on the selected broker's validated
+ * service root. Used only to decide whether sign-up may be offered.
+ */
+export async function getPublicBrokerConfig(serverUrl: string): Promise<PublicBrokerSignUpConfig> {
+  const apiBase = ensureBrokerRestApiBase(serverUrl);
+  if (!apiBase) {
+    throw new BrokerConfigError(0, 'Selected broker is unavailable');
+  }
+  const response = await timedFetch(`${apiBase}/broker/config`, {
+    headers: { accept: 'application/json' },
+  }, {
+    label: 'broker.config.public',
+    method: 'GET',
+    endpoint: '/broker/config',
+    source: 'broker',
+    timeoutMs: PUBLIC_BROKER_CONFIG_TIMEOUT_MS,
+  });
+  if (!response.ok) {
+    throw new BrokerConfigError(response.status, `Broker config unavailable (HTTP ${response.status})`);
+  }
+  const data: unknown = await response.json();
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new BrokerConfigError(0, 'Broker config returned an invalid response');
+  }
+  return data as PublicBrokerSignUpConfig;
+}
+
+/**
+ * Sign-up is offered only when the broker explicitly allows it. Both
+ * Trivanta and Orrnn report `registration_enabled:false` and
+ * `demo_registration_enabled:false`, so sign-up stays hidden for them.
+ * A config without either flag is 'unknown' (legacy behaviour applies).
+ */
+export function resolveBrokerSignUpAvailability(
+  config: PublicBrokerSignUpConfig | null | undefined,
+  kind: 'any' | 'real' | 'demo' = 'any',
+): BrokerSignUpAvailability {
+  if (!config) return 'unknown';
+  const real = config.registration_enabled;
+  const demo = config.demo_registration_enabled;
+  const flags = kind === 'real' ? [real] : kind === 'demo' ? [demo] : [real, demo];
+  if (flags.some((flag) => flag === true)) return 'enabled';
+  if (flags.some((flag) => flag === false)) return 'disabled';
+  return 'unknown';
+}

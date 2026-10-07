@@ -8,7 +8,7 @@ const source = readFileSync(
   'utf8',
 );
 
-test('History sort sheet prepares its actions before the touch-start opener runs', () => {
+test('History sort sheet prepares its actions before the press-in opener runs', () => {
   const configStart = source.indexOf('const historySortSheetConfig = useMemo');
   const openerStart = source.indexOf('const openHistorySortSheet = useCallback', configStart);
   const triggerStart = source.indexOf('onPress={openHistorySortSheet}', openerStart);
@@ -29,7 +29,7 @@ test('History sort sheet prepares its actions before the touch-start opener runs
     /runImmediateAction\('history\.sortSheet\.open'[\s\S]*showHistoryActionSheet\(historySortSheetConfig\)/,
   );
   assert.match(triggerSource, /activateOnPressIn/);
-  assert.match(triggerSource, /activateOnTouchStart/);
+  assert.doesNotMatch(triggerSource, /activateOnTouchStart/);
+  assert.match(triggerSource, /accessibilityLabel=\{t\('Sort By'\)\}/);
   assert.match(triggerSource, /unstable_pressDelay=\{0\}/);
 });
-

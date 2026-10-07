@@ -42,9 +42,8 @@ test('shared ActionSheet surfaces use the instant host contract', () => {
   // Mailbox/News/Community screens removed — fewer mounts and no News sheet scope.
   // Quotes now owns a dedicated implementation and is deliberately excluded
   // from both the shared mounts and the shared scoped-call inventory.
-  // Public demo registration fixes country, leverage, and origin broker to the
-  // backend contract, so those three picker mounts no longer exist.
-  assert.equal(actionSheetMounts.length, 19);
+  // The retained auth form contributes country and leverage pickers.
+  assert.equal(actionSheetMounts.length, 21);
   assert.equal(scopedActionSheetCalls.length, 13);
 
   for (const mount of actionSheetMounts) {

@@ -22,12 +22,13 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
 import { FastPressable } from '../../../ui/components/FastPressable';
+import { AnimatedSlideToggle } from '../../../ui/components/AnimatedSlideToggle';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { recordAccountJournalEvent } from '../../../state/terminalJournalState';
 import { useThemeMode } from '../../../state/themeMode';
@@ -37,14 +38,22 @@ import { GDark, GLight } from '../../../ui/theme/glass';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES, translateAccountCardName } from '../../../i18n/translations';
 import { useLiveAccountState } from '../../../state/liveAccountState';
-import { useBrokerConfig } from '../../../query/broker';
+import { useBrokerConfig, useBrokerServers } from '../../../query/broker';
+import { ORRNN_DEMO_BROKER_ID, resolveOrrnnDemoBrokerAuthRoute } from '../../../api/publicDemo';
+import { resolveAccountCompanyName } from '../accountCompanyName';
+import { useBrokerSignUpGate } from '../BrokerDetailScreenRegistrationGate';
 import { useAccountDetails } from '../../../query/accounts';
 import { resolveAppDisplayVersion } from '../../../config/appDisplayVersion';
 import { getConfiguredSupportEmail } from '../../../config/legalLinks';
 import { buildHelpMailto } from '../helpViewModel';
+import { primeBugReportContext } from '../bugReportRuntime';
 import { hasAuthenticatedAccountSession } from '../accountConnectionStatus';
 import { SettingRow } from './SettingRow';
+import { LogoutConfirmation } from './LogoutConfirmation';
+import { createLogoutConfirmationController } from './logoutConfirmationController';
+import { captureActiveBrokerSession, subscribeActiveBrokerSession } from '../../../state/activeBrokerSession';
 import { makeSettingsStyles } from './styles';
+import { resolveSettingsAccountEnvironment, SETTINGS_ACCOUNT_ENVIRONMENT_BADGES } from './accountEnvironmentBadge';
 import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 import { preloadRegisterScreen } from '../registerScreenPreload';
 import { warmSettingsRouteModules } from '../../../utils/settingsRouteWarmup';
@@ -53,12 +62,13 @@ import {
   type SidebarHostDestination,
 } from '../../../ui/components/sidebarDestinationHostController';
 import { logoutBrokerSession } from '../../../services/brokerSessionCoordinator';
+import { openAuthFlow } from '../../trade/authFlowState';
 import { requestOneClickPreferenceChange } from '../../trade/oneClickDisableConfirmation';
 
 const SETTINGS_ROUTE_LOCK_MS = 1800;
 const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 0;
 const SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS = 0;
-const SETTINGS_SCREEN_DATA_DELAY_MS = 8000;
+const SETTINGS_SCREEN_DATA_DELAY_MS = 0;
 const SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS = 50;
 const SETTINGS_SCROLL_PRESS_RETENTION_OFFSET = { top: 8, bottom: 8, left: 18, right: 18 } as const;
 const SETTINGS_READY_ROUTE_PATHS = [
@@ -101,13 +111,14 @@ type SearchableSettingsItem = {
  * Main screen for the Settings tab, providing access to user profile, account management, app preferences, and support links.
  */
 const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
-  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, accountType, setThemeMode, accountDetails } = useUserPreferences(
+  const { quoteSymbolCount, chartDrawingCount, oneClickAccepted, setOneClickAccepted, accountType, accountEnvironmentSource, setThemeMode, accountDetails } = useUserPreferences(
     useShallow((state) => ({
-      quoteSymbols: state.quoteSymbols,
-      chartDrawings: state.chartDrawings,
+      quoteSymbolCount: state.quoteSymbols?.length ?? 0,
+      chartDrawingCount: state.chartDrawings?.length ?? 0,
       oneClickAccepted: state.oneClickAccepted,
       setOneClickAccepted: state.setOneClickAccepted,
       accountType: state.accountType,
+      accountEnvironmentSource: state.accountEnvironmentSource,
       setThemeMode: state.setThemeMode,
       accountDetails: state.accountDetails,
     })),
@@ -122,6 +133,14 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
   const brokerId = useUserPreferences((s) => s.brokerId);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const isAccountConnected = hasAuthenticatedAccountSession(isLoggedIn, accountDetails);
+  // Contract v3: "New Account" opens Orrnn demo registration, so it follows
+  // that broker's public /broker/config demo_registration_enabled flag.
+  const { data: signUpBrokerServers } = useBrokerServers(isScreenFocused);
+  const demoSignUpServerUrl = useMemo(
+    () => resolveOrrnnDemoBrokerAuthRoute(ORRNN_DEMO_BROKER_ID, signUpBrokerServers ?? []).serverUrl,
+    [signUpBrokerServers],
+  );
+  const showNewAccountEntry = useBrokerSignUpGate(demoSignUpServerUrl).demo;
   const warmRegisterScreen = useCallback(() => {
     void preloadRegisterScreen().catch(() => undefined);
   }, []);
@@ -175,6 +194,11 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
   const activeLogin = currentLogin;
   const { data: activeAccountDetails } = useAccountDetails(activeLogin, settingsDataActive && !!activeLogin);
   const activeAccount = activeAccountDetails;
+  const accountEnvironment = resolveSettingsAccountEnvironment(activeAccount, {
+    accountType,
+    source: accountEnvironmentSource,
+  });
+  const accountEnvironmentBadge = SETTINGS_ACCOUNT_ENVIRONMENT_BADGES[accountEnvironment];
   // Seed the prominent account name from the login-available name so it shows
   // immediately instead of flashing the generic "Account" until the query lands.
   const rawAccountName = activeAccount?.name ?? accountDetails?.name ?? 'Account';
@@ -184,7 +208,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
   const balanceToDisplay = liveHasBalance && liveMatchesActiveAccount ? liveBalance : fallbackBalance;
   const displayBalance = balanceToDisplay !== undefined ? fmt.price(balanceToDisplay) : '---';
   const displayCurrency = activeAccount?.currency ?? 'USD';
-  const displayBrokerName = brokerConfig?.broker_name ?? '---';
+  const displayBrokerName = resolveAccountCompanyName(brokerConfig?.broker_name, brokerId);
   const setSearchActive = useUIState((s) => s.setSearchActive);
   // Drive Settings chrome from optimistic themeMode so the screen flips in the
   // same press turn as the switch.
@@ -213,7 +237,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
   const settingsAccentActive = themeMode === 'dark' ? '#347DFF' : '#3B82F6';
   const settingsAccentBg = themeMode === 'dark' ? '#1E1E1E' : 'rgba(29, 78, 216, 0.1)';
   const settingsSwitchTrack = themeMode === 'dark' ? 'rgba(52, 125, 255, 0.46)' : 'rgba(59, 130, 246, 0.5)';
-  const settingsSwitchOffTrack = themeMode === 'dark' ? '#1E1E1E' : T.borderMedium;
+  const settingsSwitchOffTrack = themeMode === 'dark' ? 'rgba(255, 255, 255, 0.18)' : T.borderMedium;
   const settingsSwitchThumbInactive = themeMode === 'dark' ? '#FFFFFF' : '#f4f3f4';
   const settingsDanger = themeMode === 'dark' ? '#FF5A5F' : '#EF4444';
   const renderDarkCardHighlight = () => themeMode === 'dark' ? (
@@ -242,40 +266,47 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
   const [searchQuery, setSearchQuery] = useState('');
   const routeLockRef = useRef(false);
   const routeUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [logoutConfirmation] = useState(createLogoutConfirmationController);
+  const logoutConfirmationSession = useSyncExternalStore(
+    logoutConfirmation.subscribe,
+    logoutConfirmation.getSnapshot,
+    logoutConfirmation.getSnapshot,
+  );
+  const cancelLogout = logoutConfirmation.dismiss;
+  useEffect(() => {
+    if (!isScreenFocused || !isAccountConnected) logoutConfirmation.dismiss();
+  }, [isScreenFocused, isAccountConnected, logoutConfirmation]);
+  useEffect(() => subscribeActiveBrokerSession(event => {
+    logoutConfirmation.reconcileSession(event.activeSession?.cacheNamespace);
+  }), [logoutConfirmation]);
 
   /**
    * Callback triggered when the user requests to sign out of their current active account.
    */
   const handleLogout = () => {
+    if (!isScreenFocused || !isAccountConnected) return;
+    logoutConfirmation.open(captureActiveBrokerSession()?.session.cacheNamespace);
+  };
+
+  const confirmLogout = () => {
+    if (!logoutConfirmation.consume(captureActiveBrokerSession()?.session.cacheNamespace)) return;
     const accountLoginForJournal = accountDetails?.id;
-    Alert.alert(
-      t('Logout'),
-      t('Are you sure you want to logout? You will need to sign in again.'),
-      [
-        { text: t('Cancel'), style: 'cancel' },
-        {
-          text: t('Logout'),
-          style: 'destructive',
-          onPress: () => {
-            // logoutBrokerSession invalidates the session synchronously; the
-            // socket/query/SecureStore cleanup continues in the background.
-            // Reveal the login screen immediately instead of waiting on it.
-            const cleanup = logoutBrokerSession();
-            router.replace('/login');
-            void cleanup
-              .then(() => {
-                recordAccountJournalEvent('logged out from current account', {
-                  level: 'success',
-                  accountLogin: accountLoginForJournal,
-                });
-              })
-              .catch((error) => {
-                console.warn('[Settings] Secure logout cleanup failed', error);
-              });
-          },
-        },
-      ],
-    );
+    // Invalidate synchronously. Login must not wait for secure-storage cleanup.
+    const cleanup = logoutBrokerSession();
+    // The root Login UI is already mounted; reveal it in this tap rather than
+    // waiting for the entry route's focus effect to open authentication.
+    openAuthFlow(undefined, 'login', '/login');
+    router.replace('/login');
+    void cleanup
+      .then(() => {
+        recordAccountJournalEvent('logged out from current account', {
+          level: 'success',
+          accountLogin: accountLoginForJournal,
+        });
+      })
+      .catch((error) => {
+        console.error('[Settings] Secure logout cleanup failed', error);
+      });
   };
   const searchInputRef = useRef<TextInput>(null);
 
@@ -473,16 +504,17 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
     }
   }, [appBuildVersion, appName, appVersion, supportEmail]);
 
-  const SEARCHABLE_ITEMS = useMemo<SearchableSettingsItem[]>(() => [
+  const SEARCHABLE_ITEMS = useMemo<SearchableSettingsItem[]>(() => ([
     { title: 'Accounts', sub: 'Manage trading accounts', icon: 'server-outline', routePath: '/settings/accounts' },
     { title: 'New Account', sub: '', icon: 'person-outline', routePath: '/register-entry' },
     { title: 'Economic Calender', sub: '', icon: 'calendar-outline', routePath: '/settings/economic-calendar' },
-    { title: 'Theme', sub: themeMode === 'light' ? 'Light Mode' : 'Dark Mode', icon: 'color-palette-outline' },
-    { title: 'Language Preference', sub: currentLanguageNative, icon: 'browsers-outline', routePath: '/settings/interface' },
+    { title: 'Theme', sub: themeMode === 'light' ? 'Light Mode' : 'Dark Mode', icon: 'contrast-outline' },
+    { title: 'Language Preference', sub: currentLanguageNative, icon: 'language-outline', routePath: '/settings/interface' },
     { title: 'Journal', sub: 'Activity log', icon: 'reader-outline', routePath: '/settings/journal' },
-    { title: 'Support', sub: supportEmail, icon: 'help-buoy-outline', action: 'support-email' },
+    { title: 'Support', sub: supportEmail, icon: 'headset-outline', action: 'support-email' },
     { title: 'Help', sub: 'FAQ', icon: 'information-circle-outline', routePath: '/settings/help' },
-  ], [currentLanguageNative, supportEmail, themeMode]);
+  ] satisfies SearchableSettingsItem[]).filter((item) => showNewAccountEntry || item.routePath !== '/register-entry'),
+  [currentLanguageNative, showNewAccountEntry, supportEmail, themeMode]);
 
   const searchResults = useMemo(() => {
     if (!searchQuery) return SEARCHABLE_ITEMS;
@@ -599,13 +631,13 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                     rightElement={
                       isThemeItem ? (
                         <View pointerEvents="none">
-                          <Switch
+                          <AnimatedSlideToggle
+                            testID="settings-search-theme-toggle"
                             value={themeMode === 'light'}
-                            onValueChange={(val) => applyThemeMode(val ? 'light' : 'dark')}
-                            trackColor={{ false: settingsSwitchOffTrack, true: settingsSwitchTrack }}
-                            thumbColor={themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive}
-                            style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                            {...({ activeThumbColor: settingsAccent, activeTrackColor: settingsSwitchTrack, thumbTintColor: themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive } as any)}
+                            onTrackColor={settingsSwitchTrack}
+                            offTrackColor={settingsSwitchOffTrack}
+                            onThumbColor="#3b82f6"
+                            offThumbColor={settingsSwitchThumbInactive}
                           />
                         </View>
                       ) : undefined
@@ -640,13 +672,9 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                 latencyBudgetMs={SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS}
               >
                 <View style={[styles.accountCard, styles.cardShadow]}>
-                  <View style={[styles.ribbonContainer, accountType === 'demo' ? styles.ribbonDemo : styles.ribbonLive]}>
-                    <Text style={styles.ribbonText}>
-                      {accountType === 'demo'
-                        ? t('Demo')
-                        : accountType === 'contest'
-                          ? t('Contest')
-                          : t('Real')}
+                  <View style={[styles.ribbonContainer, { backgroundColor: accountEnvironmentBadge.backgroundColor }]}>
+                    <Text style={[styles.ribbonText, { color: accountEnvironmentBadge.color }]}>
+                      {t(accountEnvironmentBadge.label)}
                     </Text>
                   </View>
 
@@ -685,9 +713,11 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                   <View style={styles.accDivider} />
 
                   <View style={styles.accDetailsWrap}>
-                    <Text style={styles.accCompany} numberOfLines={1} ellipsizeMode="tail">
-                      {displayBrokerName}
-                    </Text>
+                    {displayBrokerName ? (
+                      <Text style={styles.accCompany} numberOfLines={1} ellipsizeMode="tail">
+                        {displayBrokerName}
+                      </Text>
+                    ) : null}
                     <View style={styles.accServerRow}>
                       <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]} numberOfLines={1}>
                         #{accountDetails?.id || '---'}
@@ -730,7 +760,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                   </View>
                   <Text style={styles.metricLabel}>{t('Quotes')}</Text>
                 </View>
-                <Text style={styles.metricValue}>{quoteSymbols?.length || 0}</Text>
+                <Text style={styles.metricValue}>{quoteSymbolCount}</Text>
               </View>
 
               <View style={styles.metricBlock}>
@@ -741,7 +771,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                   </View>
                   <Text style={styles.metricLabel}>{t('Drawings')}</Text>
                 </View>
-                <Text style={styles.metricValue}>{chartDrawings?.length || 0}</Text>
+                <Text style={styles.metricValue}>{chartDrawingCount}</Text>
               </View>
 
               <View style={styles.metricBlock}>
@@ -767,7 +797,10 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
             </View>
             ) : null}
 
+            {showNewAccountEntry ? (
             <Text style={styles.sectionTitle}>{t('TRADING & ACCOUNT')}</Text>
+            ) : null}
+            {showNewAccountEntry ? (
             <FastPressable
               style={({ pressed }) => [
                 styles.singleRowCard,
@@ -789,6 +822,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
               <Text style={styles.rowTitleSingle}>{t('New Account')}</Text>
               <Ionicons name="chevron-forward" size={16} color={T.textMuted} />
             </FastPressable>
+            ) : null}
 
             <Text style={styles.sectionTitle}>{t('MARKET UPDATES')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
@@ -811,20 +845,20 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
               <SettingRow
                 T={T}
                 styles={styles}
-                icon="color-palette-outline"
+                icon="contrast-outline"
                 color={settingsAccent}
                 title={t('Theme')}
                 sub={themeMode === 'light' ? t('Light Mode') : t('Dark Mode')}
                 onPress={toggleThemeMode}
                 rightElement={
                   <View pointerEvents="none">
-                    <Switch
+                    <AnimatedSlideToggle
+                      testID="settings-theme-toggle"
                       value={themeMode === 'light'}
-                      onValueChange={(val) => applyThemeMode(val ? 'light' : 'dark')}
-                      trackColor={{ false: settingsSwitchOffTrack, true: settingsSwitchTrack }}
-                      thumbColor={themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive}
-                      style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                      {...({ activeThumbColor: settingsAccent, activeTrackColor: settingsSwitchTrack, thumbTintColor: themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive } as any)}
+                      onTrackColor={settingsSwitchTrack}
+                      offTrackColor={settingsSwitchOffTrack}
+                      onThumbColor="#3b82f6"
+                      offThumbColor={settingsSwitchThumbInactive}
                     />
                   </View>
                 }
@@ -833,7 +867,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
               <SettingRow
                 T={T}
                 styles={styles}
-                icon="browsers-outline"
+                icon="language-outline"
                 color={settingsAccent}
                 title={t('Language Preference')}
                 sub={currentLanguageNative}
@@ -856,7 +890,9 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
             <Text style={styles.sectionTitle}>{t('SUPPORT & HELP')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
               {renderDarkCardHighlight()}
-              <SettingRow T={T} styles={styles} icon="help-buoy-outline" color={settingsAccent} title={t('Support')} sub={supportEmail} onPress={handleEmailSupport} />
+              <SettingRow T={T} styles={styles} icon="headset-outline" color={settingsAccent} title={t('Support')} sub={supportEmail} onPress={handleEmailSupport} />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles} icon="bug-outline" color={settingsAccent} title={t('Report a Bug')} sub={t('Tell us what went wrong')} onPress={() => { primeBugReportContext('/settings'); router.push('/settings/contact-developer'); }} />
               <View style={styles.dividerInner} />
               <SettingRow
                 T={T}
@@ -870,7 +906,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
               />
             </View>
 
-            <View style={styles.logoutContainer}>
+            {isAccountConnected ? <View style={styles.logoutContainer}>
               <FastPressable
                 style={({ pressed }) => [
                   styles.singleRowCardLogout,
@@ -886,9 +922,15 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                 </View>
                 <Text style={[styles.rowTitleSingle, { color: settingsDanger }]}>{t('Logout')}</Text>
               </FastPressable>
-            </View>
+            </View> : null}
         </View>
       </ScrollView>
+      <LogoutConfirmation
+        visible={Boolean(logoutConfirmationSession) && isAccountConnected && isScreenFocused}
+        T={T}
+        onCancel={cancelLogout}
+        onConfirm={confirmLogout}
+      />
     </Screen>
   );
 });

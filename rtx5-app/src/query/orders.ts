@@ -2,8 +2,9 @@
  * Core module: orders.ts
  *
  * Contains:
- *  - useOrdersByLoginQuery  — fetches order history via GET /api/v2/orders/{login}
- *                             (login-based, verified real field names)
+ *  - useOrdersByLoginQuery  — order history via paged GET /api/v2/account/orders
+ *                             (falls back to GET /api/v2/orders/{login}),
+ *                             normalised to the LoginOrder field names
  *  - useAccountOrdersQuery  — fetches order history via GET /api/v2/account/orders
  *                             (JWT-resolved, no login param)
  *  - usePlaceOrderMutation  — submits new market orders via POST /api/v2/orders
@@ -75,7 +76,8 @@ export function useOrdersByLoginQuery(
     queryKey: getOrdersByLoginQueryKey(cacheNamespace, login),
     queryFn: () => runSessionBoundQuery(
       cacheNamespace,
-      () => ordersApi.getOrdersByLogin(login!),
+      // Contract 6.4: paged /account/orders first, /orders/{login} fallback.
+      () => ordersApi.getOrderHistory(login!),
     ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),

@@ -1,3 +1,4 @@
+import { useTheme } from '../../../ui/theme/useTheme';
 import React, { useCallback, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import Svg, { Circle, G, Line, Polyline, Rect, Text as SvgText } from 'react-native-svg';
@@ -31,6 +32,7 @@ export const PendingOrderPreviewChart = React.memo(({
   buyColor,
   sellColor,
 }: any) => {
+  const T = useTheme();
   const [layoutWidth, setLayoutWidth] = useState(0);
   const pointSize = useMemo(() => Math.pow(10, -Math.max(displayDecimals, 0)), [displayDecimals]);
 
@@ -177,8 +179,8 @@ export const PendingOrderPreviewChart = React.memo(({
       lines.push({
         key: 'tp',
         price: takeProfitPrice,
-        stroke: '#22C55E',
-        tagFill: '#22C55E',
+        stroke: T.trading.profit,
+        tagFill: T.trading.profit,
         textColor: '#FFFFFF',
         dashed: true,
         lineWidth: 1,
@@ -210,6 +212,7 @@ export const PendingOrderPreviewChart = React.memo(({
 
     return lines;
   }, [
+    T.trading.profit,
     ask,
     bid,
     buyColor,

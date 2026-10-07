@@ -1,20 +1,27 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Text, View } from 'react-native';
+import { Animated, AppState, Text, View } from 'react-native';
 import type { ImpactLevel } from '../../../dev/mock/calendarData';
 import { COUNTRY_COLORS, DEFAULT_COUNTRY_COLOR, IMPACT_CONFIG } from './eventHelpers';
 
-export function PulseDot({ color, size = 6 }: { color: string; size?: number }) {
+export function PulseDot({ color, size = 6, active = true }: { color: string; size?: number; active?: boolean }) {
   const pulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
+    if (!active) { pulse.setValue(1); return; }
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.6, duration: 1200, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 1200, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1.6, duration: 1200, useNativeDriver: true, isInteraction: false }),
+        Animated.timing(pulse, { toValue: 1, duration: 1200, useNativeDriver: true, isInteraction: false }),
       ])
     );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
+    const syncVisibility = (state: string) => {
+      loop.stop();
+      pulse.setValue(1);
+      if (state === 'active') { loop.reset(); loop.start(); }
+    };
+    syncVisibility(AppState.currentState);
+    const subscription = AppState.addEventListener('change', syncVisibility);
+    return () => { subscription.remove(); loop.stop(); };
+  }, [active, pulse]);
   return (
     <View style={{ width: size * 2.6, height: size * 2.6, alignItems: 'center', justifyContent: 'center' }}>
       <Animated.View style={{ position: 'absolute', width: size * 2.2, height: size * 2.2, borderRadius: 99, backgroundColor: color, opacity: 0.2, transform: [{ scale: pulse }] }} />

@@ -68,6 +68,7 @@ import {
   type FastTabRouteName,
 } from './fastTabVisualController';
 import { ThemeModeRenderPriorityContext } from '../../state/themeMode';
+import { FastTabPressNavigationContext } from './commitFastTabPress';
 
 type DescriptorMap = BottomTabBarProps['descriptors'];
 type TabNavigation = BottomTabBarProps['navigation'];
@@ -251,18 +252,20 @@ const FastTabBarHost = memo(function FastTabBarHost({
   setTabBarHeight,
 }: FastTabBarHostProps) {
   return (
-    <SafeAreaInsetsContext.Consumer>
-      {(inheritedInsets) => (
-        <BottomTabBarHeightCallbackContext.Provider value={setTabBarHeight}>
-          {tabBar({
-            state,
-            descriptors,
-            navigation,
-            insets: resolveInsets(safeAreaInsets, inheritedInsets),
-          })}
-        </BottomTabBarHeightCallbackContext.Provider>
-      )}
-    </SafeAreaInsetsContext.Consumer>
+    <FastTabPressNavigationContext.Provider value={navigation}>
+      <SafeAreaInsetsContext.Consumer>
+        {(inheritedInsets) => (
+          <BottomTabBarHeightCallbackContext.Provider value={setTabBarHeight}>
+            {tabBar({
+              state,
+              descriptors,
+              navigation,
+              insets: resolveInsets(safeAreaInsets, inheritedInsets),
+            })}
+          </BottomTabBarHeightCallbackContext.Provider>
+        )}
+      </SafeAreaInsetsContext.Consumer>
+    </FastTabPressNavigationContext.Provider>
   );
 });
 
@@ -300,7 +303,7 @@ export function FastTabView({
       },
     ]),
   ) as Record<FastTabRouteName, RefCallback<View>>, []);
-  const applyNativeVisualRouteNow = useCallback((routeName: FastTabRouteName) => {
+  const applyNativeVisualRouteNow = useCallback((routeName: FastTabRouteName, force = false) => {
     const previousRouteName = nativeVisualRouteRef.current;
     const nextLayer = layerRefs.current[routeName];
     // Never conceal the current scene unless the retained destination is
@@ -308,6 +311,9 @@ export function FastTabView({
     if (!nextLayer) {
       return;
     }
+    // React's route commit adopts the scene already revealed by touch-down.
+    // Reapplying the same native layer would repeat the handoff needlessly.
+    if (previousRouteName === routeName && !force) return;
 
     // Reveal the destination before concealing the current scene. Android can
     // composite consecutive setNativeProps calls in separate frames; the old
@@ -316,19 +322,34 @@ export function FastTabView({
     // the destination wins regardless of sibling order until React commits.
     nextLayer.setNativeProps({
       pointerEvents: 'auto',
+      accessibilityElementsHidden: false,
+      importantForAccessibility: 'auto',
       style: [
         styles.sceneLayer,
         styles.sceneLayerVisible,
         styles.sceneLayerOptimistic,
       ],
     });
-    if (previousRouteName !== routeName) {
+    if (!force && previousRouteName !== routeName) {
       layerRefs.current[previousRouteName]?.setNativeProps({
         pointerEvents: 'none',
+        accessibilityElementsHidden: true,
+        importantForAccessibility: 'no-hide-descendants',
         style: [styles.sceneLayer, styles.sceneLayerHidden],
       });
     }
     nativeVisualRouteRef.current = routeName;
+    if (force) {
+      for (const otherRouteName of FAST_TAB_ROUTE_NAMES) {
+        if (otherRouteName === routeName) continue;
+        layerRefs.current[otherRouteName]?.setNativeProps({
+          pointerEvents: 'none',
+          accessibilityElementsHidden: true,
+          importantForAccessibility: 'no-hide-descendants',
+          style: [styles.sceneLayer, styles.sceneLayerHidden],
+        });
+      }
+    }
   }, []);
   const previousFocusedRouteKeyRef = useRef(focusedRouteKey);
   const loadedRouteKeysRef = useRef(new Set<string>([focusedRouteKey]));
@@ -388,8 +409,10 @@ export function FastTabView({
   const { tabBarPosition = 'bottom' } = focusedOptions;
 
   const tabBarElement = (
+    // Press handlers need real focus; an optimistic reveal must not suppress
+    // the tab dispatch that will make navigation catch up with those pixels.
     <FastTabBarHost
-      state={visibleState}
+      state={state}
       descriptors={descriptors}
       navigation={navigation}
       safeAreaInsets={safeAreaInsets}

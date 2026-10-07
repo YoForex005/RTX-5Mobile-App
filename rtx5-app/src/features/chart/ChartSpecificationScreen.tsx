@@ -10,11 +10,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
+import { AppState, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketStatus } from '../../query/marketStatus';
+import { resolveMarketStatusClosedMessage } from '../../api/marketStatus';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
@@ -109,21 +110,45 @@ export function ChartSpecificationScreen() {
   // Live countdown derived from API session_open / session_close timestamps
   const isOpen = mktStatus?.status === 'open' || mktStatus?.status === 'pre_market' || mktStatus?.status === 'after_hours';
   const statusLabel = mktStatus ? (STATUS_LABELS[mktStatus.status] ?? 'Market is closed') : 'Loading...';
+  // Contract v3: show the server's reason (e.g. "schedule unavailable") when closed.
+  const closedMessage = resolveMarketStatusClosedMessage(mktStatus);
 
   // Target timestamp: if open → session_close, if closed → session_open (next open)
   const targetTs = isOpen ? mktStatus?.session_close : mktStatus?.session_open;
 
   const [countdown, setCountdown] = useState('--:--:--');
   useEffect(() => {
-    if (!targetTs) { setCountdown('--:--:--'); return; }
-    const tick = () => {
-      const nowSecs = Math.floor(Date.now() / 1000);
-      setCountdown(fmtCountdown(targetTs - nowSecs));
+    if (!targetTs || !Number.isFinite(targetTs)) { setCountdown('--:--:--'); return; }
+    if (!isScreenFocused) return;
+    let foreground = AppState.currentState === 'active';
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const clearTimer = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
     };
+    const tick = () => {
+      clearTimer();
+      if (disposed || !foreground) return;
+      const now = Date.now();
+      const remaining = targetTs - Math.floor(now / 1000);
+      setCountdown(fmtCountdown(remaining));
+      // No timer survives the deadline. Align updates to the wall-clock second
+      // so resume publishes the correct value immediately without timer drift.
+      if (remaining > 0) timer = setTimeout(tick, 1000 - (now % 1000));
+    };
+    const subscription = AppState.addEventListener('change', state => {
+      foreground = state === 'active';
+      clearTimer();
+      if (foreground) tick();
+    });
     tick();
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
-  }, [targetTs]);
+    return () => {
+      disposed = true;
+      subscription.remove();
+      clearTimer();
+    };
+  }, [isScreenFocused, targetTs]);
 
   const volumeBounds = useMemo(
     () => resolveTradeVolumeBounds({
@@ -141,8 +166,14 @@ export function ChartSpecificationScreen() {
     { label: 'Contract size',        value: fmtNum(meta?.contractSize, 0) },
     { label: 'Spread',               value: fmtNum(meta?.spread, 1) },
     { label: 'Stop level, pips',     value: fmtStr(meta?.stopsLevel ?? '0') },
-    { label: 'Swap long, pips',      value: fmtNum(meta?.swapLong ?? 0, 1) },
-    { label: 'Swap short, pips',     value: fmtNum(meta?.swapShort ?? 0, 1) },
+    // Contract v3 instruments carry no swap_* fields: hide the rows instead of
+    // showing a fabricated 0.
+    ...(typeof meta?.swapLong === 'number' && Number.isFinite(meta.swapLong)
+      ? [{ label: 'Swap long, pips', value: fmtNum(meta.swapLong, 1) }]
+      : []),
+    ...(typeof meta?.swapShort === 'number' && Number.isFinite(meta.swapShort)
+      ? [{ label: 'Swap short, pips', value: fmtNum(meta.swapShort, 1) }]
+      : []),
   ];
 
   return (
@@ -151,7 +182,7 @@ export function ChartSpecificationScreen() {
       onLayout={handleLaunchBodyLayout}
       style={styles.screen}
     >
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <View style={styles.headerRow}>
           <Pressable
             onPress={() => safeRouterBack(router, '/(tabs)/chart')}
@@ -186,7 +217,9 @@ export function ChartSpecificationScreen() {
           <View style={styles.tradingHoursTextCol}>
             <View style={styles.tradingHoursTitleRow}>
               <View style={[styles.marketStatusDot, !isOpen && styles.marketStatusDotClosed]} />
-              <Text style={styles.tradingHoursTitle}>{t(statusLabel)}</Text>
+              <Text style={styles.tradingHoursTitle}>
+                {t(statusLabel)}{closedMessage ? ` · ${closedMessage}` : ''}
+              </Text>
             </View>
             <Text style={styles.tradingHoursSub}>
               {isOpen ? `${t('Closes in')} ` : `${t('Opens in')} `}{countdown}
@@ -253,7 +286,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 17,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     scrollContent: {
@@ -307,7 +340,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 7,
       height: 7,
       borderRadius: 4,
-      backgroundColor: '#22C55E',
+      backgroundColor: T.trading.profit,
     },
     marketStatusDotClosed: {
       backgroundColor: '#EF4444',

@@ -1,11 +1,24 @@
 /**
- * Idempotency keys for server-side trade mutations.
+ * Idempotency identifiers for server-side trade mutations.
  *
- * The key is injected by BrokerAPI so every active mobile trade route uses
- * the same contract without depending on individual screens to remember it.
+ * Backend contract v3 (section 6.0):
+ * - The `Idempotency-Key` header is IGNORED by the gateway. BrokerAPI still
+ *   injects it (harmless, optional), but it gives no duplicate protection.
+ * - Real idempotency is the body field `client_order_id`, honoured only by
+ *   `POST /orders` and `POST /positions/{ticket}/close`.
+ * - Format: `^[A-Za-z0-9][A-Za-z0-9._:-]{7,63}$`.
+ * - The same id with a different body returns `409 IDEMPOTENCY_CONFLICT`.
+ * - Pending orders have no idempotency at all: never auto-retry them after a
+ *   network error; re-read the pending list instead.
  */
 
 let fallbackSequence = 0;
+
+/** Server-side validation pattern for `client_order_id` (contract 6.0). */
+export const CLIENT_ORDER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,63}$/;
+
+export const isValidClientOrderId = (value: unknown): value is string =>
+  typeof value === 'string' && CLIENT_ORDER_ID_PATTERN.test(value);
 
 const normalizedPath = (endpoint: string): string => {
   const withoutQuery = endpoint.split(/[?#]/, 1)[0] || '';
@@ -17,7 +30,7 @@ const normalizedPath = (endpoint: string): string => {
   return (withoutApiPrefix.replace(/\/+$/, '') || '/');
 };
 
-/** Returns the key prefix for the five idempotent trade routes, if applicable. */
+/** Returns the key prefix for the five trade mutation routes, if applicable. */
 export const getTradeIdempotencyAction = (endpoint: string, method: string): string | null => {
   const path = normalizedPath(endpoint);
   const normalizedMethod = method.toUpperCase();
@@ -46,25 +59,71 @@ const normalizeAction = (action: string): string => {
   return normalized || 'trade';
 };
 
+const randomHex = (length: number): string => {
+  let out = '';
+  while (out.length < length) {
+    out += Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, '0');
+  }
+  return out.slice(0, length);
+};
+
 /**
- * Uses UUID v4 when the runtime provides it. The fallback remains dependency
- * free for React Native runtimes where Web Crypto is not available.
+ * RFC 4122 v4-shaped UUID. Uses Web Crypto when the runtime provides it; the
+ * fallback stays dependency free for React Native runtimes without it and
+ * mixes time + a process sequence into the random bits so two ids generated
+ * in the same millisecond never collide.
  */
-export const createTradeIdempotencyKey = (action: string): string => {
+export const createUuidV4 = (): string => {
   const runtimeCrypto = globalThis.crypto as { randomUUID?: () => string } | undefined;
   if (typeof runtimeCrypto?.randomUUID === 'function') {
     try {
-      return `${normalizeAction(action)}-${runtimeCrypto.randomUUID()}`;
+      const value = runtimeCrypto.randomUUID();
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+        return value.toLowerCase();
+      }
     } catch {
       // Fall through to the RN-safe fallback below.
     }
   }
 
-  fallbackSequence += 1;
+  fallbackSequence = (fallbackSequence + 1) % 0x1000;
+  const timeHex = Date.now().toString(16).padStart(12, '0').slice(-12);
+  const variant = (8 + Math.floor(Math.random() * 4)).toString(16);
   return [
-    normalizeAction(action),
-    Date.now().toString(36),
-    fallbackSequence.toString(36),
-    Math.random().toString(36).slice(2, 14),
+    randomHex(8),
+    randomHex(4),
+    `4${fallbackSequence.toString(16).padStart(3, '0')}`,
+    `${variant}${randomHex(3)}`,
+    timeHex,
   ].join('-');
+};
+
+/**
+ * Header-style key kept for the optional `Idempotency-Key` header and for
+ * pending-order bookkeeping. It always satisfies CLIENT_ORDER_ID_PATTERN for
+ * the short action prefixes used in this app.
+ */
+export const createTradeIdempotencyKey = (action: string): string =>
+  `${normalizeAction(action)}-${createUuidV4()}`;
+
+/** `order-<uuidv4>` for `POST /orders` (43 characters). */
+export const createMarketOrderClientOrderId = (): string =>
+  `order-${createUuidV4()}`;
+
+/**
+ * `close-<ticket>-<uuidv4>` for `POST /positions/{ticket}/close`.
+ * A 19-digit (int64) ticket yields 62 characters, inside the 64 limit.
+ */
+export const createClosePositionClientOrderId = (ticket: string | number): string => {
+  const ticketText = String(ticket).trim();
+  if (!/^\d+$/.test(ticketText)) {
+    throw new TypeError('A close client_order_id requires a numeric broker ticket.');
+  }
+  const candidate = `close-${ticketText}-${createUuidV4()}`;
+  if (!CLIENT_ORDER_ID_PATTERN.test(candidate)) {
+    // Only reachable for tickets longer than int64; keep the id valid while
+    // still unique by dropping the ticket segment.
+    return `close-${createUuidV4()}`;
+  }
+  return candidate;
 };

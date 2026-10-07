@@ -146,7 +146,7 @@ const parseStorage = (
       entries: trimEntries(sanitizedEntries),
     };
   } catch (error) {
-    console.warn('[persistedCandleCache] Failed to parse candle cache', error);
+    console.error('[persistedCandleCache] Failed to parse candle cache', error);
     return emptyStorage(expectedCacheNamespace);
   }
 };
@@ -237,7 +237,7 @@ const readStorage = async (
     storageReadPromise = AsyncStorage.getItem(getPersistedCandleStorageKey(scope.cacheNamespace))
       .then((raw) => parseStorage(raw, scope.cacheNamespace))
       .catch((error) => {
-        console.warn('[persistedCandleCache] Failed to read candle cache', error);
+        console.error('[persistedCandleCache] Failed to read candle cache', error);
         return emptyStorage(scope.cacheNamespace);
       })
       .then((state) => {
@@ -301,7 +301,7 @@ const flushPersistedEntry = (key: string, scheduledScope: CandleCacheScope) => {
       );
     })
     .catch((error) => {
-      console.warn('[persistedCandleCache] Failed to write candle cache', error);
+      console.error('[persistedCandleCache] Failed to write candle cache', error);
     });
 };
 
@@ -431,7 +431,7 @@ export const hydratePersistedCandleCache = async (
       return safeCandles;
     })
     .catch((error) => {
-      console.warn('[persistedCandleCache] Failed to hydrate candle cache', error);
+      console.error('[persistedCandleCache] Failed to hydrate candle cache', error);
       return [];
     })
     .finally(() => {

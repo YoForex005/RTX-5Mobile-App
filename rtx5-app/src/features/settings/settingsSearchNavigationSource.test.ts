@@ -19,7 +19,7 @@ test('settings search results reuse the same routes as settings rows', () => {
   assert.match(source, /\{ title: 'Accounts'[\s\S]*routePath: '\/settings\/accounts' \}/);
   assert.match(source, /\{ title: 'New Account'[\s\S]*routePath: '\/register-entry' \}/);
   assert.match(source, /\{ title: 'Economic Calender'[\s\S]*routePath: '\/settings\/economic-calendar' \}/);
-  assert.match(source, /\{ title: 'Theme', sub: themeMode === 'light' \? 'Light Mode' : 'Dark Mode', icon: 'color-palette-outline' \}/);
+  assert.match(source, /\{ title: 'Theme', sub: themeMode === 'light' \? 'Light Mode' : 'Dark Mode', icon: 'contrast-outline' \}/);
   assert.match(source, /\{ title: 'Language Preference'[\s\S]*routePath: '\/settings\/interface' \}/);
   assert.match(source, /\{ title: 'Journal'[\s\S]*routePath: '\/settings\/journal' \}/);
   assert.match(source, /\{ title: 'Support', sub: supportEmail[\s\S]*action: 'support-email' \}/);
@@ -28,7 +28,7 @@ test('settings search results reuse the same routes as settings rows', () => {
   assert.match(source, /item\.action === 'support-email'[\s\S]*void handleEmailSupport\(\)/);
   assert.match(source, /openReadySettingsRoute\(item\.routePath\)/);
   assert.match(source, /const isThemeItem = item\.title === 'Theme'/);
-  assert.match(source, /rightElement=\{[\s\S]*isThemeItem \? \([\s\S]*<Switch[\s\S]*onValueChange=\{\(val\) => applyThemeMode\(val \? 'light' : 'dark'\)\}/);
+  assert.match(source, /rightElement=\{[\s\S]*isThemeItem \? \([\s\S]*<AnimatedSlideToggle[\s\S]*value=\{themeMode === 'light'\}/);
   assert.match(source, /const routePath = item\.routePath/);
   assert.match(source, /onPress=\{isThemeItem \? toggleThemeMode : routePath \|\| item\.action \? \(\) => handleSearchResultPress\(item\) : undefined\}/);
   assert.match(source, /onPressIn=\{routePath \? \(\) => prepareReadySettingsRoute\(routePath\) : undefined\}/);
@@ -64,4 +64,19 @@ test('settings account card only shows connected status when an authenticated lo
   assert.doesNotMatch(accountCard, /styles\.connectedPill|styles\.greenDot/);
   assert.doesNotMatch(accountCard, /styles\.connectedText|<Text[^>]*>\{t\('Connected'\)\}<\/Text>/);
   assert.doesNotMatch(source, /t\('Not connected'\)/);
+});
+
+test('New Account follows the demo broker sign-up flag in the row and in search', () => {
+  const source = readSettingsScreenSource();
+
+  assert.match(
+    source,
+    /resolveOrrnnDemoBrokerAuthRoute\(ORRNN_DEMO_BROKER_ID, signUpBrokerServers \?\? \[\]\)\.serverUrl/,
+  );
+  assert.match(source, /const showNewAccountEntry = useBrokerSignUpGate\(demoSignUpServerUrl\)\.demo/);
+  assert.match(source, /\.filter\(\(item\) => showNewAccountEntry \|\| item\.routePath !== '\/register-entry'\)/);
+  assert.match(
+    source,
+    /\{showNewAccountEntry \? \(\s*<FastPressable[\s\S]*openReadySettingsRoute\('\/register-entry'\)/,
+  );
 });

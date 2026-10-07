@@ -22,7 +22,8 @@ import {
   selectedBrokerHealthGate,
 } from './BrokersScreen/selectedBrokerHealthGate';
 import { warmDemoAccountForm } from './registerScreenPreload';
-import { useUserPreferences } from '../../state/userPreferences';
+import { selectGuestBrokerById } from '../../services/selectGuestBroker';
+import { scheduleAfterVisualFrame } from '../../utils/afterVisualFrame';
 
 const BROKERS_LAUNCH_HIDDEN_STYLE = {
   elevation: 0,
@@ -48,7 +49,6 @@ function writeBrokersLaunchVisibilityNow(layer: View | null, visible: boolean) {
 export function BrokersLaunchHost() {
   const router = useRouter();
   const pathname = usePathname();
-  const setBrokerConnection = useUserPreferences((state) => state.setBrokerConnection);
   const pathnameRef = useRef(pathname);
   const backInFlightRef = useRef(false);
   const pendingBackRevisionRef = useRef<number | null>(null);
@@ -142,57 +142,44 @@ export function BrokersLaunchHost() {
       serverUrl: broker.serverUrl,
       onAvailable: () => {
         if (!isSelectedPickerStillActive()) return;
-        const current = brokersLaunchController.getSnapshot();
-        const selection = toBrokerDetailLaunchSelection(broker);
-        setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl);
-        const detailRevision = showBrokerDetailLaunch(selection);
-        const pushBrokerDetailRoute = () => {
-          router.push({
-            pathname: '/settings/broker-detail',
-            params: selection,
-          });
-        };
-        // Reveal Broker Detail first; hiding this cover first exposes the retained
-        // tab for one frame and can redirect the user's next tap to the wrong row.
-        if (current.visible) {
-          brokersLaunchController.hide(current.revision);
-        }
-
-        // A very fast row tap can beat the scheduled Brokers push. Preserve the
-        // Brokers route in the back stack, dismiss the retained Accounts layer
-        // owned by the cancelled push, then let the Detail cover paint.
-        if (current.visible && !current.navigationStarted) {
-          scheduleBackNavigationAfterVisualFrame(() => {
-            router.push('/settings/brokers');
-            hideSidebarDestination();
-            scheduleBrokerDetailLaunchNavigation(detailRevision, pushBrokerDetailRoute);
-          });
-          return;
-        }
-        scheduleBrokerDetailLaunchNavigation(detailRevision, pushBrokerDetailRoute);
+        void selectGuestBrokerById(broker.brokerId, isSelectedPickerStillActive).then(selected => {
+          if (!selected || !isSelectedPickerStillActive()) return;
+          hideSidebarDestination();
+          brokersLaunchController.hide();
+          router.replace('/(tabs)/quotes');
+        }).catch(error => Alert.alert('Broker unavailable', error.message));
       },
       onUnavailable: () => {
         if (!isSelectedPickerStillActive()) return;
         Alert.alert(SELECTED_BROKER_UNAVAILABLE_MESSAGE);
       },
     });
-  }, [router, setBrokerConnection]);
+  }, [router]);
 
-  useEffect(
-    () => brokersLaunchController.registerVisualApplier(
+  useEffect(() => {
+    let cancelFormWarmup: (() => void) | null = null;
+    const unregister = brokersLaunchController.registerVisualApplier(
       (visible) => {
         writeBrokersLaunchVisibilityNow(hostLayerRef.current, visible);
+        cancelFormWarmup?.();
+        cancelFormWarmup = null;
         if (visible) {
-          // Prefetch Demo Account form while browsing brokers so the next
-          // "Open a demo account" tap is module-ready.
-          void warmDemoAccountForm();
+          // Importing a not-yet-evaluated form can occupy the JS thread. Let
+          // the broker picker paint before optional next-screen warming.
+          cancelFormWarmup = scheduleAfterVisualFrame(() => {
+            cancelFormWarmup = null;
+            if (brokersLaunchController.isVisible()) void warmDemoAccountForm();
+          });
           pendingBackRevisionRef.current = null;
           backInFlightRef.current = false;
         }
       },
-    ),
-    [],
-  );
+    );
+    return () => {
+      cancelFormWarmup?.();
+      unregister();
+    };
+  }, []);
 
   useEffect(() => () => {
     pendingBackRevisionRef.current = null;

@@ -870,7 +870,7 @@ test('webview bridge: renders backend candle timestamps directly', () => {
   assert.doesNotMatch(chartWebViewHtmlSource, /_rtxIndexToRealTime|setIndexToRealTimeMap|appendIndexToRealTimeEntry|replaceLastIndexToRealTimeEntry/);
 });
 
-test('webview bridge: open-position labels separate trade side color from live PnL color', () => {
+test('webview bridge: split trade labels retain separate side and live PnL fields', () => {
   const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
 
   assertSourceContains(
@@ -881,7 +881,7 @@ test('webview bridge: open-position labels separate trade side color from live P
   assertSourceContains(
     refreshBody,
     /var hasSplitTradeLabel = !!\(item\.labelSideText && item\.labelValueText\)[\s\S]*sideSpan\.textContent = item\.labelSideText[\s\S]*separatorSpan\.textContent = ', '[\s\S]*valueSpan\.textContent = item\.labelValueText[\s\S]*valueSpan\.style\.color = item\.labelValueColor \|\| item\.color/,
-    'open-position labels must render BUY/SELL volume and live USD value as separately colored text spans',
+    'open-position labels must render BUY/SELL volume and live USD value as separate text spans',
   );
   assertSourceContains(
     refreshBody,
@@ -904,7 +904,7 @@ test('webview bridge: per-tick trade label patches touch text only and retain la
   assertSourceContains(
     patchBody,
     /_overlayDomNodesByKey\['label:anchored:' \+ id\][\s\S]*var valueSpan = label\.childNodes\[2\][\s\S]*valueSpan\.textContent = nextPatch\.labelValueText[\s\S]*valueSpan\.style\.color = nextPatch\.labelValueColor/,
-    'fast label patches must mutate only the existing PnL span text and color',
+    'fast label patches must update the existing PnL span text and color',
   );
   assert.doesNotMatch(
     patchBody,
@@ -916,6 +916,32 @@ test('webview bridge: per-tick trade label patches touch text only and retain la
     /window\.updateOverlayTradeLabelValues = updateOverlayTradeLabelValues/,
     'the native host must be able to call the fast label-only bridge',
   );
+});
+
+test('live native label patches recolour Buy/Sell and lot together with P/L', () => {
+  const patchBody = extractFunctionBody(chartWebViewHtmlSource, 'updateOverlayTradeLabelValues');
+  const nodes = [{ nodeName: 'SPAN', textContent: 'SELL 0.03', style: { color: '#DC2626' } },
+    { nodeName: 'SPAN', textContent: ', ', style: { color: '#DC2626' } },
+    { nodeName: 'SPAN', textContent: '-0.31 USD', style: { color: '#DC2626' } }];
+  const label = { childNodes: nodes };
+  const update = new Function('patches', '_overlayDomNodesByKey', `
+    var _overlayPayload = {}, _appliedOverlayPayload = {};
+    var verticalPricePanGestureActive = false, visibleRangeIdlePendingAfterGesture = false;
+    function isChartOverlayWriteContextCurrent() { return true; }
+    function isHorizontalScrollMotionActive() { return false; }
+    function patchOverlayTradeLabelPayload(payload) { return payload; }
+    function postError(name, error) { throw error; }
+    ${patchBody}
+  `);
+  for (const [text, color] of [['+0.25 USD', '#087D4D'], ['-0.31 USD', '#C62828']]) {
+    update([{ id: 'open-42', labelValueText: text, labelValueColor: color }], {
+      'label:anchored:open-42': label,
+    });
+    assert.equal(nodes[0].textContent, 'SELL 0.03');
+    assert.equal(nodes[2].textContent, text);
+    assert.ok(nodes.every((node) => node.style.color === color));
+    assert.equal(label.childNodes, nodes);
+  }
 });
 
 test('webview bridge: open-position trade labels stay in one vertical column while price panning', () => {
@@ -1392,12 +1418,12 @@ test('native chart status overlays do not block symbol recovery controls', () =>
   );
   assertSourceContains(
     source,
-    /\{chartSurfaceReady && isError && !isLoading && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,
+    /\{chartSurfaceReady && isError && !isLoading && \(\s*<View pointerEvents="box-none" style=\{styles\.chartOverlay\}>/,
     'error overlay must not block the symbol picker or toolbar while users recover',
   );
   assertSourceContains(
     source,
-    /\{chartSurfaceReady && isNoMarketData && !isError && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,
+    /\{chartSurfaceReady && isNoMarketData && !isError && \(\s*<View pointerEvents="box-none" style=\{styles\.chartOverlay\}>/,
     'no-data overlay must not block the symbol picker so unavailable symbols can be skipped',
   );
 });
@@ -2137,7 +2163,8 @@ test('webview bridge: native handler accepts CHART_READY geometry drag and error
   assertSourceContains(chartWebViewHtmlSource, /function postChartGeometry\(\)[\s\S]*visiblePriceRange = resolveRightPriceScaleFallbackRange\(\)[\s\S]*dataContextSig: lastInitDataContextSig \|\| ''[\s\S]*priceRange: isValidPriceRange\(visiblePriceRange\)/, 'CHART_GEOMETRY must publish the rendered price range with its symbol/timeframe identity');
   assertSourceContains(source, /msg\.type === 'CHART_GEOMETRY'[\s\S]*msg\.dataContextSig === chartDataContextSigRef\.current[\s\S]*chartVisiblePriceRangeRef\.current/, 'native geometry handling must retain only the current chart price range');
   assertSourceContains(source, /msg\.type === 'CHART_TRADE_LINE_DRAG'[\s\S]*handleChartTradePreviewDragMessage\(msg\)/, 'trade-line drag messages must reach React state');
-  assertSourceContains(source, /msg\.type === 'ERROR'[\s\S]*console\.warn\('\[CHART WEBVIEW ERROR\]'/, 'WebView errors must be logged without blocking recovery');
+  assertSourceContains(source, /msg\.type === 'ERROR'[\s\S]*?if \(typeof __DEV__ !== 'undefined' && __DEV__\) \{\s*console\.log\('\[CHART WEBVIEW ERROR\]'/, 'recoverable WebView errors must be a dev-only log that never blocks recovery');
+  assert.doesNotMatch(source, /console\.(?:warn|error)\('\[CHART WEBVIEW ERROR\]'/, 'recoverable WebView errors must not raise LogBox toasts');
 });
 
 test('webview bridge: watchdog recovers missing ready and exact data-paint acknowledgements', () => {

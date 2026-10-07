@@ -37,10 +37,12 @@ test('normal and proxy login share the resolver and hydrate after persisting the
   assert.match(login, /readRawAccountGroup\(response\)/);
   assert.match(
     login,
-    /upsertSavedAccount\(\{[\s\S]*accountEnvironmentSource,[\s\S]*\}\);[\s\S]*void bootstrapApp\(\{/,
+    /upsertSavedAccount\(\{[\s\S]*accountEnvironmentSource,[\s\S]*\}\);[\s\S]*const bootstrapPromise = bootstrapApp\(\{/,
   );
   assert.match(login, /expectedProvenance: committedProvenance/);
-  assert.match(login, /latestSavedAccount\?\.accountType \?\? accountType/);
+  // Contract v3: name/server enrichment never rewrites the account type; the
+  // type comes only from /account/{login} group via the environment refresh.
+  assert.match(login, /enrichSignedInAccountProfile\(\{[\s\S]*accountDetail: bootstrapPromise/);
 
   assert.match(normalizedAuth, /resolveAccountEnvironment\(response, true\)/);
   assert.match(
@@ -73,31 +75,32 @@ test('Demo registration preserves exact backend group casing and seeds canonical
   assert.doesNotMatch(register, /group:\s*['"](?:orrnn\/demo-std|demo\\\\RTX5-Demo)['"]/);
 });
 
-test('account hydration and layout refresh classify raw singular-route payloads with stale guards', () => {
+test('account hydration classifies raw payloads once and layout reuses bootstrap', () => {
   const accountsApi = readSource('src/api/accounts.ts');
   const session = readSource('src/services/accountEnvironmentSession.ts');
   const layout = readSource('app/_layout.tsx');
   const bootstrap = readSource('src/services/bootstrapApp.ts');
 
-  assert.match(accountsApi, /apiClient\(buildAccountDetailPath\(login\)\)/);
-  assert.match(accountsApi, /raw: typedRaw,[\s\S]*account: mapRawAccount\(typedRaw\)/);
+  assert.match(accountsApi, /fetchAccountSnapshotResponse\(login\)/);
+  assert.match(accountsApi, /commitApiJson\(response, response.cacheNamespace/);
+  assert.match(accountsApi, /raw: typedRaw,[\s\S]*account: mapRawAccount\(typedRaw, previous\)/);
   assert.match(session, /await getAccountByIdResult\(provenance\.identity\.accountLogin\)/);
   assert.match(session, /commitActiveAccountEnvironmentPayload\(raw, provenance, refreshToken\)/);
   assert.match(session, /resolveAccountEnvironment\(record, true\)/);
   assert.match(session, /readRawAccountLogin\(record\)/);
   assert.match(session, /accountEnvironmentRefreshOrder\.isCurrent\(/);
   assert.match(session, /isActiveBrokerSessionProvenanceCurrent\(expectedProvenance\)/);
-  assert.match(layout, /const \{ raw: accountPayload, account: acct \} =[\s\S]*getAccountByIdResult/);
-  assert.match(layout, /const mt5Login = String\(accountDetails\.id\)\.trim\(\)/);
-  assert.match(layout, /getAccountByIdResult\(mt5Login\)/);
-  assert.match(layout, /commitActiveAccountEnvironmentPayload\(\s*accountPayload,/);
+  assert.match(layout, /const mt5Login = capture\.session\.accountLogin/);
+  assert.match(layout, /bootstrapApp\(\{\s*accountLogin: mt5Login,\s*expectedProvenance: getActiveBrokerSessionProvenance\(capture\.session\)/);
+  assert.match(layout, /if \(!accountLogin \|\| !isActiveBrokerSessionCurrent\(identity\)\) return/);
+  assert.doesNotMatch(layout, /getAccountByIdResult|prefetchAccountSummary|refreshPositions\(mt5Login\)/);
   assert.match(
     bootstrap,
-    /requestJson\(buildAccountDetailPath\(accountLogin\)\)[\s\S]*commitActiveAccountEnvironmentPayload/,
+    /requestJson\(buildAccountDetailPath\(accountLogin\), \(\) => fetchAccountSnapshotResponse\(accountLogin\)\)[\s\S]*commitActiveAccountEnvironmentPayload/,
   );
   assert.match(
     bootstrap,
-    /const mappedAccounts = mapBootstrapAccountRows\(accounts\)[\s\S]*\(existing\) => existing \?\? mappedAccounts/,
+    /const snapshots = mapBootstrapAccountRow\([\s\S]*setQueryData<TradingAccount>\(detailKey, snapshots.detail\)/,
   );
 });
 

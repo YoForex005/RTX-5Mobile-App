@@ -15,6 +15,7 @@ import {
   type SidebarHostDestination,
 } from './sidebarDestinationHostController';
 import { ThemeModeRenderPriorityContext } from '../../state/themeMode';
+import { registerInteractionLifecycleHandler } from '../../utils/interactionLifecycle';
 
 export type SidebarDestinationViewProps = Readonly<{
   /**
@@ -170,21 +171,26 @@ export const SidebarDestinationHost = memo(function SidebarDestinationHost({
   }, []);
   const applyVisualDestinationNow = useCallback((visualDestination: SidebarHostDestination | null) => {
     const previousDestination = nativeVisualDestinationRef.current;
-    if (previousDestination && previousDestination !== visualDestination) {
-      layerRefs.current[previousDestination]?.setNativeProps({
-        pointerEvents: 'none',
-        style: [styles.destination, styles.destinationHidden],
-      });
-    }
+    // Reveal the replacement before hiding the previous layer, so its cached
+    // header never flashes the underlying tab's hamburger during the swap.
     if (visualDestination) {
       layerRefs.current[visualDestination]?.setNativeProps({
         pointerEvents: 'auto',
         style: [styles.destination, styles.destinationVisible],
       });
     }
+    if (previousDestination && previousDestination !== visualDestination) {
+      layerRefs.current[previousDestination]?.setNativeProps({
+        pointerEvents: 'none',
+        style: [styles.destination, styles.destinationHidden],
+      });
+    }
     nativeVisualDestinationRef.current = visualDestination;
   }, []);
-  // Focus/query state rides the deliberately two-frame-deferred subscription
+  useLayoutEffect(() => registerInteractionLifecycleHandler(phase => {
+    if (phase === 'resume') sweepVisualDestinationNow(controller.getSnapshot().activeDestination);
+  }), [controller, sweepVisualDestinationNow]);
+  // Focus/query state rides the deliberately after-paint subscription
   // so heavy destination work never runs in the tap turn...
   const snapshot = useSyncExternalStore(
     controller.subscribe,
@@ -216,7 +222,7 @@ export const SidebarDestinationHost = memo(function SidebarDestinationHost({
   useEffect(() => {
     // The retained visual layer switches before focus subscribers are
     // notified. Read the controller directly so hardware Back is intercepted
-    // during that intentional two-frame focus delay as well as after the
+    // during that intentional focus delay as well as after the
     // React commit.
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (!controller.isVisible()) {

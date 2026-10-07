@@ -1,226 +1,98 @@
+/**
+ * On-demand `/ws/feed/status` probe (Backend Contract v3, section 5.2).
+ *
+ * - The endpoint needs no credentials and reads no query parameters, so the
+ *   exact `feed_status_https_url` is requested as-is.
+ * - It is called only on demand (diagnostics, or after 60 s of socket silence)
+ *   with a 10 s timeout; there is no background polling.
+ * - Health rule: healthy = symbols_fresh > 0 and a provider connected;
+ *   degraded = symbols_fresh == 0 while a provider is connected;
+ *   down = no provider connected and symbols_fresh == 0.
+ *   `status`, `upstream_connected`, `auth_accepted` and `market_available`
+ *   are ignored (Orrnn reports upstream_disconnected while ticks flow).
+ * - The verdict is diagnostic only. Live ticks win and the socket is never
+ *   stopped because of it.
+ */
 import {
   captureActiveBrokerSession,
   captureActiveBrokerSessionOwnerStamp,
   getActiveBrokerSessionIdentity,
   isActiveBrokerSessionOwnerStampCurrent,
-  type ActiveBrokerSessionIdentity,
   type ActiveBrokerSessionOwnerStamp,
-  type FeedAuthContext,
 } from '../state/activeBrokerSession';
-import { resolveEffectiveFeedAuthForSession } from '../api/feedAuthContract';
-import { preserveNonBlankFeedToken } from '../api/feedAuth';
 import { timedFetch } from '../utils/apiLatency';
 import { reportFeedServerStatus } from './feedHealthRuntime';
 import type {
-  FeedHealthThresholds,
-  NormalizedFeedServerHealth,
+  FeedServerStatus,
+  FeedServerVerdict,
 } from './feedHealthState';
+
+export const FEED_STATUS_PROBE_TIMEOUT_MS = 10_000;
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
 
-const optionalBoolean = (value: unknown): boolean | null =>
-  typeof value === 'boolean' ? value : null;
-
 const cleanString = (value: unknown): string =>
   typeof value === 'string' ? value.trim() : '';
 
-const boundedMilliseconds = (
-  value: unknown,
-  minimum: number,
-  maximum: number,
-): number | null => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  return value >= minimum && value <= maximum ? value : null;
+const nonNegativeInteger = (value: unknown): number | null => {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
 };
 
-/**
- * Accept only the broker-approved health policy carried by a confirmed status
- * response. Missing, partial, string-valued, or absurd policies stay absent so
- * execution continues to fail closed instead of inventing mobile defaults.
- */
-export const normalizeFeedHealthThresholds = (
-  value: unknown,
-): FeedHealthThresholds | null => {
-  const policy = asRecord(value);
-  if (!policy) return null;
-  const localTickStaleAfterMs = boundedMilliseconds(
-    policy.local_tick_stale_after_ms ?? policy.localTickStaleAfterMs,
-    500,
-    60_000,
-  );
-  const serverStatusStaleAfterMs = boundedMilliseconds(
-    policy.server_status_stale_after_ms ?? policy.serverStatusStaleAfterMs,
-    5_000,
-    300_000,
-  );
-  if (localTickStaleAfterMs === null || serverStatusStaleAfterMs === null) {
-    return null;
-  }
-  return Object.freeze({ localTickStaleAfterMs, serverStatusStaleAfterMs });
-};
-
-/**
- * Status endpoints that require feed auth return auth_accepted=false without
- * credentials. Attach the same query contract used by the quote WebSocket so
- * the health probe does not falsely latch auth_failed / block the socket.
- */
-export const buildAuthenticatedFeedStatusUrl = (
-  feedStatusUrl: string,
-  input: {
-    brokerId: string;
-    feedAuthContext: FeedAuthContext;
-    feedToken?: string | null;
-    accessToken?: string | null;
-    accountLogin?: string;
-  },
-): string => {
-  const base = String(feedStatusUrl ?? '').trim();
-  if (!base) return base;
-  const effective = resolveEffectiveFeedAuthForSession({
-    brokerId: input.brokerId,
-    feedAuthContext: input.feedAuthContext,
-    feedToken: input.feedToken,
-  });
-  const auth = effective.feedAuthContext;
-  const credential = auth.mode === 'query' && auth.credential === 'access_token'
-    ? cleanString(input.accessToken)
-    : preserveNonBlankFeedToken(effective.feedToken);
-  if (auth.mode !== 'query' || !credential) {
-    return base;
-  }
-  try {
-    const url = new URL(base);
-    url.searchParams.set(auth.tokenQueryParam, credential);
-    if (auth.brokerIdQueryParam) {
-      url.searchParams.set(auth.brokerIdQueryParam, input.brokerId);
-    }
-    if (auth.accountLoginQueryParam && input.accountLogin) {
-      url.searchParams.set(auth.accountLoginQueryParam, input.accountLogin);
-    }
-    return url.toString();
-  } catch {
-    return base;
-  }
-};
-
-export type NormalizeFeedStatusOptions = Readonly<{
-  /**
-   * True only when this status request included a feed credential.
-   * MyProp (and similar bridges) may still return auth_accepted:false on
-   * tokenless public probes — that must NOT be treated as auth rejection.
-   */
-  credentialPresented?: boolean;
-}>;
-
-/**
- * auth_accepted tri-state for health:
- * - omit/null → unknown (never auth_failed)
- * - false without credential → legacy tokenless probe → unknown
- * - false with credential → rejected
- * - true → accepted
- */
-export const resolveAuthAcceptedForHealth = (
-  rawAuthAccepted: boolean | null,
-  credentialPresented: boolean,
-): boolean | null => {
-  if (rawAuthAccepted === true) return true;
-  if (rawAuthAccepted === false && credentialPresented) return false;
-  // omit/null, or false without presenting a credential → unknown
-  return null;
-};
-
-export const isFeedAuthRejected = (
-  authAccepted: boolean | null | undefined,
-  credentialPresented: boolean,
-): boolean => authAccepted === false && credentialPresented === true;
-
-export const normalizeConfirmedFeedStatus = (
-  payload: unknown,
-  observedAt: number,
-  options?: NormalizeFeedStatusOptions,
-): NormalizedFeedServerHealth | null => {
-  const record = asRecord(payload);
-  if (!record || !Number.isFinite(observedAt) || observedAt <= 0) return null;
-  const providers = Array.isArray(record.providers)
+const readProviders = (record: Record<string, unknown>): Record<string, unknown>[] =>
+  Array.isArray(record.providers)
     ? record.providers.map(asRecord).filter((provider): provider is Record<string, unknown> => Boolean(provider))
     : [];
-  const declaredProviderId = cleanString(record.feed_provider).toLowerCase();
-  const activeProvider = declaredProviderId
-    ? providers.find((provider) => cleanString(provider.id).toLowerCase() === declaredProviderId)
-    : undefined;
-  // `cserver_connected` describes only the cserver leg. Some broker status
-  // payloads declare a different active provider (for example rtx5_hub/t4b)
-  // without including a provider row for the declared id. Falling back to an
-  // unrelated cserver=false in that case falsely marks the live feed DOWN and
-  // prevents the quote socket from opening at all. Preserve unknown (null)
-  // unless cserver is explicitly the declared provider or no provider id was
-  // supplied by a legacy status response.
-  const providerConnected = activeProvider
-    ? optionalBoolean(activeProvider.connected)
-    : declaredProviderId === '' || declaredProviderId === 'cserver'
-      ? optionalBoolean(record.cserver_connected)
-      : null;
-  const upstreamConnected = optionalBoolean(record.upstream_connected);
-  const marketAvailable = optionalBoolean(
-    record.market_available ?? record.marketAvailable,
-  );
-  const scheduledMarketClosed =
-    record.scheduled_market_closed === true ||
-    record.market_schedule === 'closed';
-  const symbolStatus = Array.isArray(record.symbol_status)
-    ? record.symbol_status.map(asRecord).filter((entry): entry is Record<string, unknown> => Boolean(entry))
-    : [];
-  const hasFreshTradableSymbol = symbolStatus.some((entry) => (
-    entry.fresh === true && entry.stale !== true && entry.tradable === true
-  ));
-  const hasAnyStatusSignal = Boolean(
-    record.feed_active_source ||
-    Array.isArray(record.available_symbols) ||
-    providers.length > 0 ||
-    upstreamConnected !== null,
-  );
-  if (!hasAnyStatusSignal) return null;
 
-  const credentialPresented = options?.credentialPresented === true;
-  // Only hard-fail auth when a credential was presented and explicitly rejected.
-  // Tokenless legacy false / omit / null stay unknown (null).
-  const authAccepted = resolveAuthAcceptedForHealth(
-    optionalBoolean(record.auth_accepted),
-    credentialPresented,
-  );
-  const thresholds = normalizeFeedHealthThresholds(
-    record.health_policy ?? record.healthPolicy,
-  );
+/**
+ * Classify one `/ws/feed/status` payload under the v3 rule. Returns null for a
+ * payload that carries neither `symbols_fresh` nor `providers`.
+ */
+export const normalizeFeedStatusVerdict = (
+  payload: unknown,
+  observedAt: number,
+): FeedServerStatus | null => {
+  const record = asRecord(payload);
+  if (!record || !Number.isFinite(observedAt) || observedAt <= 0) return null;
 
-  return Object.freeze({
-    observedAt,
-    feedConfigured: Boolean(
-      record.feed_active_source ||
-      (Array.isArray(record.available_symbols) && record.available_symbols.length > 0)
-    ),
-    authAccepted,
-    providerConnected,
-    upstreamConnected,
-    marketAvailable: marketAvailable ?? (hasFreshTradableSymbol ? true : null),
-    scheduledMarketClosed,
-    stale: record.stale === true,
-    degraded: record.degraded === true,
-    ...(thresholds ? { thresholds } : {}),
-  });
+  const providers = readProviders(record);
+  const symbolsFresh = nonNegativeInteger(record.symbols_fresh ?? record.symbolsFresh);
+  if (symbolsFresh === null && providers.length === 0) return null;
+
+  const providerConnected = providers.some((provider) => provider.connected === true);
+  const hasFreshSymbols = (symbolsFresh ?? 0) > 0;
+  let verdict: FeedServerVerdict;
+  if (hasFreshSymbols && providerConnected) {
+    verdict = 'healthy';
+  } else if (!hasFreshSymbols && !providerConnected) {
+    verdict = 'down';
+  } else {
+    // symbols_fresh == 0 with a connected provider, or fresh symbols while no
+    // provider row reports connected: data is not trustworthy either way.
+    verdict = 'degraded';
+  }
+
+  return Object.freeze({ observedAt, verdict, symbolsFresh, providerConnected });
 };
 
 let activeProbeController: AbortController | null = null;
 
-/** One bounded foreground/demand probe against the exact active status URL. */
+/**
+ * One bounded on-demand probe of the exact active `feed_status_https_url`.
+ * Resolves the classified verdict (or null on failure) and records it in the
+ * health runtime. It never touches the quote socket.
+ */
 export const probeActiveFeedHealth = async (
   expectedOwner?: ActiveBrokerSessionOwnerStamp,
-): Promise<boolean> => {
+): Promise<FeedServerStatus | null> => {
   const capture = captureActiveBrokerSession();
   const owner = captureActiveBrokerSessionOwnerStamp();
-  if (!capture || !owner) return false;
+  if (!capture || !owner) return null;
+  const statusUrl = cleanString(capture.session.feedStatusUrl);
+  if (!statusUrl) return null;
   const identity = getActiveBrokerSessionIdentity(capture.session);
   if (
     expectedOwner &&
@@ -232,33 +104,13 @@ export const probeActiveFeedHealth = async (
       expectedOwner.credentialIdentity !== owner.credentialIdentity
     )
   ) {
-    return false;
+    return null;
   }
 
   activeProbeController?.abort();
   const controller = new AbortController();
   activeProbeController = controller;
   try {
-    const statusUrl = buildAuthenticatedFeedStatusUrl(capture.session.feedStatusUrl, {
-      brokerId: capture.session.brokerId,
-      feedAuthContext: capture.session.feedAuthContext,
-      feedToken: capture.credentials.feedToken,
-      accessToken: capture.credentials.accessToken,
-      accountLogin: capture.session.accountLogin,
-    });
-    // Did we actually attach a feed credential to this status request?
-    const credentialPresented = (() => {
-      try {
-        const probe = new URL(statusUrl);
-        const bare = new URL(capture.session.feedStatusUrl);
-        return probe.search !== bare.search && (
-          probe.searchParams.has('token') ||
-          [...probe.searchParams.keys()].some((k) => k.toLowerCase().includes('token'))
-        );
-      } catch {
-        return statusUrl !== capture.session.feedStatusUrl;
-      }
-    })();
     const response = await timedFetch(statusUrl, {
       method: 'GET',
       headers: { accept: 'application/json' },
@@ -268,17 +120,15 @@ export const probeActiveFeedHealth = async (
       method: 'GET',
       endpoint: '/ws/feed/status',
       source: 'marketHealth',
-      timeoutMs: 3_000,
+      timeoutMs: FEED_STATUS_PROBE_TIMEOUT_MS,
     });
-    if (!response.ok || !isActiveBrokerSessionOwnerStampCurrent(owner)) return false;
-    const normalized = normalizeConfirmedFeedStatus(await response.json(), Date.now(), {
-      credentialPresented,
-    });
-    if (!normalized || !isActiveBrokerSessionOwnerStampCurrent(owner)) return false;
-    reportFeedServerStatus(identity, normalized);
-    return true;
+    if (!response.ok || !isActiveBrokerSessionOwnerStampCurrent(owner)) return null;
+    const verdict = normalizeFeedStatusVerdict(await response.json(), Date.now());
+    if (!verdict || !isActiveBrokerSessionOwnerStampCurrent(owner)) return null;
+    reportFeedServerStatus(identity, verdict);
+    return verdict;
   } catch {
-    return false;
+    return null;
   } finally {
     if (activeProbeController === controller) activeProbeController = null;
   }

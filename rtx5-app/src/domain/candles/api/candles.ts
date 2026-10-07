@@ -7,6 +7,8 @@
 
 import { apiJsonClient, commitApiJson } from '../../../api/apiClient';
 import { StaleBrokerSessionError } from '../../../api/brokerApi';
+import { toBrokerServiceRoot } from '../../../api/brokerRouting';
+import { fetchFeedCandleRows } from './feedCandleHistory';
 import {
   buildCandleHistorySearchParams,
   extractCandleHistoryPayload,
@@ -21,7 +23,14 @@ import {
   isActiveBrokerSessionProvenanceCurrent,
   type ActiveBrokerSessionProvenance,
 } from '../../../state/activeBrokerSession';
-import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeCandleSeries, normalizeSymbol, normalizeTimeframeStrict } from '../core/candles';
+import {
+  DEFAULT_CANDLE_HISTORY_LIMIT,
+  isRecentCandleBootstrapSeed,
+  normalizeCandleSeries,
+  normalizeSymbol,
+  normalizeTimeframeStrict,
+  sortAndDedupeCandles,
+} from '../core/candles';
 import {
   getConfiguredCandlePriceBasis,
   normalizeCandlePriceBasis,
@@ -79,6 +88,38 @@ const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
 const isAbortSignalLike = (value: unknown): value is AbortSignal => {
   if (!isObjectRecord(value)) return false;
   return typeof value.aborted === 'boolean' && typeof value.addEventListener === 'function';
+};
+
+// Chart-history fallbacks and failures are recorded in the in-app Journal
+// (Settings > Journal, Network), so a field report shows the failing stage.
+// The Journal module is required lazily, only when a line is recorded: that
+// keeps React Native state modules out of the candle engine's static import
+// graph (its node tests) and adds nothing to app startup. Self-heal retries
+// run every few seconds, so one line per symbol/timeframe per minute is enough.
+const CHART_HISTORY_JOURNAL_INTERVAL_MS = 60_000;
+const lastChartHistoryJournalAt = new Map<string, number>();
+const recordChartHistoryJournal = (
+  key: string,
+  level: 'info' | 'error',
+  message: string,
+): void => {
+  const now = Date.now();
+  if (now - (lastChartHistoryJournalAt.get(key) ?? 0) < CHART_HISTORY_JOURNAL_INTERVAL_MS) {
+    return;
+  }
+  lastChartHistoryJournalAt.set(key, now);
+  try {
+    const journal = require('../../../state/terminalJournalState') as {
+      recordAppActionJournalEvent: (event: {
+        message: string;
+        source: 'Network';
+        level: 'info' | 'error';
+      }) => void;
+    };
+    journal.recordAppActionJournalEvent({ source: 'Network', level, message });
+  } catch {
+    // Diagnostics must never affect chart loading.
+  }
 };
 
 const isAbortError = (error: unknown): boolean => {
@@ -271,6 +312,76 @@ export async function getCandleHistory(
     }
   }
 
+  // Same fallback as the web terminal: when the v2 history request failed or
+  // returned no bars for an initial (unpaginated) load, read the live feed's
+  // recent bars instead of leaving the chart without history.
+  //
+  // A 200 with bars is not automatically usable history: the broker's v2
+  // history writer can stall while /ws/feed and /api/v1/candles stay current
+  // (service.orrnn.com answered 1828 XAUUSD M1 bars whose newest bar was
+  // 2026-09-25T15:59Z on 2026-09-29). Accepting that as success left the chart
+  // with a days-old block parked off-screen left of the live edge, which reads
+  // as "no history", while the web terminal looked correct because it reads the
+  // feed. So a stale non-empty answer backfills from the feed too.
+  const isInitialWindow = requestOptions?.from === undefined && requestOptions?.to === undefined;
+  const historyIsStale =
+    normalizedCandles.length > 0 &&
+    !isRecentCandleBootstrapSeed(normalizedCandles, resolvedTimeframe);
+  const staleHistoryLastTime = historyIsStale
+    ? normalizedCandles[normalizedCandles.length - 1]?.time ?? null
+    : null;
+  if ((normalizedCandles.length === 0 || historyIsStale) && isInitialWindow) {
+    const primaryOutcome = lastHttpError
+      ? lastHttpError.message
+      : historyIsStale
+        ? `stopped at ${staleHistoryLastTime ?? 'unknown'}`
+        : 'returned no bars';
+    const journalKey = `${requestedSymbol}:${requestedTimeframe}`;
+    try {
+      const feedRows = await fetchFeedCandleRows(
+        toBrokerServiceRoot(sessionCapture.session.apiBase),
+        requestedSymbol,
+        requestedTimeframe,
+        count,
+        requestOptions?.signal,
+      );
+      const feedCandles = normalizeCandleSeries(feedRows, requestedTimeframe).slice(-count);
+      if (feedCandles.length > 0) {
+        // Stale v2 bars are still valid older history: keep them and overlay
+        // the feed's recent bars on top, deduped by bucket time.
+        const mergedCandles =
+          historyIsStale && normalizedCandles.length > 0
+            ? sortAndDedupeCandles([...normalizedCandles, ...feedCandles]).slice(-count)
+            : feedCandles;
+        extractedPayload = { candles: mergedCandles, symbol: requestedSymbol, timeframe: requestedTimeframe };
+        resolvedTimeframe = requestedTimeframe;
+        normalizedCandles = mergedCandles;
+        hadSuccessfulResponse = true;
+        lastHttpError = null;
+        recordChartHistoryJournal(
+          journalKey,
+          'info',
+          `Chart history ${requestedSymbol} ${requestedTimeframe}: broker history ${primaryOutcome}; backfilled ${feedCandles.length} recent bars from the live feed (${mergedCandles.length} renderable)`,
+        );
+      } else {
+        recordChartHistoryJournal(
+          journalKey,
+          'error',
+          `Chart history ${requestedSymbol} ${requestedTimeframe} unavailable: broker history ${primaryOutcome}; live feed returned no bars`,
+        );
+      }
+    } catch (feedError) {
+      if (isAbortError(feedError) || feedError instanceof StaleBrokerSessionError) {
+        throw feedError;
+      }
+      recordChartHistoryJournal(
+        journalKey,
+        'error',
+        `Chart history ${requestedSymbol} ${requestedTimeframe} unavailable: broker history ${primaryOutcome}; ${feedError instanceof Error ? feedError.message : String(feedError)}`,
+      );
+    }
+  }
+
   if (normalizedCandles.length === 0 && !hadSuccessfulResponse && lastHttpError) {
     throw lastHttpError;
   }
@@ -280,7 +391,7 @@ export async function getCandleHistory(
     // The API sent bars but every single one was dropped by validation.
     // Almost always means a schema mismatch (unexpected field names, a
     // timestamp unit we don't recognise, or OHLC fields that aren't finite).
-    console.warn(
+    console.error(
       `[api/candles] Received ${rawCount} raw bars for ${requestedSymbol} ${requestedTimeframe} but 0 passed validation. Sample bar:`,
       extractedPayload.candles[0],
     );

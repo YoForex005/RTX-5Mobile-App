@@ -14,6 +14,7 @@ import {
   type ChartActionLaunchDestination,
 } from './chartActionLaunchController';
 import { ChartActionLaunchShell } from './ChartActionLaunchShell';
+import { scheduleAfterVisualFrame } from '../../utils/afterVisualFrame';
 import {
   safeRouterBack,
   scheduleBackNavigationAfterVisualFrame,
@@ -118,6 +119,7 @@ export function ChartActionLaunchHost() {
   const subscribeAfterVisualFrame = useCallback((listener: () => void) => {
     let cancelled = false;
     let scheduled = false;
+    let cancelDelivery: (() => void) | undefined;
     const notify = () => {
       if (cancelled || scheduled) {
         return;
@@ -129,15 +131,12 @@ export function ChartActionLaunchHost() {
           listener();
         }
       };
-      if (typeof globalThis.requestAnimationFrame === 'function') {
-        globalThis.requestAnimationFrame(deliver);
-      } else {
-        setTimeout(deliver, 0);
-      }
+      cancelDelivery = scheduleAfterVisualFrame(deliver);
     };
     const unsubscribe = chartActionLaunchController.subscribe(notify);
     return () => {
       cancelled = true;
+      cancelDelivery?.();
       unsubscribe();
     };
   }, []);

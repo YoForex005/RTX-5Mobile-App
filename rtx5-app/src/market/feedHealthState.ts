@@ -1,3 +1,16 @@
+/**
+ * Market-data feed health (Backend Contract v3).
+ *
+ * Live websocket ticks are the primary signal and always win:
+ *   - a fresh, acceptable tick (within the local stale window) => healthy;
+ *   - 8 s without one => stale_or_degraded (prices greyed), socket kept open;
+ *   - a socket close => reconnecting until the next tick.
+ *
+ * `/ws/feed/status` is only a diagnostic, probed on demand. Its verdict
+ * (symbols_fresh + providers[].connected) is shown only while no fresh tick
+ * exists, and it never stops the socket. The quote feed has no auth, so there
+ * is no auth-failure latch here.
+ */
 export type FeedHealthStatus =
   | 'disabled_unconfigured'
   | 'connecting'
@@ -14,6 +27,7 @@ export type FeedHealthReasonCategory =
   | 'health_policy_unconfigured'
   | 'awaiting_server_health'
   | 'awaiting_live_tick'
+  | 'live_ticks'
   | 'server_status_incomplete'
   | 'server_status_stale'
   | 'local_tick_stale'
@@ -31,24 +45,23 @@ export type FeedHealthIdentity = Readonly<{
 }>;
 
 /**
- * Values must come from an approved broker health contract. There are no app
- * defaults: absent/invalid values deliberately leave price actions disabled.
+ * Optional aging policy. The v3 status endpoint publishes none, so the local
+ * tick window falls back to FEED_LOCAL_TICK_STALE_AFTER_MS.
  */
 export type FeedHealthThresholds = Readonly<{
   localTickStaleAfterMs: number;
   serverStatusStaleAfterMs: number;
 }>;
 
+/** Contract v3 watchdog: prices are stale after 8 s without a frame. */
+export const FEED_LOCAL_TICK_STALE_AFTER_MS = 8_000;
+
 export type FeedMarketSchedule = 'unknown' | 'open' | 'scheduled_closed';
 
-type ServerHealthVerdict =
-  | 'unknown'
-  | 'healthy'
-  | 'degraded'
-  | 'unconfigured'
-  | 'auth_failed'
-  | 'provider_down'
-  | 'market_unavailable';
+/** Verdict of one `/ws/feed/status` reading under the v3 rule. */
+export type FeedServerVerdict = 'healthy' | 'degraded' | 'down';
+
+type ServerHealthVerdict = 'unknown' | FeedServerVerdict;
 
 export type FeedHealthState = Readonly<{
   identity: FeedHealthIdentity | null;
@@ -59,24 +72,24 @@ export type FeedHealthState = Readonly<{
   thresholds: FeedHealthThresholds | null;
   marketSchedule: FeedMarketSchedule;
   serverVerdict: ServerHealthVerdict;
+  /** True after a socket close until the next accepted websocket tick. */
+  transportInterrupted: boolean;
   lastServerStatusAt?: number;
   lastLocalTickAt?: number;
   lastSuccessAt?: number;
   localTickAcceptable: boolean;
 }>;
 
-export type NormalizedFeedServerHealth = Readonly<{
+/**
+ * Normalized `/ws/feed/status` reading (contract v3). Only `symbols_fresh` and
+ * `providers[].connected` matter; `status`, `upstream_connected`,
+ * `auth_accepted` and `market_available` are ignored.
+ */
+export type FeedServerStatus = Readonly<{
   observedAt: number;
-  feedConfigured: boolean;
-  authAccepted: boolean | null;
-  providerConnected: boolean | null;
-  upstreamConnected: boolean | null;
-  marketAvailable: boolean | null;
-  scheduledMarketClosed: boolean;
-  stale: boolean;
-  degraded: boolean;
-  /** Broker-approved aging policy from the confirmed status response. */
-  thresholds?: FeedHealthThresholds;
+  verdict: FeedServerVerdict;
+  symbolsFresh: number | null;
+  providerConnected: boolean;
 }>;
 
 export type FeedHealthEvent =
@@ -100,12 +113,8 @@ export type FeedHealthEvent =
       stale?: boolean;
       degraded?: boolean;
     }
-  | { type: 'SERVER_STATUS'; identity: FeedHealthIdentity; health: NormalizedFeedServerHealth }
-  | {
-      type: 'SOCKET_CLOSED';
-      identity: FeedHealthIdentity;
-      authFailure?: boolean;
-    }
+  | { type: 'SERVER_STATUS'; identity: FeedHealthIdentity; health: FeedServerStatus }
+  | { type: 'SOCKET_CLOSED'; identity: FeedHealthIdentity }
   | { type: 'CREDENTIALS_REFRESHED'; identity: FeedHealthIdentity }
   | { type: 'RETRY_REQUESTED'; identity: FeedHealthIdentity }
   | { type: 'EVALUATE'; identity: FeedHealthIdentity; now: number };
@@ -119,6 +128,7 @@ export const initialFeedHealthState: FeedHealthState = Object.freeze({
   thresholds: null,
   marketSchedule: 'unknown',
   serverVerdict: 'unknown',
+  transportInterrupted: false,
   localTickAcceptable: false,
 });
 
@@ -140,6 +150,7 @@ export const isValidFeedHealthIdentity = (identity: FeedHealthIdentity): boolean
   );
 };
 
+/** broker_id is compared ignoring case ("Orrnn" vs "orrnn"). */
 export const sameFeedHealthIdentity = (
   left: FeedHealthIdentity | null | undefined,
   right: FeedHealthIdentity | null | undefined,
@@ -174,12 +185,23 @@ const finiteTimestamp = (value: unknown): number | null => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
+/** Local tick window: an explicit policy if one was ever supplied, else 8 s. */
+export const resolveLocalTickStaleAfterMs = (state: Pick<FeedHealthState, 'thresholds'>): number =>
+  state.thresholds?.localTickStaleAfterMs ?? FEED_LOCAL_TICK_STALE_AFTER_MS;
+
 const withStatus = (
   state: FeedHealthState,
   status: FeedHealthStatus,
   reasonCategory: FeedHealthReasonCategory,
   changes: Partial<FeedHealthState> = {},
 ): FeedHealthState => Object.freeze({ ...state, ...changes, status, reasonCategory });
+
+const hasFreshAcceptableTick = (state: FeedHealthState, now: number): boolean => Boolean(
+  state.lastLocalTickAt &&
+  state.localTickAcceptable &&
+  !state.transportInterrupted &&
+  now - state.lastLocalTickAt < resolveLocalTickStaleAfterMs(state),
+);
 
 const evaluateBoundHealth = (state: FeedHealthState, now: number): FeedHealthState => {
   if (!state.identity || !state.transportConfigured) {
@@ -189,61 +211,37 @@ const evaluateBoundHealth = (state: FeedHealthState, now: number): FeedHealthSta
     return withStatus(state, 'auth_failed', 'credentials_unavailable');
   }
 
-  switch (state.serverVerdict) {
-    case 'unconfigured':
-      return withStatus(state, 'disabled_unconfigured', 'session_unconfigured');
-    case 'auth_failed':
-      return withStatus(state, 'auth_failed', 'authentication');
-    case 'provider_down':
-      return withStatus(state, 'provider_down', 'provider_connectivity');
-    case 'market_unavailable':
-      return withStatus(state, 'market_unavailable', 'market_service');
-    case 'degraded':
-      return withStatus(state, 'stale_or_degraded', 'server_degraded');
-    default:
-      break;
+  const evaluatedAt = finiteTimestamp(now) ?? Date.now();
+
+  // Live ticks always win over the status endpoint.
+  if (hasFreshAcceptableTick(state, evaluatedAt)) {
+    return withStatus(state, 'healthy', 'live_ticks');
   }
 
-  if (!state.thresholds) {
-    if (state.serverVerdict === 'unknown' && !state.lastLocalTickAt) {
-      return withStatus(state, 'connecting', 'awaiting_server_health');
-    }
-    return withStatus(state, 'stale_or_degraded', 'health_policy_unconfigured');
+  // A 'down' reading describes the feed only until live ticks prove otherwise.
+  // Once an acceptable tick arrives after it, a later gap is staleness or a
+  // reconnect, not "provider down" (shown as "Unavailable" while prices flow).
+  // Price actions are unaffected: they still require a fresh acceptable tick.
+  const serverVerdictIsCurrent = state.lastServerStatusAt !== undefined
+    && (state.lastSuccessAt === undefined || state.lastServerStatusAt >= state.lastSuccessAt);
+  if (state.serverVerdict === 'down' && serverVerdictIsCurrent) {
+    return withStatus(state, 'provider_down', 'provider_connectivity');
   }
-
-  const evaluatedAt = finiteTimestamp(now);
-  if (!evaluatedAt) {
-    return withStatus(state, 'stale_or_degraded', 'server_status_incomplete');
+  if (state.transportInterrupted) {
+    return withStatus(state, 'reconnecting', 'transport_interrupted');
   }
-
-  if (state.serverVerdict !== 'healthy' || !state.lastServerStatusAt) {
-    return withStatus(state, 'connecting', 'awaiting_server_health');
-  }
-
-  if (evaluatedAt - state.lastServerStatusAt >= state.thresholds.serverStatusStaleAfterMs) {
-    return withStatus(state, 'stale_or_degraded', 'server_status_stale');
-  }
-
-  // A scheduled close can legitimately have no ticks/provider session. Fresh,
-  // explicit server health is enough to avoid falsely labelling the feed DOWN,
-  // while the action guard below still blocks price-dependent execution.
-  if (state.marketSchedule === 'scheduled_closed') {
-    return withStatus(state, 'healthy', 'scheduled_market_closed');
-  }
-
-  if (!state.lastLocalTickAt) {
-    return withStatus(state, 'connecting', 'awaiting_live_tick');
-  }
-  if (
-    !state.localTickAcceptable ||
-    evaluatedAt - state.lastLocalTickAt >= state.thresholds.localTickStaleAfterMs
-  ) {
+  if (state.lastLocalTickAt) {
+    // Ticks arrived before but stopped (or were marked stale by the hub).
     return withStatus(state, 'stale_or_degraded', 'local_tick_stale');
   }
-
-  return withStatus(state, 'healthy', 'awaiting_live_tick');
+  if (state.serverVerdict === 'degraded') {
+    return withStatus(state, 'stale_or_degraded', 'server_degraded');
+  }
+  if (state.serverVerdict === 'healthy') {
+    return withStatus(state, 'connecting', 'awaiting_live_tick');
+  }
+  return withStatus(state, 'connecting', 'awaiting_live_tick');
 };
-
 
 const bindSession = (
   state: FeedHealthState,
@@ -269,12 +267,13 @@ const bindSession = (
     : Object.freeze({
         identity,
         status: 'connecting',
-        reasonCategory: 'awaiting_server_health',
+        reasonCategory: 'awaiting_live_tick',
         transportConfigured: event.transportConfigured,
         credentialApproved: event.credentialApproved,
         thresholds,
         marketSchedule: 'unknown',
         serverVerdict: 'unknown',
+        transportInterrupted: false,
         localTickAcceptable: false,
       });
 
@@ -283,72 +282,20 @@ const bindSession = (
 
 const serverStatusState = (
   state: FeedHealthState,
-  health: NormalizedFeedServerHealth,
+  health: FeedServerStatus,
 ): FeedHealthState => {
   const observedAt = finiteTimestamp(health.observedAt);
   if (!observedAt) {
-    return withStatus(state, 'stale_or_degraded', 'server_status_incomplete', {
-      serverVerdict: 'degraded',
-    });
+    return state;
   }
-
-  const marketSchedule: FeedMarketSchedule = health.scheduledMarketClosed
-    ? 'scheduled_closed'
-    : 'open';
-  let serverVerdict: ServerHealthVerdict;
-  let reasonCategory: FeedHealthReasonCategory;
-
-  // authAccepted tri-state (null = unknown / not checked):
-  // only false is an explicit rejection of a presented credential.
-  if (!health.feedConfigured) {
-    serverVerdict = 'unconfigured';
-    reasonCategory = 'session_unconfigured';
-  } else if (health.authAccepted === false) {
-    serverVerdict = 'auth_failed';
-    reasonCategory = 'authentication';
-  } else if (
-    !health.scheduledMarketClosed &&
-    (health.providerConnected === false || health.upstreamConnected === false)
-  ) {
-    serverVerdict = 'provider_down';
-    reasonCategory = 'provider_connectivity';
-  } else if (!health.scheduledMarketClosed && health.marketAvailable === false) {
-    serverVerdict = 'market_unavailable';
-    reasonCategory = 'market_service';
-  } else if (
-    health.stale ||
-    health.degraded ||
-    // null authAccepted is "unknown" — incomplete honesty, not auth_failed.
-    // true is required for a fully healthy server verdict.
-    health.authAccepted !== true ||
-    (!health.scheduledMarketClosed && (
-      health.marketAvailable !== true ||
-      health.providerConnected !== true ||
-      health.upstreamConnected !== true
-    ))
-  ) {
-    serverVerdict = 'degraded';
-    reasonCategory = health.stale || health.degraded
-      ? 'server_degraded'
-      : 'server_status_incomplete';
-  } else {
-    serverVerdict = 'healthy';
-    reasonCategory = health.scheduledMarketClosed
-      ? 'scheduled_market_closed'
-      : 'awaiting_live_tick';
-  }
-
-  // Learn policy only from a confirmed status for this already-bound identity.
-  // An omitted/malformed later policy preserves the last confirmed policy for
-  // the same session; a new session still starts without one and fails closed.
-  const confirmedThresholds = normalizeThresholds(health.thresholds);
-  const updated = withStatus(state, state.status, reasonCategory, {
-    marketSchedule,
-    serverVerdict,
-    lastServerStatusAt: observedAt,
-    ...(confirmedThresholds ? { thresholds: confirmedThresholds } : {}),
-  });
-  return evaluateBoundHealth(updated, observedAt);
+  const verdict: ServerHealthVerdict =
+    health.verdict === 'healthy' || health.verdict === 'degraded' || health.verdict === 'down'
+      ? health.verdict
+      : 'unknown';
+  return evaluateBoundHealth(
+    Object.freeze({ ...state, serverVerdict: verdict, lastServerStatusAt: observedAt }),
+    observedAt,
+  );
 };
 
 export const reduceFeedHealth = (
@@ -369,7 +316,9 @@ export const reduceFeedHealth = (
 
   switch (event.type) {
     case 'CONNECTING':
-      return withStatus(state, 'connecting', 'awaiting_server_health');
+      // A (re)connect keeps a still-fresh tick healthy; otherwise it is
+      // "connecting" until the first tick proves the socket.
+      return evaluateBoundHealth(state, Date.now());
     case 'LOCAL_TICK': {
       const receivedAt = finiteTimestamp(event.receivedAt);
       const validPrices = Number.isFinite(event.bid) && event.bid > 0 &&
@@ -378,33 +327,34 @@ export const reduceFeedHealth = (
         return state;
       }
       const localTickAcceptable = event.stale !== true && event.degraded !== true;
-      const updated = withStatus(state, state.status, state.reasonCategory, {
+      return evaluateBoundHealth(Object.freeze({
+        ...state,
         lastLocalTickAt: receivedAt,
         ...(localTickAcceptable ? { lastSuccessAt: receivedAt } : {}),
         localTickAcceptable,
-      });
-      return evaluateBoundHealth(updated, receivedAt);
+        transportInterrupted: false,
+      }), receivedAt);
     }
     case 'SERVER_STATUS':
-      // Socket/server authentication failures are latched. A generic health
-      // success cannot silently make rejected credentials executable again.
-      if (state.serverVerdict === 'auth_failed') return state;
       return serverStatusState(state, event.health);
     case 'SOCKET_CLOSED':
-      return event.authFailure
-        ? withStatus(state, 'auth_failed', 'authentication', { serverVerdict: 'auth_failed' })
-        : withStatus(state, 'reconnecting', 'transport_interrupted');
+      return evaluateBoundHealth(
+        Object.freeze({ ...state, transportInterrupted: true }),
+        Date.now(),
+      );
     case 'CREDENTIALS_REFRESHED':
       return state.credentialApproved
-        ? withStatus(state, 'connecting', 'awaiting_server_health', {
+        ? evaluateBoundHealth(Object.freeze({
+            ...state,
             serverVerdict: 'unknown',
             lastServerStatusAt: undefined,
-          })
+            lastLocalTickAt: undefined,
+            localTickAcceptable: false,
+            transportInterrupted: false,
+          }), Date.now())
         : state;
     case 'RETRY_REQUESTED':
-      // Keep the last server-authoritative outage visible until the bounded
-      // retry probe actually succeeds. Moving to `connecting` here can hide a
-      // provider outage and leaves zero-demand retries stuck without a probe.
+      // The visible outage stays until the retried socket delivers a tick.
       return state;
     case 'EVALUATE':
       return evaluateBoundHealth(state, event.now);
@@ -424,7 +374,11 @@ export const feedHealthCanSafelyRetry = (state: FeedHealthState): boolean =>
     ),
   );
 
-/** Hard server/session states that must never be followed by a socket open. */
+/**
+ * Session-level states that must never be followed by a socket open. The
+ * status endpoint never blocks the socket (contract v3): only a missing
+ * session/transport does.
+ */
 export const feedHealthBlocksSocketConnection = (
   state: FeedHealthState,
   identity: FeedHealthIdentity,
@@ -432,31 +386,20 @@ export const feedHealthBlocksSocketConnection = (
   !sameFeedHealthIdentity(state.identity, identity) ||
   !state.transportConfigured ||
   !state.credentialApproved ||
-  state.status === 'disabled_unconfigured' ||
-  state.status === 'auth_failed' ||
-  state.status === 'provider_down' ||
-  state.status === 'market_unavailable',
+  state.status === 'disabled_unconfigured',
 );
 
 /**
- * Compatibility gate for broker status responses that do not publish a
- * health_policy. Quote-local execution checks still require a fresh,
- * explicitly tradable WebSocket tick; this gate only prevents an absent
- * optional policy from permanently disabling Buy/Sell. Explicit session,
- * credential, transport, provider, market, and socket failures remain hard
- * blocks. Once a broker publishes thresholds, the stricter policy gate below
- * is authoritative and this fallback is not used.
+ * Price actions need a fresh, acceptable websocket tick for this exact
+ * session. The status endpoint cannot unlock or lock them on its own.
  */
 export const feedHealthAllowsFreshQuoteFallback = (
   state: FeedHealthState,
   identity: FeedHealthIdentity,
+  now: number = Date.now(),
 ): boolean => Boolean(
-  !state.thresholds &&
-  !feedHealthBlocksSocketConnection(state, identity) &&
-  state.status !== 'reconnecting' &&
-  state.marketSchedule !== 'scheduled_closed' &&
-  state.lastLocalTickAt &&
-  state.localTickAcceptable,
+  sameFeedHealthIdentity(state.identity, identity) &&
+  feedHealthAllowsPriceActions(state, now),
 );
 
 export const feedHealthAllowsPriceActions = (
@@ -464,26 +407,15 @@ export const feedHealthAllowsPriceActions = (
   now: number = Date.now(),
 ): boolean => {
   if (
-    state.status !== 'healthy' ||
     !state.identity ||
     !state.transportConfigured ||
     !state.credentialApproved ||
-    !state.thresholds ||
-    state.marketSchedule !== 'open' ||
-    state.serverVerdict !== 'healthy' ||
-    !state.lastServerStatusAt ||
-    !state.lastLocalTickAt ||
-    !state.localTickAcceptable
+    state.marketSchedule === 'scheduled_closed'
   ) {
     return false;
   }
-
   const evaluatedAt = finiteTimestamp(now);
-  return Boolean(
-    evaluatedAt &&
-    evaluatedAt - state.lastServerStatusAt < state.thresholds.serverStatusStaleAfterMs &&
-    evaluatedAt - state.lastLocalTickAt < state.thresholds.localTickStaleAfterMs,
-  );
+  return Boolean(evaluatedAt && hasFreshAcceptableTick(state, evaluatedAt));
 };
 
 /** Useful for tests and UI guards that must not display another broker's state. */
@@ -494,13 +426,10 @@ export const feedHealthStateMatchesIdentity = (
 
 /**
  * Internal equality helper used by the runtime to avoid redundant subscriber
- * notifications. Deliberately ignores the pure-bookkeeping timestamps
+ * notifications. Deliberately ignores the bookkeeping timestamps
  * (lastServerStatusAt / lastLocalTickAt / lastSuccessAt): they move on every
- * websocket tick, and comparing them made a 40Hz tick stream notify every
- * subscribed screen per tick. Staleness driven by those timestamps still
- * surfaces here as a status/serverVerdict/localTickAcceptable transition via
- * the runtime's scheduled EVALUATE events, and the degraded banner reads its
- * "last success" from the snapshot taken at that transition.
+ * websocket tick. Staleness still surfaces as a status transition through the
+ * runtime's scheduled EVALUATE events.
  */
 export const areFeedHealthStatesEquivalent = (
   left: FeedHealthState,
@@ -514,6 +443,7 @@ export const areFeedHealthStatesEquivalent = (
     left.credentialApproved === right.credentialApproved &&
     left.marketSchedule === right.marketSchedule &&
     left.serverVerdict === right.serverVerdict &&
+    left.transportInterrupted === right.transportInterrupted &&
     left.localTickAcceptable === right.localTickAcceptable &&
     left.thresholds?.localTickStaleAfterMs === right.thresholds?.localTickStaleAfterMs &&
     left.thresholds?.serverStatusStaleAfterMs === right.thresholds?.serverStatusStaleAfterMs

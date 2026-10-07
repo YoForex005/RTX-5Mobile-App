@@ -367,7 +367,7 @@ const resolveRawV2BrokerEndpointSet = (
   if (!brokerId) {
     return resolutionError('missing_broker_id', 'Broker record is missing broker_id.');
   }
-  if (record.enabled !== true) {
+  if (Object.prototype.hasOwnProperty.call(record, 'enabled') && record.enabled !== true) {
     if (record.enabled === false) {
       return resolutionError('disabled', `Broker "${brokerId}" is disabled.`);
     }
@@ -658,12 +658,28 @@ export const PUBLIC_BROKER_DIRECTORY_BASE_URL = normalizeConfiguredHttpsBase(
   process.env.EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL,
 );
 
+export const ADDITIONAL_BROKER_DIRECTORY_BASE_URL = normalizeConfiguredHttpsBase(
+  process.env.EXPO_PUBLIC_ADDITIONAL_BROKER_DIRECTORY_BASE_URL,
+);
+
+export const ADDITIONAL_BROKER_DIRECTORY_IDS = Object.freeze(
+  String(process.env.EXPO_PUBLIC_ADDITIONAL_BROKER_IDS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+
 const SHARED_AUTH_PROXY_API_BASE_URL = normalizeConfiguredHttpsBase(
   process.env.EXPO_PUBLIC_AUTH_PROXY_API_BASE_URL,
 );
 
 const getSharedBackendOrigins = (): string[] =>
-  [DEFAULT_API_BASE_URL, PUBLIC_BROKER_DIRECTORY_BASE_URL, SHARED_AUTH_PROXY_API_BASE_URL]
+  [
+    DEFAULT_API_BASE_URL,
+    PUBLIC_BROKER_DIRECTORY_BASE_URL,
+    ADDITIONAL_BROKER_DIRECTORY_BASE_URL,
+    SHARED_AUTH_PROXY_API_BASE_URL,
+  ]
     .filter(Boolean)
     .map((value) => new URL(value).origin.toLowerCase());
 
@@ -740,6 +756,24 @@ export function buildApiUrl(endpoint: string, apiBaseUrl: string): string {
 
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   return `${normalizedBase}${normalizedEndpoint}`;
+}
+
+export type BrokerApiVersion = 'v1' | 'v2';
+
+/**
+ * Builds a route on another supported API version without changing broker
+ * authority. Authentication and request lifecycle remain inside BrokerAPI.
+ */
+export function buildVersionedBrokerApiUrl(
+  endpoint: string,
+  apiBaseUrl: string,
+  version: BrokerApiVersion,
+): string {
+  const serviceRoot = toBrokerServiceRoot(apiBaseUrl);
+  if (!serviceRoot) {
+    throw new Error('API base URL is missing or invalid.');
+  }
+  return buildApiUrl(endpoint, `${serviceRoot}/api/${version}`);
 }
 
 /** Builds the pre-login health endpoint at the broker service root (`/health`). */

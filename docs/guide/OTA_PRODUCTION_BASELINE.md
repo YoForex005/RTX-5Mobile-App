@@ -1,6 +1,39 @@
 # RTX5 Production OTA Baseline
 
-> **CURRENT STATUS: PRODUCTION OTA `1.1.42` IS LIVE FOR ANDROID AND IOS.
+> **CURRENT 2026-10-02: PRODUCTION OTA `1.1.49` IS LIVE FOR ANDROID AND IOS.**
+>
+> Fixed the stale-source issue in `1.1.48`. Current local app/source/tests/scripts/OTA assets are assembled in fresh worktree `.codex-tmp/ota-release-1.1.49` at `2975156c15199c21bb3a4c73af8bd35189aaa2bd` (dirty). Coverage: 142 changed / 46 added source files versus `1.1.48`; 1181 inventoried files, 1178 identical to local, three narrowly adapted for absent native capabilities. Main startup imports were guarded. Native icons/plugins/new modules still require new binaries; text bug reports and other current local UI/logic are included.
+>
+> Android: runtime `30cba83220fc6c92180eed477863c3e3e3087ce6`, group `07f67708-49f7-47f7-838f-92e6a8740470`, update `01a0fb4c-3e03-7195-85b1-894fb65bc0a9`, created `2026-10-02T06:27:52.963Z`. Compatible binary `cfe3b101-ab15-4e18-854b-ef808e96d708` (`1.1.11/vc28`), EAS reverified.
+>
+> iOS: runtime `ef38da275b765380037fc377f5c596de31690b7d`, group `07c0c58f-b90f-493d-9e1f-dd3067f78a03`, update `01a0fb4f-3e72-728a-bac4-f64ba6112f9d`, created `2026-10-02T06:31:09.682Z`. Compatible binary `1b1bd2e3-da6c-4c8b-94c2-285b0329dce2` (`1.1.10/build30`), EAS reverified.
+>
+> Validation: 403 main and 403 release test files pass; both TypeScript checks pass; production env passes; natural fingerprints remain `1e1ad87a1fafdfca676015eb142abdfb0188d811` / `5d2be9c332fb6660513531f40f6ffff3254d8048`. Only the same reviewed owner metadata and extra API URLs are flagged by the broad safety script. Doctor 17/18: patch advisory only. Both production manifests and downloaded CDN bundles verified for `1.1.49` and new feature code absent in `1.1.48`. Device receipt/visual validation and current store distribution remain unconfirmed; no devices connected after publication.
+>
+> [Current scope, identifiers, messages, dashboard/manifest links, source parity and repeatable assembly flow](../../OTA_UPDATE_INFORMATION.md). The records below are historical. Do not publish raw main or blindly force these legacy runtimes.
+
+> **PREVIOUS 2026-10-02: PRODUCTION OTA `1.1.48` WAS PUBLISHED FOR ANDROID AND IOS.**
+>
+> This release changes only the OTA display version/test in the retained compatible `1.1.47` release source. It was published separately from `.codex-tmp/ota-release-1.1.43` at `2975156c15199c21bb3a4c73af8bd35189aaa2bd` (dirty worktree). Main's new bug-report native modules/plugins/icons were not included.
+>
+> Android: runtime `30cba83220fc6c92180eed477863c3e3e3087ce6`, group `db359ccc-1b11-4b91-9266-f8a891a25be1`, update `01a0fb25-a7e0-7a16-93fc-dd1cd71dd7f4`, created `2026-10-02T05:45:44.160Z`; compatible binary `cfe3b101-ab15-4e18-854b-ef808e96d708` (`1.1.11/vc28`, confirmed installed on the connected Android phone).
+>
+> iOS: runtime `ef38da275b765380037fc377f5c596de31690b7d`, group `2ed2d964-662b-4176-97be-feb4f57a60c5`, update `01a0fb27-0eb6-75f2-bf2b-65f7b8c4fc7d`, created `2026-10-02T05:47:16.022Z`; compatible binary `1b1bd2e3-da6c-4c8b-94c2-285b0329dce2` (`1.1.10/build30`, EAS verified). Physical iOS receipt and current store distribution remain unconfirmed.
+>
+> Validation: 384 release test files pass; release/main TypeScript pass; production env passes; both exports and served CDN bundles contain `1.1.48` and match manifest hashes. Natural fingerprints are unchanged: Android `1e1ad87a1fafdfca676015eb142abdfb0188d811`, iOS `5d2be9c332fb6660513531f40f6ffff3254d8048`. Broad safety-script flags remain exactly the already reviewed owner metadata and two `extra` API fallback URLs; the script's exit is not claimed as a pass. Expo Doctor: 17/18; only newer SDK patch advisory, baseline retained.
+>
+> [Current release IDs, messages, manifests, dashboards, scope, validation and flow](../../OTA_UPDATE_INFORMATION.md) supersede the historical snapshots below. This is a deliberately reviewed legacy-runtime continuation; do not publish raw main or automatically force these runtimes. The `1.1.45` record below was rolled back, and `1.1.47` was the live version verified immediately before this release.
+
+> **HISTORICAL 2026-09-29: OTA `1.1.45` WAS PUBLISHED, THEN ROLLED BACK ON BOTH PLATFORMS.**
+> It adds the chart-history live-feed fallback, the Journal diagnostics, and plot-clipped trade arrows. It uses the same runtimes and the same worktree; the IDs are in `OTA_UPDATE_INFORMATION.md`.
+>
+> **EARLIER 2026-09-29: PRODUCTION OTA `1.1.44` WAS PUBLISHED FOR ANDROID AND IOS.**
+> It is `1.1.43` plus thin trade-history arrows, published on the same runtimes from the same worktree. The IDs are in `OTA_UPDATE_INFORMATION.md`.
+>
+> **EARLIER 2026-09-29: PRODUCTION OTA `1.1.43` WAS PUBLISHED FOR ANDROID AND IOS.**
+> It uses the same runtimes, Android `30cba832...` and iOS `ef38da27...`. It was published from the isolated worktree `.codex-tmp/ota-release-1.1.43` at `2975156c`. The identifiers and validation are recorded in `OTA_UPDATE_INFORMATION.md`. The `1.1.42` sections below are historical.
+>
+> **PREVIOUS STATUS: PRODUCTION OTA `1.1.42` WAS LIVE FOR ANDROID AND IOS.
 > DO NOT PUBLISH THE ASSESSED `main` SOURCE LINE DIRECTLY TO THE OLD RUNTIMES.**
 >
 > This tracked file is the shared production OTA baseline. It is a
@@ -8,7 +41,7 @@
 > state, the installed binary source commit, and both resolved runtimes before
 > an OTA.
 
-Last verified: `2026-08-22` (Asia/Calcutta)
+Historical sections last verified: `2026-08-22` (Asia/Calcutta); current release verified `2026-10-02`.
 
 ## Authoritative Project Location
 

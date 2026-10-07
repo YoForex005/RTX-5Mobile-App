@@ -5,25 +5,29 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  * Provides an interactive calendar and preset toggle interface for explicitly
  * defining the time window of historical trades to pull from the backend.
  */
-import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, ScrollView, Platform } from 'react-native';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  Platform,
+  useWindowDimensions,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../../ui/components/Screen';
+import { Screen, SCREEN_H_PAD } from '../../../ui/components/Screen';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTheme } from '../../../ui/theme/useTheme';
-import { useIsDarkTheme } from '../../../state/themeMode';
 import { safeRouterBack } from '../../../utils/navigation';
 import {
   PRESETS,
-  type SelectionMode,
+  fromDateKey,
   formatLocalizedDate,
   formatMonthYear,
   getDaysInMonth,
   getFirstDayOfMonth,
-  getWeekDates,
   getWeekdayLabels,
   toDateKey,
 } from './dateUtils';
@@ -43,43 +47,89 @@ export function HistoryFilterScreen({
 }: HistoryFilterScreenProps = {}) {
   const { t, language } = useTranslation();
   const historyRange = useUserPreferences((s) => s.historyRange);
+  const historyFromMs = useUserPreferences((s) => s.historyFromMs);
+  const historyToMs = useUserPreferences((s) => s.historyToMs);
   const setHistoryRange = useUserPreferences((s) => s.setHistoryRange);
   const setHistoryDateRange = useUserPreferences((s) => s.setHistoryDateRange);
   const themeActive = !hosted || hostedActive;
   const T = useTheme({ active: themeActive });
-  const isDark = useIsDarkTheme({ active: themeActive });
   const insets = useSafeAreaInsets();
-  const s = useMemo(() => makeHistoryFilterStyles(T, isDark), [T, isDark]);
+  const { width: viewportWidth, fontScale } = useWindowDimensions();
+  const contentWidth = viewportWidth - insets.left - insets.right;
+  const stackDateFields = contentWidth < 360 || fontScale > 1.2;
+  const s = useMemo(() => makeHistoryFilterStyles(T), [T]);
 
-  const [selectionMode, setSelectionMode] = useState<SelectionMode>('range');
-  const [calYear, setCalYear] = useState(new Date().getFullYear());
-  const [calMonth, setCalMonth] = useState(new Date().getMonth());
-  const [isCustom, setIsCustom] = useState(false);
-
-  const [startDate, setStartDate] = useState<string | null>(null);
-  const [endDate, setEndDate] = useState<string | null>(null);
-  const translatedHistoryRange = useMemo(
-    () => (PRESETS.includes(historyRange) ? t(historyRange) : historyRange),
-    [historyRange, t],
+  const initialCalendarDate = useMemo(
+    () => (historyFromMs == null ? new Date() : new Date(historyFromMs)),
+    [historyFromMs],
   );
-  const weekdayLabels = useMemo(() => getWeekdayLabels(language), [language]);
-  const monthLabel = useMemo(() => formatMonthYear(calYear, calMonth, language), [calYear, calMonth, language]);
+  const initialStartDate = useMemo(
+    () =>
+      historyFromMs == null
+        ? null
+        : toDateKey(
+            initialCalendarDate.getFullYear(),
+            initialCalendarDate.getMonth(),
+            initialCalendarDate.getDate(),
+          ),
+    [historyFromMs, initialCalendarDate],
+  );
+  const initialEndDate = useMemo(() => {
+    if (historyToMs == null) return null;
+    const date = new Date(historyToMs);
+    return toDateKey(date.getFullYear(), date.getMonth(), date.getDate());
+  }, [historyToMs]);
+  const initialCustomMode =
+    historyRange === 'Custom' || !PRESETS.includes(historyRange);
+  const scrollRef = useRef<ScrollView>(null);
+  const calendarOffset = useRef(0);
+  const revealCalendarOnLayout = useRef(initialCustomMode);
 
+  const [calYear, setCalYear] = useState(initialCalendarDate.getFullYear());
+  const [calMonth, setCalMonth] = useState(initialCalendarDate.getMonth());
+  const [isCustom, setIsCustom] = useState(initialCustomMode);
+  const [startDate, setStartDate] = useState<string | null>(initialStartDate);
+  const [endDate, setEndDate] = useState<string | null>(initialEndDate);
+  const weekdayLabels = useMemo(() => getWeekdayLabels(language), [language]);
+  const monthLabel = useMemo(
+    () => formatMonthYear(calYear, calMonth, language),
+    [calYear, calMonth, language],
+  );
+
+  const todayDate = useMemo(() => new Date(), []);
   const today = useMemo(() => {
-    const d = new Date();
-    return toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
-  }, []);
+    return toDateKey(
+      todayDate.getFullYear(),
+      todayDate.getMonth(),
+      todayDate.getDate(),
+    );
+  }, [todayDate]);
+  const canNavigateNextMonth =
+    calYear < todayDate.getFullYear() ||
+    (calYear === todayDate.getFullYear() && calMonth < todayDate.getMonth());
+  const customPresetSelected =
+    isCustom || historyRange === 'Custom' || !PRESETS.includes(historyRange);
 
   const handlePresetPress = (preset: string) => {
-    setHistoryRange(preset);
-    setIsCustom(preset === 'Custom');
-
     if (preset === 'Custom') {
-      setStartDate(null);
-      setEndDate(null);
-      setHistoryDateRange(null, null);
+      const startingFromPreset =
+        PRESETS.includes(historyRange) && historyRange !== 'Custom';
+      revealCalendarOnLayout.current = !isCustom;
+      if (isCustom) {
+        scrollRef.current?.scrollTo({ y: calendarOffset.current, animated: true });
+      }
+      setIsCustom(true);
+      if (startingFromPreset && !isCustom) {
+        setStartDate(null);
+        setEndDate(null);
+        setCalYear(todayDate.getFullYear());
+        setCalMonth(todayDate.getMonth());
+      }
       return;
     }
+
+    setHistoryRange(preset);
+    setIsCustom(false);
 
     if (preset === 'All time') {
       setStartDate(null);
@@ -89,7 +139,11 @@ export function HistoryFilterScreen({
     }
 
     const now = new Date();
-    const todayKey = toDateKey(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayKey = toDateKey(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
     const startD = new Date(now);
 
     if (preset === 'Today') {
@@ -106,73 +160,85 @@ export function HistoryFilterScreen({
       startD.setFullYear(startD.getFullYear() - 1);
     }
 
-    const start = toDateKey(startD.getFullYear(), startD.getMonth(), startD.getDate());
+    const start = toDateKey(
+      startD.getFullYear(),
+      startD.getMonth(),
+      startD.getDate(),
+    );
     const end = todayKey;
 
     setStartDate(start);
     setEndDate(end);
 
-    setHistoryDateRange(startD.setHours(0, 0, 0, 0), now.setHours(23, 59, 59, 999));
+    setHistoryDateRange(
+      startD.setHours(0, 0, 0, 0),
+      now.setHours(23, 59, 59, 999),
+    );
 
     setCalYear(startD.getFullYear());
     setCalMonth(startD.getMonth());
   };
 
-  const handleDayPress = useCallback((year: number, month: number, day: number) => {
-    const key = toDateKey(year, month, day);
-    const date = new Date(year, month, day);
-
-    if (selectionMode === 'single') {
-      setStartDate(key);
-      setEndDate(key);
-    } else if (selectionMode === 'week') {
-      const [monday, sunday] = getWeekDates(date);
-      setStartDate(toDateKey(monday.getFullYear(), monday.getMonth(), monday.getDate()));
-      setEndDate(toDateKey(sunday.getFullYear(), sunday.getMonth(), sunday.getDate()));
-    } else {
-      if (!startDate || (startDate && endDate)) {
+  const handleDayPress = useCallback(
+    (year: number, month: number, day: number) => {
+      const key = toDateKey(year, month, day);
+      if (!startDate || endDate) {
         setStartDate(key);
         setEndDate(null);
+      } else if (key < startDate) {
+        setEndDate(startDate);
+        setStartDate(key);
       } else {
-        if (key < startDate) {
-          setEndDate(startDate);
-          setStartDate(key);
-        } else {
-          setEndDate(key);
-        }
+        setEndDate(key);
       }
-    }
-  }, [selectionMode, startDate, endDate]);
+    },
+    [startDate, endDate],
+  );
 
-  const isInRange = useCallback((key: string) => {
-    if (!startDate || !endDate) return false;
-    return key >= startDate && key <= endDate;
-  }, [startDate, endDate]);
+  const isInRange = useCallback(
+    (key: string) => {
+      if (!startDate || !endDate) return false;
+      return key >= startDate && key <= endDate;
+    },
+    [startDate, endDate],
+  );
 
   const isStart = useCallback((key: string) => key === startDate, [startDate]);
   const isEnd = useCallback((key: string) => key === endDate, [endDate]);
 
   const applyCustomRange = () => {
-    if (startDate) {
-      const sDate = new Date(startDate);
-      const eDate = endDate ? new Date(endDate) : new Date(startDate);
-      const label = startDate === endDate
-        ? formatLocalizedDate(sDate, language)
-        : `${formatLocalizedDate(sDate, language)} - ${formatLocalizedDate(eDate, language)}`;
+    if (startDate && endDate) {
+      const sDate = fromDateKey(startDate);
+      const eDate = fromDateKey(endDate ?? startDate);
+      if (!sDate || !eDate) return;
+      const effectiveEndDate = endDate ?? startDate;
+      const label =
+        startDate === effectiveEndDate
+          ? formatLocalizedDate(sDate, language)
+          : `${formatLocalizedDate(sDate, language)} – ${formatLocalizedDate(eDate, language)}`;
       setHistoryRange(label);
-      setHistoryDateRange(sDate.setHours(0, 0, 0, 0), eDate.setHours(23, 59, 59, 999));
+      setHistoryDateRange(
+        sDate.setHours(0, 0, 0, 0),
+        eDate.setHours(23, 59, 59, 999),
+      );
       setIsCustom(false);
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
     }
   };
 
   const prevMonth = () => {
-    if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); }
-    else setCalMonth(calMonth - 1);
+    if (calMonth === 0) {
+      setCalMonth(11);
+      setCalYear(calYear - 1);
+    } else setCalMonth(calMonth - 1);
   };
 
   const nextMonth = () => {
-    if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); }
-    else setCalMonth(calMonth + 1);
+    if (!canNavigateNextMonth) return;
+    if (calMonth === 11) {
+      setCalMonth(0);
+      setCalYear(calYear + 1);
+    } else setCalMonth(calMonth + 1);
   };
 
   const handleBack = useCallback(() => {
@@ -204,15 +270,30 @@ export function HistoryFilterScreen({
     return rows;
   }, [calYear, calMonth]);
 
+  const selectedStartLabel = useMemo(() => {
+    if (!startDate) return null;
+    const start = fromDateKey(startDate);
+    return start ? formatLocalizedDate(start, language) : null;
+  }, [language, startDate]);
+
+  const selectedEndLabel = useMemo(() => {
+    if (!endDate) return null;
+    const end = fromDateKey(endDate);
+    return end ? formatLocalizedDate(end, language) : null;
+  }, [endDate, language]);
+
+  const customSelectionReady = Boolean(startDate && endDate);
+
   return (
-    <Screen>
+    <Screen style={s.screen} noBottomInset noSideInset>
       <View style={s.page}>
         <View
           style={[
             s.header,
             {
-              paddingTop: Math.max(insets.top, 20) + 12,
-              borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(17,24,39,0.08)',
+              paddingTop: Math.max(insets.top, 0) + 6,
+              paddingLeft: insets.left + 12,
+              paddingRight: insets.right + 12,
             },
           ]}
         >
@@ -225,141 +306,268 @@ export function HistoryFilterScreen({
               latencyLabel="history.filter.back"
               hitSlop={16}
               style={s.headerBackButton}
+              accessibilityRole="button"
+              accessibilityLabel={t('Back')}
             >
-              <Ionicons name="arrow-back" size={26} color={T.text} />
+              <Ionicons name="arrow-back" size={22} color={T.text} />
             </Pressable>
             <View style={s.headerTitleWrap} pointerEvents="none">
-              <Text style={s.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
+              <Text
+                style={s.headerTitle}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
                 {t('History Filter')}
               </Text>
             </View>
-            <View style={s.headerBackButton} />
+            <View style={s.headerSideSlot} />
           </View>
+          <Text style={s.intro}>{t('Choose which dates to show in your history.')}</Text>
         </View>
 
         <ScrollView
+          ref={scrollRef}
+          style={s.scrollView}
           keyboardShouldPersistTaps="always"
-          canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={s.symbolRow}>
-            <Text style={s.label}>{t('Symbol')}:</Text>
-            <Text style={s.value}>{t('All symbols')}</Text>
-          </View>
+          canCancelContentTouches={Platform.OS === 'ios'}
+          contentContainerStyle={[
+            s.scrollContent,
+            {
+              paddingLeft: insets.left + SCREEN_H_PAD,
+              paddingRight: insets.right + SCREEN_H_PAD,
+              paddingBottom: isCustom ? 24 : Math.max(insets.bottom, 16) + 16,
+            },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={s.contentColumn}>
+            <View style={s.sectionHeader}>
+              <Text style={s.sectionTitle}>{t('Time period')}</Text>
+            </View>
 
-          <View style={s.card}>
-            {PRESETS.map((preset) => (
-              <Pressable key={preset} onPress={() => handlePresetPress(preset)} style={s.option}>
-                <Text style={s.optionText}>{t(preset)}</Text>
-                <Text style={s.check}>
-                  {historyRange === preset || (preset === 'Custom' && isCustom) ? '✓' : ''}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={s.calendarCard}>
-            {isCustom && (
-              <View style={s.modeRow}>
-                {(['single', 'range', 'week'] as SelectionMode[]).map((mode) => (
+            <View style={s.presetList}>
+              {PRESETS.map((preset, index) => {
+                const selected =
+                  preset === 'Custom'
+                    ? customPresetSelected
+                    : historyRange === preset && !isCustom;
+                return (
                   <Pressable
-                    key={mode}
-                    style={[s.modePill, selectionMode === mode && s.modePillActive]}
-                    onPress={() => { setSelectionMode(mode); setStartDate(null); setEndDate(null); }}
+                    key={preset}
+                    onPress={() => handlePresetPress(preset)}
+                    style={s.optionPressTarget}
+                    android_ripple={{ color: 'transparent', borderless: false }}
+                    accessibilityRole="radio"
+                    accessibilityLabel={t(preset)}
+                    accessibilityHint={preset === 'Custom' ? t('Choose exact dates') : undefined}
+                    accessibilityState={{ checked: selected }}
                   >
-                    <Text style={[s.modePillText, selectionMode === mode && s.modePillTextActive]}>
-                      {mode === 'single' ? t('Single') : mode === 'range' ? t('Range') : t('Week')}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-
-            <View style={s.monthNav}>
-              <Pressable onPress={prevMonth} hitSlop={12}>
-                <Ionicons name="chevron-back" size={22} color={T.text} />
-              </Pressable>
-              <Text style={s.monthLabel}>{monthLabel}</Text>
-              <Pressable onPress={nextMonth} hitSlop={12}>
-                <Ionicons name="chevron-forward" size={22} color={T.text} />
-              </Pressable>
-            </View>
-
-            <View style={s.dayHeaderRow}>
-              {weekdayLabels.map((d) => (
-                <Text key={d} style={s.dayHeaderText}>{d}</Text>
-              ))}
-            </View>
-
-            {calendarGrid.map((row, rowIdx) => (
-              <View key={rowIdx} style={s.calRow}>
-                {row.map((day, colIdx) => {
-                  if (day === null) {
-                    return <View key={colIdx} style={s.calCell} />;
-                  }
-
-                  const key = toDateKey(calYear, calMonth, day);
-                  const isToday = key === today;
-                  const selected = isStart(key) || isEnd(key);
-                  const inRange = isInRange(key) && !selected;
-                  const isRangeStart = isStart(key) && endDate && startDate !== endDate;
-                  const isRangeEnd = isEnd(key) && startDate && startDate !== endDate;
-
-                  return (
-                    <Pressable
-                      key={colIdx}
-                      style={[
-                        s.calCell,
-                        inRange && s.calCellInRange,
-                        isRangeStart && s.calCellRangeStart,
-                        isRangeEnd && s.calCellRangeEnd,
-                      ]}
-                      onPress={() => isCustom && handleDayPress(calYear, calMonth, day)}
+                    <View
+                      pointerEvents="none"
+                      collapsable={false}
+                      style={[s.option, index > 0 && s.optionDivider, selected && s.optionSelected]}
                     >
-                      <View style={[
-                        s.calDayCircle,
-                        selected && s.calDaySelected,
-                        isToday && !selected && s.calDayToday,
-                      ]}>
-                        <Text style={[
-                          s.calDayText,
-                          selected && s.calDayTextSelected,
-                          isToday && !selected && s.calDayTextToday,
-                          inRange && s.calDayTextInRange,
-                        ]}>
-                          {day}
+                      <View style={s.optionCopy}>
+                        <Text style={[s.optionText, selected && s.optionTextSelected]}>
+                          {t(preset)}
                         </Text>
+                        {preset === 'Custom' ? (
+                          <Text style={s.optionDetail}>{t('Choose exact dates')}</Text>
+                        ) : null}
                       </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ))}
+                      <View style={s.optionStatus}>
+                        <Ionicons
+                          name={
+                            selected ? 'checkmark-circle' : 'ellipse-outline'
+                          }
+                          size={22}
+                          color={selected ? T.accent : T.textMuted}
+                        />
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
 
-            {startDate && (
-              <View style={s.selectionInfo}>
-                <Text style={s.selectionLabel}>
-                  {!endDate || startDate === endDate
-                    ? formatLocalizedDate(new Date(startDate), language)
-                    : `${formatLocalizedDate(new Date(startDate), language)} -> ${formatLocalizedDate(new Date(endDate!), language)}`}
-                </Text>
-              </View>
-            )}
-
-            {isCustom && (
-              <Pressable
-                style={[s.applyBtn, !startDate && { opacity: 0.4 }]}
-                onPress={applyCustomRange}
-                disabled={!startDate}
+            {isCustom ? (
+              <View
+                style={s.calendarCard}
+                onLayout={(event) => {
+                  calendarOffset.current = event.nativeEvent.layout.y;
+                  if (revealCalendarOnLayout.current) {
+                    revealCalendarOnLayout.current = false;
+                    scrollRef.current?.scrollTo({
+                      y: calendarOffset.current,
+                      animated: true,
+                    });
+                  }
+                }}
               >
-                <Text style={s.applyBtnText}>{t('Apply Custom Range')}</Text>
-              </Pressable>
-            )}
-          </View>
+                <View style={s.calendarHeading}>
+                  <Text style={s.sectionTitle}>{t('Custom range')}</Text>
+                </View>
 
-          <Pressable style={s.reportBtn}>
-            <Text style={s.reportTitle}>{t('Create a trade report')}</Text>
-            <Text style={s.reportSub}>{translatedHistoryRange}</Text>
-          </Pressable>
+                <View style={s.calendarSurface}>
+                  <View style={s.monthNav}>
+                    <Pressable
+                      onPress={prevMonth}
+                      hitSlop={8}
+                      style={s.monthNavButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('Previous month')}
+                    >
+                      <Ionicons name="chevron-back" size={20} color={T.text} />
+                    </Pressable>
+                    <Text
+                      style={s.monthLabel}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                    >
+                      {monthLabel}
+                    </Text>
+                    <Pressable
+                      onPress={nextMonth}
+                      hitSlop={8}
+                      disabled={!canNavigateNextMonth}
+                      style={[
+                        s.monthNavButton,
+                        !canNavigateNextMonth && s.monthNavButtonDisabled,
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('Next month')}
+                      accessibilityState={{ disabled: !canNavigateNextMonth }}
+                    >
+                      <Ionicons
+                        name="chevron-forward"
+                        size={20}
+                        color={T.text}
+                      />
+                    </Pressable>
+                  </View>
+
+                  <View style={s.dayHeaderRow}>
+                    {weekdayLabels.map((d) => (
+                      <Text key={d} style={s.dayHeaderText}>
+                        {d}
+                      </Text>
+                    ))}
+                  </View>
+
+                  {calendarGrid.map((row, rowIdx) => (
+                    <View key={rowIdx} style={s.calRow}>
+                      {row.map((day, colIdx) => {
+                        if (day === null) {
+                          return <View key={colIdx} style={s.calCell} />;
+                        }
+
+                        const key = toDateKey(calYear, calMonth, day);
+                        const isFuture = key > today;
+                        const isToday = key === today;
+                        const selected = isStart(key) || isEnd(key);
+                        const inRange = isInRange(key) && !selected;
+                        const isRangeStart =
+                          isStart(key) && endDate && startDate !== endDate;
+                        const isRangeEnd =
+                          isEnd(key) && startDate && startDate !== endDate;
+
+                        return (
+                          <Pressable
+                            key={colIdx}
+                            style={[
+                              s.calCell,
+                              inRange && s.calCellInRange,
+                              isRangeStart && s.calCellRangeStart,
+                              isRangeEnd && s.calCellRangeEnd,
+                            ]}
+                            onPress={() =>
+                              handleDayPress(calYear, calMonth, day)
+                            }
+                            disabled={isFuture}
+                            accessibilityRole="button"
+                            accessibilityLabel={formatLocalizedDate(
+                              new Date(calYear, calMonth, day),
+                              language,
+                            )}
+                            accessibilityState={{
+                              disabled: isFuture,
+                              selected,
+                            }}
+                          >
+                            <View
+                              style={[
+                                s.calDayCircle,
+                                selected && s.calDaySelected,
+                                isToday && !selected && s.calDayToday,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  s.calDayText,
+                                  selected && s.calDayTextSelected,
+                                  isToday && !selected && s.calDayTextToday,
+                                  inRange && s.calDayTextInRange,
+                                  isFuture && s.calDayTextDisabled,
+                                ]}
+                              >
+                                {day}
+                              </Text>
+                            </View>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ))}
+                </View>
+
+                <View style={s.selectionInfo}>
+                  <View style={[s.selectionFields, stackDateFields && s.selectionFieldsStacked]}>
+                    <View style={s.selectionField}>
+                      <Text style={s.selectionFieldLabel}>
+                        {t('Start date')}
+                      </Text>
+                      <Text
+                        style={s.selectionFieldValue}
+                      >
+                        {selectedStartLabel ?? '\u2014'}
+                      </Text>
+                    </View>
+                    <View style={s.selectionField}>
+                      <Text style={s.selectionFieldLabel}>{t('End date')}</Text>
+                      <Text
+                        style={s.selectionFieldValue}
+                      >
+                        {selectedEndLabel ?? '\u2014'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+              </View>
+            ) : null}
+          </View>
         </ScrollView>
+        {isCustom ? (
+          <View style={[
+            s.footer,
+            {
+              paddingLeft: insets.left + SCREEN_H_PAD,
+              paddingRight: insets.right + SCREEN_H_PAD,
+              paddingBottom: Math.max(insets.bottom, 12),
+            },
+          ]}>
+            <Pressable
+              style={[s.applyBtn, !customSelectionReady && s.applyBtnDisabled]}
+              onPress={applyCustomRange}
+              disabled={!customSelectionReady}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !customSelectionReady }}
+            >
+              <Text style={s.applyBtnText}>{t('Apply Custom Range')}</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
     </Screen>
   );

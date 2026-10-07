@@ -45,7 +45,7 @@ export const makeHelpStyles = (T: ThemeColors, isDark = false) => {
       color: palette.text,
       fontSize: 20,
       lineHeight: 26,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     scroll: {
@@ -143,6 +143,29 @@ export const makeHelpStyles = (T: ThemeColors, isDark = false) => {
       paddingTop: 14,
       paddingBottom: 10,
       paddingRight: 8,
+    },
+    questionOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      padding: 14,
+      marginTop: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surface,
+    },
+    questionOptionTitle: {
+      color: palette.text,
+      fontSize: 15,
+      lineHeight: 20,
+      fontWeight: '600',
+    },
+    questionOptionBody: {
+      color: palette.textMuted,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 3,
     },
     filterChip: {
       minHeight: 34,

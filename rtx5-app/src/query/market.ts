@@ -3,8 +3,8 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { apiJsonClient, commitApiJson } from '../api/apiClient';
-import { primeInstrumentMetaCacheFromCatalogPayload } from '../api/instruments';
+import { commitApiJson } from '../api/apiClient';
+import { fetchInstrumentCatalogResponse, primeInstrumentMetaCacheFromCatalogPayload } from '../api/instruments';
 import { extractMarketSymbols } from '../domain/marketSymbols';
 import {
   getSessionQueryCacheNamespace,
@@ -42,8 +42,7 @@ export function useMarketSymbols(enabled = true) {
       // status. The feed-status endpoint only reports currently subscribed
       // symbols (i.e. the user's existing watchlist), which made the Add
       // Asset picker show only symbols that were already added.
-      const result = await apiJsonClient<unknown>('/instruments');
-      if (!result.ok) throw new Error('Failed to fetch symbols');
+      const result = await fetchInstrumentCatalogResponse(authenticatedCacheNamespace);
       return commitApiJson(result, authenticatedCacheNamespace, (data) => {
         primeInstrumentMetaCacheFromCatalogPayload(data, authenticatedCacheNamespace);
         return extractMarketSymbols(data);

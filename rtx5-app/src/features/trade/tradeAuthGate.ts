@@ -1,11 +1,11 @@
 export const ORRNN_DEMO_TRADE_BROKER_ID = 'orrnn-demo';
 
 export type TradeAuthIntent = Readonly<{
-  // Navigation context only. Never add credentials, account ids, position
-  // tickets, prices, volume, or an auto-submit callback to this handoff.
+  // In-memory draft context only; never credentials, tickets, prices or callbacks.
   kind: 'trade-tab' | 'order-ticket' | 'market-order' | 'pending-order' | 'position-action' | 'bulk-action';
   symbol?: string;
   side?: 'buy' | 'sell';
+  volume?: number;
   origin?: 'quotes' | 'chart' | 'trade';
   action?: 'close' | 'modify';
   bulkMode?: 'all' | 'profitable' | 'losing' | 'buy' | 'sell';
@@ -50,22 +50,19 @@ export function shouldRequestOrrnnDemoTradeAuth(
     return true;
   }
 
-  if (!isOrrnnDemoTradeBroker(state.selectedBrokerId)) {
-    return false;
-  }
-
   const accountId = cleanString(state.accountId);
   return !(
     accountId.length > 0
     && cleanString(state.accessToken).length > 0
-    && isOrrnnDemoTradeBroker(state.activeBrokerId)
+    && cleanString(state.activeBrokerId) === cleanString(state.selectedBrokerId)
+    && /^\d+$/.test(accountId) && /[1-9]/.test(accountId)
     && cleanString(state.activeAccountLogin) === accountId
     && cleanString(state.activeAccessToken).length > 0
   );
 }
 
 function sanitizeTradeAuthIntent(intent: TradeAuthIntent): TradeAuthIntent {
-  const symbol = cleanString(intent.symbol).slice(0, 32).toUpperCase();
+  const symbol = cleanString(intent.symbol);
   const side = intent.side === 'buy' || intent.side === 'sell' ? intent.side : undefined;
   const origin = intent.origin === 'quotes' || intent.origin === 'chart' || intent.origin === 'trade'
     ? intent.origin
@@ -85,6 +82,7 @@ function sanitizeTradeAuthIntent(intent: TradeAuthIntent): TradeAuthIntent {
     kind: intent.kind,
     ...(symbol ? { symbol } : {}),
     ...(side ? { side } : {}),
+    ...(typeof intent.volume === 'number' && Number.isFinite(intent.volume) && intent.volume > 0 ? { volume: intent.volume } : {}),
     ...(origin ? { origin } : {}),
     ...(action ? { action } : {}),
     ...(bulkMode ? { bulkMode } : {}),
@@ -98,6 +96,7 @@ const tradeAuthGateRuntime = runtimeGlobal.__rtx5TradeAuthGateRuntime ?? {
 runtimeGlobal.__rtx5TradeAuthGateRuntime = tradeAuthGateRuntime;
 
 export function savePendingTradeAuthIntent(intent: TradeAuthIntent): TradeAuthIntent {
+  if (tradeAuthGateRuntime.pendingIntent) return tradeAuthGateRuntime.pendingIntent;
   const sanitizedIntent = sanitizeTradeAuthIntent(intent);
   tradeAuthGateRuntime.pendingIntent = sanitizedIntent;
   return sanitizedIntent;

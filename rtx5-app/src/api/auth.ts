@@ -5,6 +5,7 @@ import {
   isBrokerServiceBaseUrl,
 } from './brokerRouting';
 import { timedFetch } from '../utils/apiLatency';
+import { loginRequestBody, positiveAccountLogin } from './guestAuthentication';
 import {
   fingerprintMarketDataHost,
   recordMarketDataEvent,
@@ -18,7 +19,12 @@ const isAbortError = (error: unknown) =>
     error.message.toLowerCase().includes('aborted')
   );
 
-const extractBackendErrorMessage = (payload: any, fallback: string): string => {
+/**
+ * Gateway errors are `{"error":"<CODE>","message":"<text>"}` (contract v3).
+ * The message is what the user sees; older `detail` / nested shapes remain
+ * accepted. A bare `error` string is used only when no message exists.
+ */
+export const extractBackendErrorMessage = (payload: any, fallback: string): string => {
   const candidates = [
     payload?.message,
     payload?.detail,
@@ -34,6 +40,35 @@ const extractBackendErrorMessage = (payload: any, fallback: string): string => {
   }
 
   return fallback;
+};
+
+/** Machine code of a gateway error body (`error`, or legacy `code`), if any. */
+export const extractBackendErrorCode = (payload: any): string | undefined => {
+  for (const candidate of [payload?.error, payload?.code, payload?.error?.code]) {
+    if (typeof candidate === 'string' && /^[A-Z][A-Z0-9_]*$/.test(candidate.trim())) {
+      return candidate.trim();
+    }
+  }
+  return undefined;
+};
+
+export type BackendAuthError = Error & {
+  /** HTTP status of the rejected auth request. */
+  statusCode?: number;
+  /** Gateway error code, e.g. INVALID_BROKER, UNAUTHORIZED, RATE_LIMITED. */
+  code?: string;
+};
+
+export const createBackendAuthError = (
+  payload: unknown,
+  status: number,
+  fallback: string,
+): BackendAuthError => {
+  const error = new Error(extractBackendErrorMessage(payload, fallback)) as BackendAuthError;
+  error.statusCode = status;
+  const code = extractBackendErrorCode(payload);
+  if (code) error.code = code;
+  return error;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -61,7 +96,7 @@ type LoginRequestBase = {
 
 export type LoginRequest = LoginRequestBase & (
   | { username: string; login?: never }
-  | { login: number; username?: never }
+  | { login: number | string; username?: never }
 );
 
 export type LoginRequestOptions = {
@@ -180,11 +215,14 @@ export const loginAPI = async (
 
     response = await timedFetch(`${apiBaseUrl}/auth/login`, {
       method: 'POST',
+      credentials: 'omit',
       headers: {
         'Content-Type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify(credentials),
+      body: credentials.login !== undefined
+        ? positiveAccountLogin(credentials.login) ? loginRequestBody(String(credentials.login), credentials.password, credentials.broker_id) : (() => { throw new Error('Invalid numeric trading login.'); })()
+        : JSON.stringify(credentials),
       signal: controller.signal,
     }, {
       label: 'auth.login',
@@ -219,18 +257,25 @@ export const loginAPI = async (
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    const error = new Error(extractBackendErrorMessage(errorBody, 'Login failed')) as Error & {
-      statusCode?: number;
-    };
-    error.statusCode = response.status;
+    const error = createBackendAuthError(errorBody, response.status, 'Login failed');
     recordMarketDataEvent('auth_outcome', {
       operation: 'login', outcome: 'rejected', brokerId: credentials.broker_id,
       apiHostFingerprint, status: response.status,
+      ...(error.code ? { errorCode: error.code } : {}),
     });
     throw error;
   }
 
-  const payload: unknown = await response.json();
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    recordMarketDataEvent('auth_outcome', {
+      operation: 'login', outcome: 'invalid_response', brokerId: credentials.broker_id,
+      apiHostFingerprint, status: response.status,
+    });
+    throw new Error('Login server returned an invalid response. Please try again.');
+  }
   recordMarketDataEvent('auth_outcome', {
     operation: 'login', outcome: 'accepted', brokerId: credentials.broker_id,
     apiHostFingerprint, status: response.status,
@@ -298,7 +343,7 @@ export const changePasswordAPI = async (data: ChangePasswordRequest): Promise<{ 
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(extractBackendErrorMessage(errorBody, 'Password change failed'));
+    throw createBackendAuthError(errorBody, response.status, 'Password change failed');
   }
 
   return response.json();

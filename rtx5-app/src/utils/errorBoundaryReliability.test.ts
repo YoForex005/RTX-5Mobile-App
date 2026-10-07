@@ -55,7 +55,12 @@ test('secure storage reads fail closed during startup restore', () => {
   assert.match(source, /keychainAccessible: SecureStore\.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY/);
   assert.match(source, /Platform\.OS === 'ios' \? IOS_SECURE_STORE_WRITE_OPTIONS : undefined/);
   assert.match(source, /try \{[\s\S]*SecureStore\.getItemAsync\(key\)/);
-  assert.match(source, /console\.warn\('\[SecureStorage\] Failed to read secure item'/);
+  // Native read failures are genuine errors; web has no secure store by design.
+  assert.match(
+    source,
+    /if \(Platform\.OS !== 'web'\) \{\s*console\.error\('\[SecureStorage\] Failed to read secure item'/,
+  );
+  assert.doesNotMatch(source, /console\.warn\(/);
   assert.match(source, /return null;/);
   assert.doesNotMatch(source, /import AsyncStorage|from '@react-native-async-storage\/async-storage'/);
   assert.match(source, /Secure credential storage is unavailable on web/);
@@ -114,34 +119,18 @@ test('startup diagnostics redact credential-bearing error text and stacks', () =
 });
 
 test('transient account hydration failures stay stack-free in Expo diagnostics', () => {
-  const source = readSource('app/_layout.tsx');
-  const hydrationStart = source.indexOf('const environmentRefreshToken = beginAccountEnvironmentRefresh');
-  const hydrationEnd = source.indexOf('}, { delayMs: 5000, timeoutMs: 6000 })', hydrationStart);
-
-  assert.ok(hydrationStart >= 0, 'expected the delayed account hydration block');
-  assert.ok(hydrationEnd > hydrationStart, 'expected the end of the delayed account hydration block');
-
-  const hydrationBlock = source.slice(hydrationStart, hydrationEnd);
-  assert.match(hydrationBlock, /e instanceof AccountsApiError/);
-  assert.match(hydrationBlock, /e\.statusCode === 0/);
-  assert.match(hydrationBlock, /e\.statusCode === 408/);
-  assert.match(hydrationBlock, /e\.statusCode === 429/);
-  assert.match(hydrationBlock, /e\.statusCode >= 500/);
-  assert.match(
-    hydrationBlock,
-    /console\.info\('\[Hydration\] Initial account metrics temporarily unavailable',[\s\S]*errorName: e\.name,[\s\S]*statusCode: e\.statusCode/,
-  );
-
-  const transientBranchStart = hydrationBlock.indexOf('e instanceof AccountsApiError');
-  const transientBranchEnd = hydrationBlock.indexOf('console.warn(', transientBranchStart);
-  assert.ok(transientBranchStart >= 0, 'expected the transient AccountsApiError branch');
-  assert.ok(transientBranchEnd > transientBranchStart, 'expected the unexpected-error warning branch');
-
-  const transientBranch = hydrationBlock.slice(transientBranchStart, transientBranchEnd);
-  assert.doesNotMatch(transientBranch, /console\.(?:warn|error)/);
-  assert.doesNotMatch(transientBranch, /redactDiagnosticValue\(e\)|e\.stack|throw e/);
-  assert.match(
-    hydrationBlock.slice(transientBranchEnd),
-    /console\.warn\([\s\S]*redactDiagnosticValue\(e\)/,
-  );
+  const source = readSource('src/services/bootstrapApp.ts');
+  const requestStart = source.indexOf('const requestJson = async');
+  const requestEnd = source.indexOf('const mapBootstrapAccountRow', requestStart);
+  assert.ok(requestStart >= 0 && requestEnd > requestStart);
+  const request = source.slice(requestStart, requestEnd);
+  assert.match(request, /readBootstrapSnapshot\(/);
+  assert.match(request, /if \(typeof __DEV__ !== 'undefined' && __DEV__\)/);
+  assert.match(request, /console\.log\('\[Bootstrap\] Request failed'/);
+  assert.match(request, /endpoint: sanitizeApiLatencyEndpoint\(endpoint\)/);
+  assert.match(request, /errorName: error instanceof Error \? error.name/);
+  assert.match(request, /return null/);
+  assert.doesNotMatch(request, /console\.(?:warn|error)|error\.stack|redactDiagnosticValue\(error\)/);
+  const root = readSource('app/_layout.tsx');
+  assert.doesNotMatch(root, /getAccountByIdResult|Initial account metrics temporarily unavailable/);
 });

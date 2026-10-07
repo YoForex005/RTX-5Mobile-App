@@ -72,8 +72,8 @@ export const GDark = {
   textDark: '#000000',
 
   // ── Up / Down (legacy alias → trading.bidUp/Down) ──────────────────────────
-  up: '#10B981',            // Emerald 500
-  upGlow: 'rgba(16,185,129,0.15)',
+  up: '#4597FF',
+  upGlow: 'rgba(69,151,255,0.15)',
   down: '#EF4444',          // Red 500
   downGlow: 'rgba(239,68,68,0.15)',
   flat: 'rgba(235,235,245,0.62)',
@@ -100,9 +100,9 @@ export const GDark = {
       dark: '#991B1B',
       gradient: 'linear-gradient(180deg, #EF4444 0%, #DC2626 50%, #B91C1C 100%)',
     },
-    profit: '#10B981',
+    profit: '#4597FF',
     loss: '#EF4444',
-    bidUp: '#10B981',
+    bidUp: '#4597FF',
     bidDown: '#EF4444',
     priceDefault: '#FFFFFF',
   } as TradingTokens,
@@ -111,9 +111,9 @@ export const GDark = {
   chart: {
     background: '#121212',
     grid: 'rgba(255,255,255,0.08)',
-    bullCandle: '#10B981',
+    bullCandle: '#4597FF',
     bearCandle: '#EF4444',
-    volumeUp: 'rgba(16,185,129,0.25)',
+    volumeUp: 'rgba(69,151,255,0.25)',
     volumeDown: 'rgba(239,68,68,0.25)',
     crosshair: 'rgba(235,235,245,0.62)',
   } as ChartTokens,
@@ -181,8 +181,8 @@ export const GLight = {
   textGhost: '#E5E7EB',    // Barely visible ghost text
   textDark: '#030712',     // Absolute deepest slate
 
-  up: '#10B981',           // Slightly more vibrant Emerald
-  upGlow: 'rgba(16, 185, 129, 0.1)',
+  up: '#1D4ED8',
+  upGlow: 'rgba(29,78,216,0.1)',
   down: '#EF4444',         // Crisp, modern Red
   downGlow: 'rgba(239, 68, 68, 0.1)',
   flat: '#64748B',
@@ -207,9 +207,9 @@ export const GLight = {
       dark: '#7F1D1D',
       gradient: 'linear-gradient(180deg, #EF4444 0%, #DC2626 50%, #B91C1C 100%)',
     },
-    profit: '#059669',     // Emerald 600
+    profit: '#1D4ED8',
     loss: '#DC2626',
-    bidUp: '#059669',
+    bidUp: '#1D4ED8',
     bidDown: '#DC2626',
     priceDefault: '#0F172A',
   } as TradingTokens,
@@ -217,9 +217,9 @@ export const GLight = {
   chart: {
     background: '#FFFFFF',
     grid: '#F1F5F9',       // Slate 100
-    bullCandle: '#059669',
+    bullCandle: '#1D4ED8',
     bearCandle: '#DC2626',
-    volumeUp: 'rgba(5, 150, 105, 0.1)',
+    volumeUp: 'rgba(29,78,216,0.1)',
     volumeDown: 'rgba(220, 38, 38, 0.1)',
     crosshair: '#94A3B8',
   } as ChartTokens,

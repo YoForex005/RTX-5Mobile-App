@@ -2,21 +2,24 @@
  * Core module: deals.ts
  *
  * Contains:
- *  - useAccountDealsQuery  — fetches deal history via GET /api/v2/account/deals
- *                            (JWT-resolved account, supports from/to date range)
- *  - useDealsQuery         — fetches deal history via GET /api/v2/deals/{login}
- *                            (login-based, supports an optional date range)
+ *  - useAccountDealsQuery  — deal history via GET /api/v2/account/deals
+ *                            (JWT-resolved account, from/to date range)
+ *  - useDealsQuery         — same source for a known login (Journal)
+ *
+ * Contract v3 (6.4): /account/deals is the PRIMARY source; it supports
+ * limit=1000 + offset paging and every page is walked. /deals/{login} ignores
+ * paging, caps at 500 rows and has no position_ticket, so it is used only as
+ * a fallback when /account/deals fails. The two sources are no longer merged.
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { dealsApi, type Deal } from '../api/deals';
+import { dealsApi, fetchAllAccountDeals, type Deal } from '../api/deals';
 import { resolveEffectiveHistoryDateRange } from '../features/history/historyDateRange';
 import { useResolvedTradingLogin } from '../state/tradingLogin';
 import { useUserPreferences } from '../state/userPreferences';
 import {
   buildAccountDealsQueryKey,
   filterDealsByTimeRange,
-  mergeDealHistorySources,
   shouldRetryDealsWithoutRange,
 } from './dealsHistory';
 import {
@@ -65,14 +68,6 @@ const resolvePollingRefetchInterval = (
   override?: number | false,
 ) => (enabled ? (override ?? fallbackMs) : false);
 
-const settleDeals = async (promise: Promise<Deal[]>) => {
-  try {
-    return { ok: true as const, data: await promise };
-  } catch (error) {
-    return { ok: false as const, error };
-  }
-};
-
 const getLoginDealsWithRangeFallback = async (
   login: number,
   from?: number,
@@ -96,25 +91,25 @@ const fetchAccountDealsWithLoginFallback = async (
   from?: number,
   to?: number,
 ) => {
-  const [accountResult, loginResult] = await Promise.all([
-    settleDeals(dealsApi.getAccountDeals(500, 0, from, to)),
-    login != null
-      ? settleDeals(getLoginDealsWithRangeFallback(login, from, to))
-      : settleDeals(Promise.resolve([])),
-  ]);
-
-  if (!accountResult.ok && !loginResult.ok) {
-    throw accountResult.error;
+  try {
+    return filterDealsByTimeRange(
+      await fetchAllAccountDeals({ from, to }),
+      from,
+      to,
+    );
+  } catch (accountError) {
+    // Fallback only: /deals/{login} (max 500 rows, no position_ticket).
+    if (login == null) throw accountError;
+    try {
+      return filterDealsByTimeRange(
+        await getLoginDealsWithRangeFallback(login, from, to),
+        from,
+        to,
+      );
+    } catch {
+      throw accountError;
+    }
   }
-
-  return filterDealsByTimeRange(
-    mergeDealHistorySources(
-      accountResult.ok ? accountResult.data : [],
-      loginResult.ok ? loginResult.data : [],
-    ),
-    from,
-    to,
-  );
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -167,9 +162,8 @@ export function useAccountDealsQuery(options: PollingQueryOptions = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Load all available executions for chart entry/exit markers. Some brokers
- * return history only from the account endpoint, while others require the
- * login endpoint, so the two sources are merged and deduplicated here. This
+ * Load all available executions for chart entry/exit markers from the paged
+ * /account/deals source (login endpoint only as a fallback). This
  * deliberately has no from/to options and never reads the History date filter.
  */
 export function useChartDealsQuery(
@@ -212,7 +206,7 @@ export function useDealsQuery(
     queryKey: getDealsQueryKey(cacheNamespace, login, from, to),
     queryFn: () => runSessionBoundQuery(
       cacheNamespace,
-      () => getLoginDealsWithRangeFallback(login!, from, to),
+      () => fetchAccountDealsWithLoginFallback(login, from, to),
     ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 5000, options.refetchInterval),

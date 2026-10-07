@@ -266,7 +266,7 @@ export function ChartSettingsScreen({
   return (
     <Screen style={styles.screen}>
       <View style={styles.swipeHost} {...chartReturnSwipePanResponder.panHandlers}>
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
           <View style={styles.headerRow}>
             <FastPressable
               onPress={handleReturnToChart}
@@ -665,7 +665,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 17,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     sectionHeader: {

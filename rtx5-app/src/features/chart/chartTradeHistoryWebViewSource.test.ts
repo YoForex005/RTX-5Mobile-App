@@ -91,9 +91,97 @@ test('trade history arrows scale with candle width without changing other marker
   );
   assert.match(
     source,
-    /_overlayMarkerSource = markers\.slice\(\)[\s\S]*scaleTradeHistoryMarkers\(_overlayMarkerSource, markerScale\)/,
+    /_overlayMarkerSource = nativeMarkers\.slice\(\)[\s\S]*scaleTradeHistoryMarkers\(_overlayMarkerSource, markerScale\)/,
     'the original payload must stay immutable so zoom can rescale from source geometry',
   );
+});
+
+test('trade history deals render as thin DOM arrows whose tip sits on the exact deal price', () => {
+  // Only non-trade markers go to the library's series markers.
+  assert.match(source, /var expectedMarkers = selectNativeOverlayMarkers\(payload\.markers\)/);
+  assert.match(source, /var nativeMarkers = selectNativeOverlayMarkers\(markers\);/);
+  // Arrows live in the connector pass, so they share its clipping,
+  // repositioning on pan/zoom, and pruning.
+  assert.match(
+    source,
+    /function renderTradeHistorySegmentDom\([\s\S]*isTradeHistoryArrowMarker\(arrowMarker\)[\s\S]*timeScale\.timeToCoordinate\(arrowMarker\.time\)[\s\S]*series\.priceToCoordinate\(arrowMarker\.price\)[\s\S]*var arrowKey = 'history-arrow:' \+ arrowMarker\.id/,
+  );
+  assert.match(
+    source,
+    /arrowNode\.style\.top = \(arrowUp\s*\? arrowY - arrowInset\s*: arrowY - arrowSize\.height \+ arrowInset\) \+ 'px'/,
+    'buy tips point up at the price from below; sell tips point down at it from above',
+  );
+  assert.match(source, /arrowNode\.style\.left = \(arrowX - arrowSize\.width \/ 2\) \+ 'px'/);
+  assert.match(source, /arrowNode\.style\.pointerEvents = 'none'/);
+  assert.match(
+    source,
+    /function pruneTradeHistorySegmentDomNodes\([\s\S]*key\.indexOf\('history-arrow:'\) !== 0/,
+  );
+  assert.match(
+    source,
+    /function pruneOverlayDomNodes\([\s\S]*key\.indexOf\('history-arrow:'\) !== 0/,
+  );
+  assert.match(
+    source,
+    /function repositionTradeOverlayDomNodes\(\)[\s\S]*hasTradeHistoryArrowMarkers\(_appliedOverlayPayload\)/,
+  );
+  // A thin single arrow: an unfilled stroked stem plus an open head.
+  assert.match(source, /path\.setAttribute\('fill', 'none'\)/);
+  assert.match(source, /if \(!up\) svg\.style\.transform = 'scaleY\(-1\)'/);
+});
+
+test('trade history arrows and connectors are clipped to the plot, never over the price scale', () => {
+  // A dedicated child layer, clipped to the plot area, holds history geometry;
+  // the parent overlay layer spans the price axis for the right-axis boxes.
+  assert.match(
+    source,
+    /function ensureTradeHistoryPlotLayer\(parentLayer\)[\s\S]*plotLayer\.style\.overflow = 'hidden'[\s\S]*parentLayer\.insertBefore\(plotLayer, parentLayer\.firstChild\)/,
+  );
+  // The right clip edge is where the visible price scale begins.
+  assert.match(
+    source,
+    /function ensureTradeHistoryPlotLayer\(parentLayer\)[\s\S]*var axisMetrics = resolveMarketPriceScaleAxisMetrics\(parentLayer\);[\s\S]*Math\.round\(axisMetrics\.axisLeft\)[\s\S]*plotLayer\.style\.width = plotWidth \+ 'px'/,
+  );
+  // Nodes attached elsewhere are dropped when the layer is (re)created.
+  assert.match(
+    source,
+    /if \(!plotLayer \|\| plotLayer\.parentNode !== parentLayer\) \{[\s\S]*pruneTradeHistorySegmentDomNodes\(\[\]\);/,
+  );
+  // Both connectors and arrows render into it, on every render/reposition.
+  assert.match(
+    source,
+    /function renderTradeHistorySegmentDom\([\s\S]*syncOverlayLabelLayerPaneClip\(layer\);\s*\/\/[^\n]*\n\s*layer = ensureTradeHistoryPlotLayer\(layer\) \|\| layer;[\s\S]*upsertOverlayDomNode\(layer, key, 'rtx5-trade-history-segment'\)[\s\S]*upsertOverlayDomNode\(layer, arrowKey, 'rtx5-trade-history-arrow'\)/,
+  );
+});
+
+test('only trade history arrow markers are drawn as DOM arrows', () => {
+  const evaluate = new Function(
+    'markers',
+    `${extractEmbeddedFunction('isTradeHistoryArrowMarker')};
+     ${extractEmbeddedFunction('selectNativeOverlayMarkers')};
+     return selectNativeOverlayMarkers(markers);`,
+  ) as (markers: Array<Record<string, unknown>>) => Array<Record<string, unknown>>;
+  const openArrow = { id: 'trade-history-open-1', shape: 'arrowUp' };
+  const closeArrow = { id: 'trade-history-close-1', shape: 'arrowDown' };
+  const signal = { id: 'pattern-signal-1', shape: 'arrowUp' };
+  const alert = { id: 'alert-1', shape: 'circle' };
+
+  assert.deepEqual(evaluate([openArrow, signal, closeArrow, alert]), [signal, alert]);
+  assert.deepEqual(evaluate([]), []);
+});
+
+test('trade history arrow size follows candle width inside a thin-pointer band', () => {
+  const evaluate = new Function(
+    'spacing',
+    `${extractEmbeddedFunction('resolveTradeHistoryArrowSize')};
+     return resolveTradeHistoryArrowSize(spacing === null ? null : { options: () => ({ barSpacing: spacing }) });`,
+  ) as (spacing: number | null) => { width: number; height: number; stroke: number };
+
+  assert.deepEqual(evaluate(2), { width: 9, height: 14, stroke: 1.6 });
+  assert.deepEqual(evaluate(9), { width: 11, height: 17, stroke: 1.6 });
+  assert.deepEqual(evaluate(40), { width: 15, height: 24, stroke: 2 });
+  const fallback = evaluate(null);
+  assert.ok(fallback.height >= 14 && fallback.height <= 24);
 });
 
 test('trade history arrow scale matches Lightweight Charts 5.1 placement math', () => {

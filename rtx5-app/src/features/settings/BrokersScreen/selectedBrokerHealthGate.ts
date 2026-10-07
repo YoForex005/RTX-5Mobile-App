@@ -49,7 +49,16 @@ const requestSelectedBrokerHealth: SelectedBrokerHealthRequester = (healthUrl) =
   })
 );
 
-/** A bounded reachability check for the exact selected broker server. */
+const isHealthProbeTimeout = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'AbortError';
+
+/**
+ * A bounded reachability check for the exact selected broker server. Like the
+ * login probe (checkBrokerServerHealth), a timeout is retried once: the first
+ * request after idle pays a cold DNS + TCP + TLS handshake and can exceed the
+ * budget while the broker is healthy. HTTP failures and network errors still
+ * fail closed immediately.
+ */
 export async function probeSelectedBrokerHealth(
   serverUrl: string,
   requester: SelectedBrokerHealthRequester = requestSelectedBrokerHealth,
@@ -57,6 +66,12 @@ export async function probeSelectedBrokerHealth(
   const healthUrl = buildSelectedBrokerHealthUrl(serverUrl);
   if (!healthUrl) return false;
 
+  try {
+    const response = await requester(healthUrl);
+    return response.ok;
+  } catch (firstError) {
+    if (!isHealthProbeTimeout(firstError)) return false;
+  }
   try {
     const response = await requester(healthUrl);
     return response.ok;

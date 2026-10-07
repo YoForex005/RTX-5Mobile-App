@@ -1,9 +1,10 @@
 /**
  * Closed-position history loader.
  *
- * The backend paginates `/positions/{login}/history` and the field shapes vary
- * across broker integrations, so we normalise each row, dedupe across pages,
- * and stop walking when a page repeats or returns a partial fill.
+ * The v3 gateway ignores limit/offset on `/positions/{login}/history` and caps
+ * each response at 500 rows, so history is paged by from/to time windows.
+ * Field shapes vary across broker integrations, so each row is normalised and
+ * deduplicated across windows.
  */
 import { apiClient } from '../apiClient';
 import { createTradingApiError } from '../tradingErrors';
@@ -15,8 +16,6 @@ import {
   pickString,
 } from './payloadHelpers';
 import type { ClosedPosition, JsonRecord } from './types';
-
-const MAX_CLOSED_HISTORY_PAGES = 50;
 
 function normalizeClosedHistoryRecord(record: unknown): ClosedPosition | null {
   if (!isJsonRecord(record)) {
@@ -86,18 +85,37 @@ function buildClosedHistoryRecordKey(record: ClosedPosition, fallbackIndex: numb
   return parts.length > 0 ? parts.join('|') : `closed-history-${fallbackIndex}`;
 }
 
-async function fetchClosedHistoryPage(
+export const POSITION_HISTORY_ROW_CAP = 500;
+export const POSITION_HISTORY_WINDOW_SECONDS = 90 * 24 * 60 * 60;
+/** Unbounded walks stop after ~2 years of 90-day windows. */
+export const POSITION_HISTORY_MAX_WINDOWS = 8;
+/** Unbounded walks stop after this many consecutive empty windows. */
+export const POSITION_HISTORY_EMPTY_WINDOW_STOP = 2;
+const MIN_SPLIT_WINDOW_SECONDS = 60;
+const MAX_SPLIT_DEPTH = 8;
+
+export type PositionHistoryOptions = Readonly<{
+  /** Range start, unix seconds. Omitted = walk back until empty windows. */
+  from?: number;
+  /** Range end, unix seconds. Omitted = now. */
+  to?: number;
+  maxWindows?: number;
+  windowSeconds?: number;
+  nowSeconds?: number;
+  /** Test seam; defaults to the authenticated gateway request. */
+  fetchWindow?: (login: number, from: number, to: number) => Promise<ClosedPosition[]>;
+}>;
+
+async function fetchClosedHistoryWindow(
   login: number,
-  limit: number,
-  offset: number,
+  from: number,
+  to: number,
 ): Promise<ClosedPosition[]> {
-  const response = await apiClient(
-    `/positions/${login}/history?limit=${limit}&offset=${offset}`,
-  );
+  const params = new URLSearchParams({ from: String(from), to: String(to) });
+  const response = await apiClient(`/positions/${login}/history?${params.toString()}`);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    console.warn('[ClosedHistory] Request failed with status', response.status);
     const headers: Record<string, string> = {};
     if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
     throw createTradingApiError(response.status, errorData, headers);
@@ -111,54 +129,109 @@ async function fetchClosedHistoryPage(
     .filter((record): record is ClosedPosition => record !== null);
 }
 
+const pageSignature = (rows: ClosedPosition[]): string =>
+  rows.map((record, index) => buildClosedHistoryRecordKey(record, index)).join('\n');
+
+/**
+ * Closed-position history (backend contract v3, 6.4).
+ *
+ * `GET /positions/{login}/history?from&to` ignores limit/offset and returns at
+ * most 500 rows, so offset paging cannot work. The loader instead walks
+ * BACKWARDS in from/to time windows:
+ * - bounded range (`from` given): windows cover [from, to] exactly;
+ * - unbounded: 90-day windows until 2 consecutive empty windows or 8 windows;
+ * - a window that hits the 500-row cap is split in half (recursively) so a
+ *   busy period is not silently truncated;
+ * - if the server ignores from/to (identical rows for different windows) the
+ *   walk stops instead of looping.
+ * Rows are deduplicated across windows. Positions closed by the new close
+ * path may be missing here (BACKEND PENDING); the History screen fills them
+ * from `entry_out` deals (derivedClosedPositions.ts).
+ */
 export async function getPositionHistory(
   login: number,
-  limit = 1000,
-  offset = 0,
-  maxPages = MAX_CLOSED_HISTORY_PAGES,
+  options: PositionHistoryOptions = {},
 ): Promise<ClosedPosition[]> {
-  const pageSize = Math.max(1, Math.floor(limit));
-  const finiteMaxPages = Number.isFinite(maxPages)
-    ? Math.floor(maxPages)
-    : MAX_CLOSED_HISTORY_PAGES;
-  const pageCount = Math.max(1, Math.min(MAX_CLOSED_HISTORY_PAGES, finiteMaxPages));
+  const fetchWindow = options.fetchWindow ?? fetchClosedHistoryWindow;
+  const nowSeconds = Math.floor(options.nowSeconds ?? Date.now() / 1000);
+  const windowSeconds = Math.max(
+    MIN_SPLIT_WINDOW_SECONDS,
+    Math.floor(options.windowSeconds ?? POSITION_HISTORY_WINDOW_SECONDS),
+  );
+  const lowerBound = Number.isFinite(options.from) ? Math.floor(options.from as number) : null;
+  const maxWindows = Math.max(
+    1,
+    Math.floor(
+      Number.isFinite(options.maxWindows)
+        ? (options.maxWindows as number)
+        : lowerBound !== null
+          ? Number.MAX_SAFE_INTEGER
+          : POSITION_HISTORY_MAX_WINDOWS,
+    ),
+  );
+  let end = Number.isFinite(options.to) ? Math.floor(options.to as number) : nowSeconds;
+
   const records: ClosedPosition[] = [];
   const seenKeys = new Set<string>();
-  const seenPageSignatures = new Set<string>();
-  let nextOffset = Math.max(0, Math.floor(offset));
+  const seenSignatures = new Set<string>();
+  let serverIgnoresRange = false;
 
-  for (let page = 0; page < pageCount; page += 1) {
-    const pageRows = await fetchClosedHistoryPage(login, pageSize, nextOffset);
-    if (pageRows.length === 0) {
-      break;
+  const collect = async (from: number, to: number, depth: number): Promise<ClosedPosition[]> => {
+    const rows = await fetchWindow(login, from, to);
+    if (
+      rows.length < POSITION_HISTORY_ROW_CAP ||
+      to - from <= MIN_SPLIT_WINDOW_SECONDS ||
+      depth >= MAX_SPLIT_DEPTH
+    ) {
+      return rows;
     }
-    const pageSignature = pageRows
-      .map((record, index) => buildClosedHistoryRecordKey(record, index))
-      .join('\n');
-    if (seenPageSignatures.has(pageSignature)) {
-      break;
+    const mid = from + Math.floor((to - from) / 2);
+    const newer = await collect(mid + 1, to, depth + 1);
+    if (serverIgnoresRange) return rows;
+    const older = await collect(from, mid, depth + 1);
+    const parentSignature = pageSignature(rows);
+    if (
+      pageSignature(newer) === parentSignature &&
+      pageSignature(older) === parentSignature
+    ) {
+      // Both disjoint halves returned the parent's capped rows: the server is
+      // ignoring from/to, so splitting further cannot help.
+      serverIgnoresRange = true;
+      return rows;
     }
-    seenPageSignatures.add(pageSignature);
+    return [...newer, ...older];
+  };
 
-    let appendedCount = 0;
-    pageRows.forEach((record, index) => {
-      const key = buildClosedHistoryRecordKey(record, nextOffset + index);
+  let emptyStreak = 0;
+  for (let windowIndex = 0; windowIndex < maxWindows; windowIndex += 1) {
+    if (lowerBound !== null && end < lowerBound) break;
+    const start = lowerBound !== null
+      ? Math.max(lowerBound, end - windowSeconds)
+      : end - windowSeconds;
+    const rows = await collect(start, end, 0);
+
+    if (rows.length > 0) {
+      const signature = pageSignature(rows);
+      if (seenSignatures.has(signature)) {
+        serverIgnoresRange = true;
+      }
+      seenSignatures.add(signature);
+    }
+
+    rows.forEach((record, index) => {
+      const key = buildClosedHistoryRecordKey(record, index);
       if (!seenKeys.has(key)) {
         seenKeys.add(key);
         records.push(record);
-        appendedCount += 1;
       }
     });
 
-    if (appendedCount === 0) {
-      break;
-    }
-
-    // Some broker gateways silently cap a requested page (for example, a
-    // requested 1000 rows may return only 50). A short page is therefore not
-    // proof that history ended. Advance by the rows the server actually
-    // returned and let an empty or repeated next page terminate the walk.
-    nextOffset += pageRows.length;
+    if (serverIgnoresRange) break;
+    emptyStreak = rows.length === 0 ? emptyStreak + 1 : 0;
+    if (lowerBound === null && emptyStreak >= POSITION_HISTORY_EMPTY_WINDOW_STOP) break;
+    // Windows are inclusive on both ends; step past `start` so a close at the
+    // boundary is fetched once.
+    end = start - 1;
   }
 
   return records;

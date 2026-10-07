@@ -790,7 +790,7 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
 
 const PREVIEW_DEV_SOURCE_KEY = getDevRefreshKey(
   'chart-preview-webview',
-  hashDevRefreshSource(CH_HTML),
+  typeof __DEV__ !== 'undefined' && __DEV__ ? hashDevRefreshSource(CH_HTML) : '',
 );
 // Keep a bridge margin above the in-document 320 ms recognizer. Ownership is
 // already claimed immediately through onTapIntent, so this delay only decides

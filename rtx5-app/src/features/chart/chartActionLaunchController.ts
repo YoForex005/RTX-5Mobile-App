@@ -1,3 +1,4 @@
+import { scheduleAfterVisualFrame, scheduleAfterVisualFrames } from '../../utils/afterVisualFrame';
 import { normalizeSymbol } from '../../domain/symbols';
 
 export type ChartActionLaunchDestination =
@@ -293,14 +294,7 @@ export function scheduleChartActionLaunchNavigation(
 
   // The retained cover must receive one frame before router construction can
   // evaluate a heavy calculator/analytics tree or wait on drawing sync.
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(runIfCurrent, 0);
-    return;
-  }
-
-  globalThis.requestAnimationFrame(() => {
-    setTimeout(runIfCurrent, 0);
-  });
+  return scheduleAfterVisualFrame(runIfCurrent);
 }
 
 export function scheduleChartActionLaunchCovered(
@@ -325,14 +319,5 @@ export function scheduleChartActionLaunchCovered(
   const markIfCurrent = () => {
     markChartActionLaunchCovered(destination, expectedRevision);
   };
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(markIfCurrent, 0);
-    return;
-  }
-
-  // onLayout means the native body is ready to paint. Two visual frames keep
-  // the retained cover up until that body has actually reached the screen.
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(markIfCurrent);
-  });
+  return scheduleAfterVisualFrames(markIfCurrent);
 }

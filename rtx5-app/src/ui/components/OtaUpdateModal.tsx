@@ -1,11 +1,14 @@
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import type { OtaUpdatePromptController } from '../../utils/otaUpdates';
 
 type OtaUpdateModalProps = OtaUpdatePromptController;
@@ -38,7 +41,9 @@ export function OtaUpdateModal({
       // Keep above any crashed error UI / absolute overlays.
       hardwareAccelerated
     >
-      <View style={styles.backdrop} pointerEvents="auto">
+      <SafeAreaProvider>
+      <SafeAreaView style={styles.backdrop}>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="always" canCancelContentTouches={Platform.OS === 'ios'}>
         <View style={styles.panel} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.title}>
             {status === 'error' ? 'Update failed' : 'Update available'}
@@ -82,7 +87,9 @@ export function OtaUpdateModal({
             </Text>
           </Pressable>
         </View>
-      </View>
+        </ScrollView>
+      </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }
@@ -90,10 +97,14 @@ export function OtaUpdateModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.78)',
+  },
+  scroll: { flex: 1, minHeight: 0 },
+  content: {
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
-    backgroundColor: 'rgba(0, 0, 0, 0.78)',
+    padding: 16,
   },
   panel: {
     width: '100%',
@@ -127,6 +138,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   progressLabel: {
+    flexShrink: 1,
     color: '#e2e8f0',
     fontSize: 13,
     fontWeight: '600',
@@ -155,6 +167,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#0ea5e9',
     paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   buttonPressed: {
     backgroundColor: '#0284c7',
@@ -163,6 +176,7 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   buttonText: {
+    textAlign: 'center',
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '700',

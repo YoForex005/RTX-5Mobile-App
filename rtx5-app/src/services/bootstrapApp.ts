@@ -8,16 +8,23 @@ import { useLiveAccountState } from '../state/liveAccountState';
 import { usePositionsState } from '../state/positionsState';
 import { useTradingState } from '../state/tradingState';
 import { useUserPreferences } from '../state/userPreferences';
-import { getAccountsListQueryKey } from '../query/accounts';
+import { getAccountDetailQueryKey } from '../query/accounts';
+import { getAccountSummaryQueryKey } from '../query/account';
 import { getOrdersByLoginQueryKey } from '../query/orders';
+import { getMarketStatusQueryKey } from '../query/marketStatus';
+import { fetchInstrumentCatalogResponse, primeInstrumentMetaCacheFromCatalogPayload } from '../api/instruments';
+import { extractMarketSymbols } from '../domain/marketSymbols';
+import { normalizeMarketStatusListPayload } from '../api/marketStatus';
 import { brokerRealtimeService } from '../api/ws/BrokerRealtimeService';
 import { quotesWsService } from '../api/ws/quotesSocket';
 import { buildAccountDetailPath } from '../api/accountsRoutes';
+import { fetchAccountSnapshotResponse } from '../api/accountSnapshotRequests';
 import {
   mapRawAccount,
   type TradingAccount,
   type TradingAccountRaw,
 } from '../api/accounts';
+import { mapAccountSummaryApiResponse, type AccountSummary, type AccountSummaryApiResponse } from '../api/account';
 import { sanitizeApiLatencyEndpoint } from '../utils/apiLatency';
 import {
   captureActiveBrokerSession,
@@ -32,6 +39,9 @@ import {
   beginAccountEnvironmentRefresh,
   commitActiveAccountEnvironmentPayload,
 } from './accountEnvironmentSession';
+import { acceptTradingHydration } from './tradingAccess';
+import { createBootstrapRequestCoordinator, type BootstrapRun } from './bootstrapRequestCoordinator';
+import { readBootstrapSnapshot } from './bootstrapSnapshotRetry';
 
 type BootstrapResult = {
   me: unknown;
@@ -57,6 +67,8 @@ const unwrapArray = (value: unknown): unknown[] => {
 type BootstrapOptions = {
   accountLogin?: string | number;
   expectedProvenance?: ActiveBrokerSessionProvenance;
+  /** Authentication needs verified identity, account policy and catalog only. */
+  waitFor?: 'trading' | 'complete';
 };
 
 const emptyBootstrapResult = (): BootstrapResult => ({
@@ -74,29 +86,55 @@ const unwrapAccountRows = (value: unknown): unknown[] => {
   return value && typeof value === 'object' && !Array.isArray(value) ? [value] : [];
 };
 
-const requestJson = async <T>(endpoint: string): Promise<BrokerApiJsonResponse<T> | null> => {
+const requestJson = async <T>(
+  endpoint: string,
+  read = () => brokerApi.getJsonResponse<T>(endpoint),
+): Promise<BrokerApiJsonResponse<T> | null> => {
+  const capture = captureActiveBrokerSession();
+  const provenance = capture ? getActiveBrokerSessionProvenance(capture.session) : null;
   try {
-    const result = await brokerApi.getJsonResponse<T>(endpoint);
+    const result = await readBootstrapSnapshot({
+      endpoint,
+      read,
+      isCurrent: () => Boolean(provenance && isActiveBrokerSessionProvenanceCurrent(provenance)),
+    });
+    if (!result) return null;
     if (!result.ok) {
       throw { response: { status: result.status, data: result.data } };
     }
     return result;
   } catch (error) {
-    console.warn('[Bootstrap] Request failed', {
-      endpoint: sanitizeApiLatencyEndpoint(endpoint),
-      errorName: error instanceof Error ? error.name : 'RequestError',
-    });
+    // Expected (offline, 401 refresh, stale session): bootstrap degrades to null.
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('[Bootstrap] Request failed', {
+        endpoint: sanitizeApiLatencyEndpoint(endpoint),
+        errorName: error instanceof Error ? error.name : 'RequestError',
+      });
+    }
     return null;
   }
 };
 
-const mapBootstrapAccountRows = (value: unknown): TradingAccount[] =>
-  unwrapAccountRows(value)
-    .filter(
-      (row): row is TradingAccountRaw =>
-        Boolean(row) && typeof row === 'object' && !Array.isArray(row),
-    )
-    .map(mapRawAccount);
+/**
+ * `GET /account/{login}` returns one object. Pick the row for the session
+ * login (tolerating a legacy array/wrapper) and map it for the detail cache.
+ */
+const mapBootstrapAccountRow = (
+  value: unknown,
+  accountLogin: string,
+  previous: TradingAccount | undefined,
+  previousSummary: AccountSummary | undefined,
+): { detail: TradingAccount; summary: AccountSummary } | null => {
+  const rows = unwrapAccountRows(value).filter(
+    (row): row is TradingAccountRaw =>
+      Boolean(row) && typeof row === 'object' && !Array.isArray(row),
+  );
+  const selected = rows.find((row) => String(row.login ?? '') === accountLogin) ?? rows[0];
+  return selected ? {
+    detail: mapRawAccount(selected, previous),
+    summary: mapAccountSummaryApiResponse(selected as AccountSummaryApiResponse, previousSummary),
+  } : null;
+};
 
 const commitBootstrapResponse = <T, R>(
   result: BrokerApiJsonResponse<T> | null,
@@ -121,6 +159,10 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
   const record = selected as Record<string, unknown> | undefined;
   if (!record) return;
 
+  // Contract v3: equity, used_margin, free_margin, margin_level and
+  // floating_pnl are present only when the server calculation succeeds.
+  // Missing ones keep their last value (flagged stale); they are never
+  // recomputed here, because a local balance-based guess would be misleading.
   const parsedMetrics = extractLiveAccountMetrics(record) ?? {};
   const parseFiniteNumber = (value: unknown): number | undefined => {
     if (value === null || value === undefined) return undefined;
@@ -133,17 +175,9 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
   const credit = parseFiniteNumber(record.credit);
   const floating = parsedMetrics.floating;
   const margin = parsedMetrics.margin;
-  const equity = parsedMetrics.equity ?? (balance !== undefined
-    ? balance + (credit ?? 0) + (floating ?? 0)
-    : undefined);
-  const freeMargin = parsedMetrics.margin_free ?? (
-    equity !== undefined && margin !== undefined ? equity - margin : undefined
-  );
-  const marginLevel = parsedMetrics.margin_level ?? (
-    equity !== undefined && margin !== undefined
-      ? margin > 0 ? (equity / margin) * 100 : 0
-      : undefined
-  );
+  const equity = parsedMetrics.equity;
+  const freeMargin = parsedMetrics.margin_free;
+  const marginLevel = parsedMetrics.margin_level;
 
   const liveMetrics = {
     ...(login !== undefined ? { login } : {}),
@@ -155,7 +189,7 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
     ...(floating !== undefined ? { floating } : {}),
   };
   if (Object.keys(liveMetrics).length > 0) {
-    useLiveAccountState.getState().updateMetrics(liveMetrics);
+    useLiveAccountState.getState().applyMetricsSnapshot(liveMetrics);
   }
 
   const currency = typeof record.currency === 'string' && record.currency.trim()
@@ -177,6 +211,8 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
     useTradingState.getState().setAccount(accountPatch);
   }
 };
+
+const joinBootstrapRequest = createBootstrapRequestCoordinator<BootstrapResult>();
 
 export async function bootstrapApp(options: BootstrapOptions = {}): Promise<BootstrapResult> {
   const sessionCapture = captureActiveBrokerSession();
@@ -213,13 +249,22 @@ export async function bootstrapApp(options: BootstrapOptions = {}): Promise<Boot
     return emptyBootstrapResult();
   }
 
+  const requestKey = `${activeProvenance.cacheNamespace}:${activeProvenance.credentialGeneration}`;
+  return joinBootstrapRequest(requestKey, options.waitFor ?? 'complete', () =>
+    startBootstrapRequest(sessionCapture, activeProvenance));
+}
+
+function startBootstrapRequest(
+  sessionCapture: NonNullable<ReturnType<typeof captureActiveBrokerSession>>,
+  activeProvenance: ActiveBrokerSessionProvenance,
+): BootstrapRun<BootstrapResult> {
   recordMarketDataEvent('bootstrap_gate', {
     outcome: 'started',
     brokerId: sessionCapture.session.brokerId,
     sessionEpoch: sessionCapture.session.sessionEpoch,
   });
 
-  const accountLogin = requestedAccountLogin;
+  const accountLogin = sessionCapture.session.accountLogin;
   const encodedAccountLogin = encodeURIComponent(accountLogin);
   const cacheNamespace = sessionCapture.session.cacheNamespace;
   const accountEnvironmentRefresh = beginAccountEnvironmentRefresh(activeProvenance);
@@ -246,13 +291,25 @@ export async function bootstrapApp(options: BootstrapOptions = {}): Promise<Boot
   const mePromise = requestJson('/auth/me').then((result) =>
     commitBootstrapResponse(result, cacheNamespace, (data) => data));
   const accountsPromise = accountLogin
-    ? requestJson(buildAccountDetailPath(accountLogin)).then((result) =>
+    ? requestJson(buildAccountDetailPath(accountLogin), () => fetchAccountSnapshotResponse(accountLogin)).then((result) =>
       commitBootstrapResponse(result, cacheNamespace, (accounts) => {
-        const mappedAccounts = mapBootstrapAccountRows(accounts);
-        appQueryClient.setQueryData<TradingAccount[]>(
-          getAccountsListQueryKey(cacheNamespace),
-          (existing) => existing ?? mappedAccounts,
+        // Seed the singular account detail cache. `GET /accounts` is never
+        // called: it returns 403 for traders (contract v3).
+        const detailKey = getAccountDetailQueryKey(cacheNamespace, Number(accountLogin));
+        const summaryKey = getAccountSummaryQueryKey(cacheNamespace, accountLogin);
+        const snapshots = mapBootstrapAccountRow(
+          accounts,
+          accountLogin,
+          appQueryClient.getQueryData<TradingAccount>(detailKey),
+          appQueryClient.getQueryData<AccountSummary>(summaryKey),
         );
+        if (snapshots) {
+          appQueryClient.setQueryData<TradingAccount>(detailKey, snapshots.detail);
+          appQueryClient.setQueryData<AccountSummary>(summaryKey, snapshots.summary);
+          useUserPreferences.getState().updateAccountDetails({
+            name: snapshots.detail.name || `Account ${snapshots.detail.login}`,
+          });
+        }
         updateAccountMetricsFromBootstrap(accounts, accountLogin);
         if (accountEnvironmentRefresh) {
           commitActiveAccountEnvironmentPayload(
@@ -265,7 +322,7 @@ export async function bootstrapApp(options: BootstrapOptions = {}): Promise<Boot
       }))
     : Promise.resolve(null);
   const positionsPromise = accountLogin
-    ? requestJson(`/positions/${encodedAccountLogin}?limit=50&offset=0`).then((result) =>
+    ? requestJson(`/positions/${encodedAccountLogin}`).then((result) =>
       commitBootstrapResponse(result, cacheNamespace, (positions) => {
         const resolvedRows = unwrapArray(positions);
         usePositionsState.getState().applyPositionsSnapshot(resolvedRows, accountLogin, {
@@ -274,6 +331,8 @@ export async function bootstrapApp(options: BootstrapOptions = {}): Promise<Boot
         return positions;
       }))
     : Promise.resolve(null);
+  // `/orders/{login}` still works (max 500 rows) and matches the orders cache
+  // shape; `/account/orders` is preferred for paged order history elsewhere.
   const ordersPromise = accountLogin
     ? requestJson(`/orders/${encodedAccountLogin}`).then((result) =>
       commitBootstrapResponse(result, cacheNamespace, (orders) => {
@@ -284,51 +343,53 @@ export async function bootstrapApp(options: BootstrapOptions = {}): Promise<Boot
         return orders;
       }))
     : Promise.resolve(null);
-  const instrumentsPromise = requestJson('/instruments?favorites=true').then((result) =>
+  // Contract v3: plain /instruments (no favorites filter). The catalog primes
+  // the per-session instrument-meta cache that order tickets and charts read.
+  const instrumentsPromise = requestJson('/instruments', () => fetchInstrumentCatalogResponse(cacheNamespace)).then((result) =>
     commitBootstrapResponse(result, cacheNamespace, (instruments) => {
-      const instrumentRows = unwrapArray(instruments);
+      primeInstrumentMetaCacheFromCatalogPayload(instruments, cacheNamespace);
+      // The dashboard uses this same catalog. Seed its query so mounting after
+      // bootstrap completes does not immediately request /instruments again.
       appQueryClient.setQueryData(
-        ['instruments', cacheNamespace, 'favorites'],
-        instrumentRows,
+        ['market', cacheNamespace, 'symbols', 'instrument-catalog-v3'],
+        extractMarketSymbols(instruments),
       );
       return instruments;
     }));
+  // `/market/status` returns a bare array of per-symbol rows. Each normalized
+  // row seeds the per-symbol market-status query used by the UI.
   const marketStatusPromise = requestJson('/market/status').then((result) =>
-    commitBootstrapResponse(result, cacheNamespace, (marketStatus) => {
-      appQueryClient.setQueryData(['marketStatus', cacheNamespace], marketStatus);
+    commitBootstrapResponse(result, cacheNamespace, (payload) => {
+      const marketStatus = normalizeMarketStatusListPayload(payload);
+      for (const row of marketStatus) {
+        appQueryClient.setQueryData(getMarketStatusQueryKey(cacheNamespace, row.symbol), row);
+      }
       return marketStatus;
     }));
 
-  const [
-    me,
-    accounts,
-    positions,
-    orders,
-    instruments,
-    marketStatus,
-  ] = await Promise.all([
+  // Only these authoritative snapshots gate authentication. The remaining
+  // requests keep updating their session-scoped stores in the background.
+  const ready = Promise.all([mePromise, accountsPromise, instrumentsPromise])
+    .then(([me, accounts, instruments]) => {
+      acceptTradingHydration(cacheNamespace, me, accounts, instruments);
+      return { ...emptyBootstrapResult(), me, accounts, instruments };
+    });
+  const complete = Promise.all([
     mePromise,
     accountsPromise,
     positionsPromise,
     ordersPromise,
     instrumentsPromise,
     marketStatusPromise,
-  ]);
-
-  recordMarketDataEvent('bootstrap_gate', {
-    outcome: 'completed',
-    brokerId: sessionCapture.session.brokerId,
-    sessionEpoch: sessionCapture.session.sessionEpoch,
-    completedSnapshots: [me, accounts, positions, orders, instruments, marketStatus]
-      .filter((value) => value !== null).length,
+  ]).then(([me, accounts, positions, orders, instruments, marketStatus]) => {
+    recordMarketDataEvent('bootstrap_gate', {
+      outcome: 'completed',
+      brokerId: sessionCapture.session.brokerId,
+      sessionEpoch: sessionCapture.session.sessionEpoch,
+      completedSnapshots: [me, accounts, positions, orders, instruments, marketStatus]
+        .filter((value) => value !== null).length,
+    });
+    return { me, accounts, positions, orders, instruments, marketStatus };
   });
-
-  return {
-    me,
-    accounts,
-    positions,
-    orders,
-    instruments,
-    marketStatus,
-  };
+  return { ready, complete };
 }

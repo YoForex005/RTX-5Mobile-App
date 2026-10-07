@@ -183,7 +183,7 @@ export function ConfigBody({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
           <Pressable
             onPress={() => { onDone(); }}
             activateOnPressIn

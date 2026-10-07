@@ -21,6 +21,8 @@ export type ModifyPositionAckWire = Readonly<{
   price_sl?: number | null;
   tp?: number | null;
   price_tp?: number | null;
+  /** v3 optimistic-concurrency counter, passed through when present. */
+  state_version?: string;
 }>;
 
 export type KnownModifyPositionErrorCode =
@@ -31,7 +33,9 @@ export type KnownModifyPositionErrorCode =
   | 'RATE_LIMITED'
   | 'DATABASE_ERROR'
   | 'NO_FRESH_QUOTE'
-  | 'SOURCE_MISMATCH';
+  | 'SOURCE_MISMATCH'
+  | 'POSITION_STATE_CHANGED'
+  | 'TRIGGER_CAPTURE_UNAVAILABLE';
 
 export type ModifyPositionErrorWire = Readonly<{
   error: KnownModifyPositionErrorCode | (string & {});
@@ -239,6 +243,8 @@ export const parseModifyPositionAck = (
     );
   }
 
+  // v3 (contract 6.2) echoes ONLY the fields that were sent. A field that was
+  // not sent is never required (and never read); a sent field must match.
   const sl = hasOwn(request as unknown as Record<string, unknown>, 'price_sl')
     ? parseEcho(record, 'sl', 'price_sl', request.price_sl ?? null)
     : undefined;
@@ -252,6 +258,9 @@ export const parseModifyPositionAck = (
     time: record.time,
     ...(sl !== undefined ? { sl, price_sl: sl } : {}),
     ...(tp !== undefined ? { tp, price_tp: tp } : {}),
+    ...(record.state_version !== undefined && record.state_version !== null
+      ? { state_version: String(record.state_version) }
+      : {}),
   });
 };
 

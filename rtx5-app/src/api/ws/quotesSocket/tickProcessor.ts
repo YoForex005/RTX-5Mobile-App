@@ -89,6 +89,35 @@ const hasNestedCandleEnvelope = (record: Record<string, unknown>): boolean => {
   );
 };
 
+/**
+ * `/ws/feed` control frames. They carry `symbols` lists or error text but no
+ * price, so they must never reach the quote normalizer (which would record
+ * them as dropped quotes).
+ */
+const FEED_CONTROL_FRAME_TYPES = new Set([
+  'subscribed',
+  'unsubscribed',
+  'subscribed_candles',
+  'unsubscribed_candles',
+  'error',
+  'pong',
+]);
+
+const getFrameType = (payload: unknown): string => {
+  const record = asRecord(payload);
+  return typeof record?.type === 'string' ? record.type.trim().toLowerCase() : '';
+};
+
+export const isFeedControlFrame = (payload: unknown): boolean =>
+  FEED_CONTROL_FRAME_TYPES.has(getFrameType(payload));
+
+/** `{"type":"candle","symbol","tf","open","high","low","close","time",...}` */
+export const isFeedCandleFrame = (payload: unknown): boolean =>
+  getFrameType(payload) === 'candle' && hasBackendCandleShape(payload);
+
+const isFeedSnapshotFrame = (record: Record<string, unknown>): boolean =>
+  getFrameType(record) === 'snapshot' && Array.isArray(record.symbols);
+
 const isExplicitCandlePayload = (payload: unknown): boolean => {
   const record = asRecord(payload);
   if (!record) {
@@ -217,7 +246,10 @@ const routeBackendCandleUpdates = (bridge: TickProcessorBridge, payload: unknown
     return false;
   }
 
-  if (!shouldRouteBackendCandlePayloads()) {
+  // `/ws/feed` `{"type":"candle"}` frames answer our own `subscribe_candles`
+  // request and are the contract's live-candle source (they fill the gap left
+  // by lagging REST history). Other candle shapes stay behind the opt-in flag.
+  if (!isFeedCandleFrame(payload) && !shouldRouteBackendCandlePayloads()) {
     bridge.logCandleFeed('feed_candle_update_ignored_unverified', {
       reason: 'server_candle_source_disabled',
     }, 20);
@@ -257,6 +289,10 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   const receivedAt = Date.now();
   const receiptMonotonicAt = quoteLatencyMonotonicNow();
   const normalized = normalizeQuoteTickPayload(raw, receivedAt);
+  if (!normalized.ok && normalized.reason === 'no_quote') {
+    // Snapshot entry for a symbol the hub has no price for. Not an error.
+    return false;
+  }
   if (!normalized.ok) {
     recordMarketDataEvent('payload_dropped', {
       transport: 'quotes_ws',
@@ -348,6 +384,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     ...(normalizedUpdate.tickId === undefined ? {} : { tickId: normalizedUpdate.tickId }),
     ...(normalizedUpdate.source === undefined ? {} : { source: normalizedUpdate.source }),
     ...(normalizedUpdate.authority === undefined ? {} : { authority: normalizedUpdate.authority }),
+    ...(normalizedUpdate.marketState === undefined ? {} : { marketState: normalizedUpdate.marketState }),
     transport: 'websocket',
     ...(normalizedUpdate.stale === undefined ? {} : { stale: normalizedUpdate.stale }),
     ...(normalizedUpdate.tradable === undefined ? {} : { tradable: normalizedUpdate.tradable }),
@@ -389,6 +426,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     tickId: normalizedUpdate.tickId,
     source: normalizedUpdate.source,
     authority: normalizedUpdate.authority,
+    marketState: normalizedUpdate.marketState,
     transport: 'websocket',
     stale: normalizedUpdate.stale,
     tradable: normalizedUpdate.tradable,
@@ -480,6 +518,13 @@ const getQuoteCandidateItems = (payload: unknown): unknown[] => {
     return [parsed];
   }
 
+  // `{"type":"snapshot","symbols":[{symbol,bid,ask,...}]}` is sent right after
+  // the subscribe ack. Each entry is a quote; entries with has_quote:false are
+  // skipped by the normalizer.
+  if (isFeedSnapshotFrame(record)) {
+    return (record.symbols as unknown[]).map((item) => mergeQuoteEnvelopeContext(record, item));
+  }
+
   for (const key of ['data', 'ticks', 'prices', 'quotes', 'items', 'payload', 'message']) {
     const value = parseJsonStringPayload(record[key]);
     if (Array.isArray(value)) {
@@ -499,7 +544,15 @@ const getQuoteCandidateItems = (payload: unknown): unknown[] => {
 
 export const processIncomingPayload = (bridge: TickProcessorBridge, payload: any): boolean => {
   const parsedPayload = parseJsonStringPayload(payload);
+  if (isFeedControlFrame(parsedPayload)) {
+    // Acks are handled by the service; `unsupported_request` errors (for
+    // example a stray ping) leave the socket open and are ignored here.
+    return false;
+  }
   let hasUpdates = routeBackendCandleUpdates(bridge, parsedPayload);
+  if (isFeedCandleFrame(parsedPayload)) {
+    return hasUpdates;
+  }
 
   for (const candidate of getQuoteCandidateItems(parsedPayload)) {
     if (processTick(bridge, candidate)) {

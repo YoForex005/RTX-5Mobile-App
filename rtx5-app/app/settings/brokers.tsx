@@ -27,11 +27,11 @@ import {
   safeRouterBack,
   scheduleBackNavigationAfterVisualFrame,
 } from '../../src/utils/navigation';
-import { useUserPreferences } from '../../src/state/userPreferences';
+import { selectGuestBrokerById } from '../../src/services/selectGuestBroker';
+import { hideSidebarDestination } from '../../src/ui/components/sidebarDestinationHostController';
 
 export default function BrokersRoute() {
   const routeMountedRef = useRef(true);
-  const setBrokerConnection = useUserPreferences((state) => state.setBrokerConnection);
   useEffect(() => {
     routeMountedRef.current = true;
     return () => {
@@ -47,18 +47,11 @@ export default function BrokersRoute() {
       serverUrl: broker.serverUrl,
       onAvailable: () => {
         if (!routeMountedRef.current) return;
-        const selection = toBrokerDetailLaunchSelection(broker);
-        setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl);
-        const launchRevision = showBrokerDetailLaunch(selection);
-        if (brokersLaunchController.isVisible()) {
-          hideBrokersLaunch();
-        }
-        scheduleBrokerDetailLaunchNavigation(launchRevision, () => {
-          router.push({
-            pathname: '/settings/broker-detail',
-            params: selection,
-          });
-        });
+        void selectGuestBrokerById(broker.brokerId, () => routeMountedRef.current).then(selected => {
+          if (!selected || !routeMountedRef.current) return;
+          hideBrokersLaunch(); hideSidebarDestination();
+          router.replace('/(tabs)/quotes');
+        }).catch(error => Alert.alert('Broker unavailable', error.message));
       },
       onUnavailable: () => {
         if (!routeMountedRef.current) return;

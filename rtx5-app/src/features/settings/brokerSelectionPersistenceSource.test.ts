@@ -2,30 +2,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
-
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
-
-test('every broker picker persists its validated logged-out selection before detail navigation', () => {
-  const sources = [
-    readSource('src/features/settings/BrokersScreen/BrokersScreen.tsx'),
-    readSource('src/features/settings/BrokersLaunchHost.tsx'),
-    readSource('app/settings/brokers.tsx'),
-  ];
-
-  for (const source of sources) {
-    const healthGate = source.indexOf('selectedBrokerHealthGate.run({');
-    const available = source.indexOf('onAvailable:', healthGate);
-    const persistSelection = source.indexOf(
-      'setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl)',
-      available,
-    );
-    const directDetail = source.indexOf('showBrokerDetailLaunch(', available);
-    const delegatedDetail = source.indexOf('openBrokerDetail(selection)', available);
-    const openDetail = [directDetail, delegatedDetail]
-      .filter((index) => index >= 0)
-      .sort((a, b) => a - b)[0] ?? -1;
-    assert.ok(healthGate >= 0, 'broker selection must pass the health gate');
-    assert.ok(persistSelection > available, 'validated selection must be persisted');
-    assert.ok(openDetail > persistSelection, 'selection must persist before Broker Detail opens');
+test('every broker picker resolves supported identity and enters selected-broker guest browsing', () => {
+  for (const path of ['src/features/settings/BrokersScreen/BrokersScreen.tsx', 'src/features/settings/BrokersLaunchHost.tsx', 'app/settings/brokers.tsx']) {
+    const source = readSource(path);
+    assert.match(source, /selectedBrokerHealthGate\.run\(/);
+    assert.match(source, /selectGuestBroker(?:ById)?\(/);
+    assert.match(source, /replace\('\/\(tabs\)\/quotes'\)/);
+    assert.doesNotMatch(source, /setBrokerConnection\(broker\.brokerId, broker\.serverUrl/);
   }
+  const service = readSource('src/services/selectGuestBroker.ts');
+  assert.match(service, /getBrokerDirectoryForBroker\(brokerId\)/);
+  assert.match(service, /row\.broker_id === brokerId/);
+  assert.match(service, /const logout = tryPrepareGuestBrokerSelection\(\) \? null : logoutBrokerSession\(\)/);
+  assert.match(service, /if \(logout\) await logout/);
+  assert.ok(service.indexOf('await logout') < service.indexOf('setPublicBrokerContext(record)'));
 });

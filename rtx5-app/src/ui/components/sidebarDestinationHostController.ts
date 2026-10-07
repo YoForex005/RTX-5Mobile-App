@@ -1,3 +1,6 @@
+import { scheduleAfterVisualFrame } from '../../utils/afterVisualFrame';
+import { clearFastTabVisual } from '../navigation/fastTabVisualController';
+
 export const SIDEBAR_HOST_DESTINATIONS = [
   'journal',
   'economic-calendar',
@@ -53,7 +56,7 @@ export type SidebarDestinationController = Readonly<{
    * Like subscribe, but notified synchronously in the same JavaScript turn as
    * show/hide. Layer VISIBILITY must ride this immediate path (plain React
    * styles committed with the tap turn) while focus/query work stays on the
-   * two-frame deferred `subscribe` path.
+   * after-paint `subscribe` path.
    */
   subscribeVisual: (listener: () => void) => () => void;
   show: (
@@ -96,14 +99,12 @@ const CLOSED_SNAPSHOT: SidebarDestinationSnapshot = Object.freeze({
   revision: 0,
 });
 
-/** Focus/query work runs only after the drawer close motion has settled. */
-const FOCUS_NOTIFY_SETTLE_DELAY_MS = 60;
-// A suspended frame queue or Fast Refresh can drop the two scheduled frames
+// A suspended frame queue or Fast Refresh can drop a scheduled frame
 // after the native layer is already visible. Always publish the matching focus
 // snapshot within a bounded window so a retained destination cannot stay as a
 // header-only/blank screen.
 const FOCUS_NOTIFY_FAILSAFE_DELAY_MS = 250;
-const SIDEBAR_DESTINATION_CONTROLLER_VERSION = 4;
+const SIDEBAR_DESTINATION_CONTROLLER_VERSION = 6;
 
 /**
  * Converts Expo Router paths (including grouped routes and query/hash suffixes)
@@ -141,7 +142,7 @@ export function resolveSidebarHostDestination(
 /**
  * Small external store used by the root destination host. The immediate visual
  * snapshot and retained layer change in the same JavaScript turn as show/hide.
- * On a device, the separate focus snapshot advances after two paint frames so
+ * On a device, the separate focus snapshot advances after a paint opportunity so
  * the tap never waits for destination focus/query work.
  */
 export function createSidebarDestinationController(
@@ -164,11 +165,15 @@ export function createSidebarDestinationController(
     })
     : CLOSED_SNAPSHOT;
   let focusSnapshot = snapshot;
+  let cancelFocusNotification: (() => void) | null = null;
 
   const notifyAfterFirstVisualFrame = (
     nextSnapshot: SidebarDestinationSnapshot,
   ) => {
+    cancelFocusNotification?.();
+    cancelFocusNotification = null;
     const notifyIfCurrent = () => {
+      cancelFocusNotification = null;
       if (
         notificationRevision !== nextSnapshot.revision
         || focusSnapshot.revision === nextSnapshot.revision
@@ -180,33 +185,15 @@ export function createSidebarDestinationController(
       listeners.forEach((listener) => listener());
     };
 
-    // Settings rows have no drawer animation to protect. Publish focus now so
-    // the hosted screen's own two-frame body gate is the only first-open wait.
-    if (nextSnapshot.source === 'settings') {
-      notifyIfCurrent();
-      return;
-    }
-
-    // Node/test environments have no frame clock and retain the controller's
-    // synchronous observable contract. On-device, the retained native layer
-    // paints first and the drawer close animation (~60ms) finishes before
-    // focus/query React work is published — a focus commit landing
-    // mid-animation was measured dropping 48-86ms of drawer frames.
+    // Node/test environments retain their synchronous observable contract.
+    // On-device the cached destination paints first. Selection now closes the
+    // drawer immediately, so focus needs no animation-settle delay.
     if (typeof globalThis.requestAnimationFrame !== 'function') {
       notifyIfCurrent();
       return;
     }
 
-    // Timers resume even when the frame callbacks were discarded while the
-    // app was paused or its JS modules refreshed. The revision guards above
-    // make this a no-op when the normal two-frame publication already won.
-    setTimeout(notifyIfCurrent, FOCUS_NOTIFY_FAILSAFE_DELAY_MS);
-
-    globalThis.requestAnimationFrame(() => {
-      globalThis.requestAnimationFrame(() => {
-        setTimeout(notifyIfCurrent, FOCUS_NOTIFY_SETTLE_DELAY_MS);
-      });
-    });
+    cancelFocusNotification = scheduleAfterVisualFrame(notifyIfCurrent, FOCUS_NOTIFY_FAILSAFE_DELAY_MS);
   };
 
   const publish = (nextSnapshot: SidebarDestinationSnapshot) => {
@@ -340,7 +327,11 @@ export function showSidebarDestination(
   destinationOrPath: SidebarHostDestination | SidebarHostDestinationPath | string,
   source: SidebarDestinationActivationSource = 'programmatic',
 ) {
-  return sidebarDestinationController.show(destinationOrPath, source);
+  const shown = sidebarDestinationController.show(destinationOrPath, source);
+  // A newer hosted destination owns navigation. Cancel an older deferred tab
+  // commit before it can change the URL and hide this newly revealed layer.
+  if (shown) clearFastTabVisual();
+  return shown;
 }
 
 export function hideSidebarDestination() {

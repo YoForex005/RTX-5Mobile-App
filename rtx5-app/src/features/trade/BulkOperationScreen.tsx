@@ -34,6 +34,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../utils/actionLatency';
 import { bulkModeLabel, filterPositionsForBulk } from './tradeFlow';
 import { resolveLivePositionPnl } from './livePositionMetrics';
+import { runBulkClose } from './bulkClose';
 import {
   classifyTradingError,
   createFrontendTradingError,
@@ -56,6 +57,7 @@ import {
 } from '../../state/activeBrokerSession';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 import { requestOrrnnDemoTradeAuth } from './tradeAuthPrompt';
+import { blockInvestorTradeAction, useInvestorReadOnlySession } from '../../hooks/useInvestorReadOnlySession';
 
 const CANVAS_DARK = '#121212';
 const CARD_DARK = '#1E1E1E';
@@ -74,6 +76,7 @@ export function BulkOperationScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const { t } = useTranslation();
+  const investorReadOnly = useInvestorReadOnlySession();
   const retainedPositionsRef = useRef(usePositionsState.getState().positions);
   const positions = usePositionsState((state) => (
     isScreenFocused ? state.positions : retainedPositionsRef.current
@@ -176,6 +179,8 @@ export function BulkOperationScreen() {
     })) {
       return;
     }
+    // Investor (read-only) login: the server would answer 403 INVESTOR_READ_ONLY.
+    if (blockInvestorTradeAction(t)) return;
     if (runningRef.current || affectedPositions.length === 0) {
       return;
     }
@@ -224,8 +229,12 @@ export function BulkOperationScreen() {
 
     safeRouterBack(router, '/(tabs)/trade');
 
-    const results = await Promise.allSettled(
-      snapshots.map((position) => positionsApi.closePosition(position.id)),
+    // The first close runs alone: a 503 ENGINE_CLOSE_UNAVAILABLE (or an
+    // investor read-only login) stops the batch instead of firing N doomed
+    // closes. Nothing here retries.
+    const { results, stopError } = await runBulkClose(
+      snapshots,
+      (position) => positionsApi.closePosition(position.id),
     );
     if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
       runningRef.current = false;
@@ -247,14 +256,17 @@ export function BulkOperationScreen() {
     void invalidateSessionQueryRoots(
       appQueryClient,
       actionProvenance.cacheNamespace,
-      ['positionHistory', 'accountDeals', 'deals', 'positions', 'ordersByLogin', 'accountSummary', 'exposure', 'transactions'],
+      ['positionHistory', 'accountDeals', 'deals', 'positions', 'ordersByLogin', 'accountSummary', 'transactions'],
     );
 
     if (resolvedLogin) {
       void latest.refreshPositions(resolvedLogin);
     }
 
-    if (failed > 0) {
+    if (stopError) {
+      const feedback = classifyTradingError(stopError, { action: 'close-position' });
+      Alert.alert(feedback.title, t(feedback.message));
+    } else if (failed > 0) {
       const feedback = classifyTradingError(
         new Error(`${failed} of ${snapshots.length} closes failed`),
         { action: 'close-position' },
@@ -271,7 +283,7 @@ export function BulkOperationScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: screenBg }]}>
+    <View style={[styles.root, { backgroundColor: screenBg, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
 
       <View style={styles.customHeader}>
@@ -404,10 +416,10 @@ export function BulkOperationScreen() {
         <Pressable
           style={[
             styles.executeButton,
-            (affectedPositions.length === 0 || isRunning || Boolean(bulkQuoteBlock)) && styles.executeDisabled,
+            (investorReadOnly || affectedPositions.length === 0 || isRunning || Boolean(bulkQuoteBlock)) && styles.executeDisabled,
           ]}
           onPress={() => { void handleExecute(); }}
-          disabled={affectedPositions.length === 0 || isRunning || Boolean(bulkQuoteBlock)}
+          disabled={investorReadOnly || affectedPositions.length === 0 || isRunning || Boolean(bulkQuoteBlock)}
           activateOnPressIn
           latencyLabel="bulk.execute"
           latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
@@ -467,7 +479,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   customHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48,
+    minHeight: 48,
     paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: isDark ? DIVIDER_DARK : T.borderSubtle,
@@ -485,7 +497,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   headerTitle: {
     textAlign: 'center',
     fontSize: 17,
-    fontWeight: '600',
+    fontWeight: '500',
     letterSpacing: 0.15,
   },
   scrollView: { flex: 1 },
@@ -633,7 +645,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     padding: 14,
   },
   statusBoxSuccess: {
-    borderColor: isDark ? 'rgba(16,185,129,0.34)' : 'rgba(5,150,105,0.24)',
+    borderColor: `${T.trading.profit}55`,
     backgroundColor: T.upGlow,
   },
   statusBoxError: {

@@ -61,11 +61,17 @@ export const getStartupDiagnostics = () => ({
   gitDirty: extra().gitDirty ?? null,
 });
 
+// The full build/runtime context is identical for every startup event, so it
+// is printed once per launch; later events carry only their own details.
+// Errors always include the full context.
+let startupContextLogged = false;
+
 export function logStartupDiagnostic(event: string, details: Record<string, unknown> = {}) {
-  console.info(`[Startup] ${redactSensitiveString(event)}`, redactDiagnosticValue({
-    ...getStartupDiagnostics(),
-    ...details,
-  }));
+  const includeContext = !startupContextLogged;
+  startupContextLogged = true;
+  console.info(`[Startup] ${redactSensitiveString(event)}`, redactDiagnosticValue(
+    includeContext ? { ...getStartupDiagnostics(), ...details } : details,
+  ));
 }
 
 export function logStartupError(

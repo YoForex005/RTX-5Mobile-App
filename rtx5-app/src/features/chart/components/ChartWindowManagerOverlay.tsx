@@ -371,7 +371,7 @@ function makeStyles(T: ThemeColors) {
       color: T.text,
       fontSize: 20,
       lineHeight: 26,
-      fontWeight: '600',
+      fontWeight: '500',
     },
     divider: {
       height: StyleSheet.hairlineWidth,

@@ -34,11 +34,29 @@ import { hasProtectedPositionsMutation } from '../../state/positionsMutationBarr
 import { isTerminalPositionUpdate } from '../../state/positionsState.helpers';
 import {
   recordProtectionTriggeredJournalEvent,
+  recordTerminalExecutionEvent,
 } from '../../state/terminalJournalState';
 import {
   normalizeProtectionTriggeredEvent,
   type NormalizedProtectionTriggeredEvent,
 } from './protectionTriggeredEvent';
+import {
+  buildTradeSocketSubscriptionMessages,
+  classifyPositionEvent,
+  isAccountChangingPositionEvent,
+  isHistoryChangingPositionEvent,
+  isMetricsEventName,
+  parseTradeSocketFrame,
+  readPositionCloseReason,
+  shouldCycleTradeSocketForSessionEvent,
+} from './tradeSocketProtocol';
+
+/** Recoverable transport diagnostics: dev builds only, console.log (no LogBox toast). */
+const logBrokerRealtimeDiagnostic = (...args: unknown[]): void => {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log(...args.map(redactDiagnosticValue));
+  }
+};
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
@@ -48,7 +66,6 @@ const HISTORY_INVALIDATION_COALESCE_MS = 250;
 const HISTORY_INVALIDATION_COOLDOWN_MS = 1_000;
 const AUTH_SESSION_UNAVAILABLE_PATTERN =
   /No authenticated broker session available|Refresh token invalid or expired|No refresh token available/i;
-const ACTIVE_TRADE_CHANNELS = ['positions', 'metrics', 'deals'] as const;
 const HISTORY_CACHE_KEYS = [
   'positionHistory',
   'deals',
@@ -64,24 +81,19 @@ const HISTORY_EVENT_PATTERN = /(^|\.)(deal|deals|history)(\.|$)/;
 const SOCKET_CONTROL_EVENT_PATTERN =
   /(^|\.)(ack|heartbeat|ping|pong|subscribe|subscribed|subscription|unsubscribe|unsubscribed)(\.|$)/;
 
+/**
+ * Contract v3: `positions.<login>` and `metrics.<login>` only, one channel per
+ * message. `deals.<login>` is dropped; `position_closed` refreshes history instead.
+ */
 export const buildBrokerRealtimeSubscriptionMessages = (
   accountLogin: string | number,
-): ReadonlyArray<Readonly<{ action: 'subscribe'; channel: string }>> => {
-  const login = String(accountLogin).trim();
-  if (!login) return [];
-  return ACTIVE_TRADE_CHANNELS.map((channel) => Object.freeze({
-    action: 'subscribe' as const,
-    channel: `${channel}.${login}`,
-  }));
-};
+): ReadonlyArray<Readonly<{ action: 'subscribe'; channel: string }>> =>
+  buildTradeSocketSubscriptionMessages(accountLogin);
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-
-const getPayloadData = (payload: Record<string, unknown>): unknown =>
-  payload.data ?? payload.payload ?? payload.result ?? payload;
 
 const normalizeChannel = (value: unknown): string => String(value ?? '').trim();
 
@@ -102,6 +114,8 @@ const isHistoryPayloadEvent = (
     return false;
   }
 
+  // `deals.*` / `history.*` are no longer subscribed (contract v3) but remain
+  // tolerated if a deployment still publishes them.
   return (
     channel.startsWith('deals.') ||
     channel.startsWith('history.') ||
@@ -222,21 +236,23 @@ class BrokerRealtimeService {
   private historyInvalidationEpoch = 0;
   private lastHistoryInvalidationAt = 0;
   private readonly processedTerminalEvents = new Set<string>();
+  /** Set when credentials rotate while a URL resolution is in flight. */
+  private pendingCredentialCycle = false;
 
   private constructor() {
     subscribeActiveBrokerSession((event) => {
-      if (event.type !== 'credentials_updated' || !event.activeSession) {
+      // /ws/v2 authenticates only at upgrade time and never re-checks the
+      // token. brokerApi's refresh path commits every rotated token through
+      // updateActiveBrokerSessionCredentials(), which emits
+      // `credentials_updated`; close and reopen with the new token each time.
+      if (!shouldCycleTradeSocketForSessionEvent(event, this.shouldReconnect) || !event.activeSession) {
         return;
       }
       const identity = getActiveBrokerSessionIdentity(event.activeSession);
       if (!isActiveBrokerSessionCurrent(identity)) {
         return;
       }
-      // A credential rotation must not leave the trade socket authenticated
-      // with the superseded token.
-      if (this.shouldReconnect) {
-        this.reconnect();
-      }
+      this.reconnect();
     });
   }
 
@@ -279,6 +295,9 @@ class BrokerRealtimeService {
     }
     if (this.isSuspended) {
       return;
+    }
+    if (this.isOpening) {
+      this.pendingCredentialCycle = true;
     }
     this.clearReconnectTimer();
     this.teardownSocket();
@@ -336,6 +355,9 @@ class BrokerRealtimeService {
         this.isSuspended ||
         !this.shouldReconnect ||
         !ownerStamp ||
+        // A credential rotation that raced the URL resolution may have put a
+        // superseded token into wsUrl; resolve again with the current token.
+        this.consumePendingCredentialCycle() ||
         !isActiveBrokerSessionCurrent(identity) ||
         ownerStamp.brokerId !== identity.brokerId ||
         ownerStamp.accountLogin !== identity.accountLogin ||
@@ -389,10 +411,7 @@ class BrokerRealtimeService {
             }
           }
         } catch (error) {
-          console.warn(
-            '[BrokerRealtime] Failed to parse message',
-            redactDiagnosticValue(error),
-          );
+          logBrokerRealtimeDiagnostic('[BrokerRealtime] Failed to parse message', error);
         }
       };
 
@@ -422,9 +441,15 @@ class BrokerRealtimeService {
         this.pauseUntilNextLogin();
         return;
       }
-      console.warn('[BrokerRealtime] Connection failed', redactDiagnosticValue(error));
+      logBrokerRealtimeDiagnostic('[BrokerRealtime] Connection failed', error);
       if (isActiveBrokerSessionCurrent(identity)) this.scheduleReconnect(identity);
     }
+  }
+
+  private consumePendingCredentialCycle(): boolean {
+    const pending = this.pendingCredentialCycle;
+    this.pendingCredentialCycle = false;
+    return pending;
   }
 
   private resolveChannels(identity: ActiveBrokerSessionIdentity): string[] {
@@ -461,32 +486,71 @@ class BrokerRealtimeService {
       return false;
     }
 
-    const channel = normalizeChannel(record.channel ?? record.topic);
-    const data = getPayloadData(record);
-    const dataRecord = asRecord(data);
-    const eventName =
-      normalizeEventName(dataRecord?.type ?? dataRecord?.event ?? dataRecord?.action) ||
-      normalizeEventName(record.type ?? record.event ?? record.action);
+    const frame = parseTradeSocketFrame(record);
+    if (frame.kind === 'pong' || frame.kind === 'ack') {
+      // Liveness evidence only; subscriptions need no client-side bookkeeping.
+      return true;
+    }
+    if (frame.kind === 'error') {
+      logBrokerRealtimeDiagnostic('[BrokerRealtime] Channel error', {
+        channel: frame.channel,
+        message: frame.message,
+      });
+      return false;
+    }
+    if (frame.kind !== 'event') {
+      return false;
+    }
+
+    const channel = normalizeChannel(frame.channel);
+    const eventName = frame.eventName;
+    if (frame.clientOrderId) {
+      // The terminal's execution confirmation for a command this phone sent:
+      // journal it as the Terminal "Order/Close executed" row. Journaling
+      // never affects how the event itself is applied below.
+      try {
+        recordTerminalExecutionEvent(frame.clientOrderId, eventName, frame.payload);
+      } catch {
+        // Best-effort diagnostics only.
+      }
+    }
+    // Nested contract: the envelope is `data` ({event_id, type, data}) and the
+    // row(s) live in `data.data`. Flat legacy frames pass their data object.
+    const data = frame.nested ? frame.envelope : frame.payload;
+    const dataRecord = asRecord(frame.payload) ?? frame.envelope;
     const statusName =
       normalizeEventName(dataRecord?.status) ||
       normalizeEventName(record.status);
 
     let accepted = false;
-    if (channel.startsWith('positions.') || eventName.includes('position')) {
+    const isMetricsFrame = channel.startsWith('metrics.') || isMetricsEventName(eventName);
+    if (
+      !isMetricsFrame &&
+      (channel.startsWith('positions.') ||
+        eventName.includes('position') ||
+        classifyPositionEvent(eventName) !== 'unknown')
+    ) {
       accepted = this.handlePositions(data, eventName, identity) || accepted;
     }
 
-    if (
-      channel.startsWith('metrics.') ||
-      eventName.includes('metrics')
-    ) {
-      accepted = this.handleAccount(dataRecord ?? record, identity) || accepted;
+    if (isMetricsFrame) {
+      // The server sends a metrics snapshot right after subscribe. Fields whose
+      // server calculation failed are absent, so the live store keeps the last
+      // values instead of receiving fake zeros.
+      accepted = this.handleAccount(
+        dataRecord ?? record,
+        identity,
+        eventName === 'metrics.update',
+      ) || accepted;
     }
 
-    // `deals.LOGIN` is the confirmed execution channel. Some broker
-    // deployments also emit compatible `history.LOGIN` envelopes, so accept
-    // those defensively without subscribing to an undocumented channel.
-    if (isHistoryPayloadEvent(channel, eventName, statusName)) {
+    // Contract v3 drops `deals.LOGIN`: a closing/partial-closing position
+    // event is the history refresh signal. Legacy `deals.`/`history.`
+    // envelopes are still tolerated if a deployment publishes them.
+    if (
+      isHistoryChangingPositionEvent(eventName) ||
+      isHistoryPayloadEvent(channel, eventName, statusName)
+    ) {
       this.scheduleHistoryQueryInvalidation(identity);
       accepted = true;
     }
@@ -519,8 +583,27 @@ class BrokerRealtimeService {
       return true;
     }
 
+    const positionEventKind = classifyPositionEvent(eventName);
+    if (positionEventKind === 'partial_close' || positionEventKind === 'account') {
+      // position_partial_close rows do not guarantee remaining-volume
+      // semantics and margin_call carries account data: reconcile from REST.
+      this.schedulePositionsReconciliation(identity);
+      this.invalidateLifecycleQueries(eventName, identity);
+      return true;
+    }
+
+    if (positionEventKind === 'closed') {
+      const closedRow = asRecord(record.data) ?? record;
+      if (this.handlePositionClosed(closedRow, identity)) {
+        return true;
+      }
+    }
+
     const lifecycleHints = this.getLifecycleHints(record, eventName);
-    const nestedPosition = asRecord(record.position) ?? asRecord(record.item);
+    const nestedPosition =
+      asRecord(record.position) ??
+      asRecord(record.item) ??
+      asRecord(record.data);
     if (nestedPosition) {
       this.applyRealtimePositionUpdate({
         ...lifecycleHints,
@@ -537,6 +620,33 @@ class BrokerRealtimeService {
       ...record,
     }, identity);
     this.invalidateLifecycleQueries(eventName, identity);
+    return true;
+  }
+
+  /**
+   * Explicit `position_closed` (manual close, stop-out). SL/TP hits are routed
+   * through handleProtectionTriggered first. Netting closes/reversals may keep
+   * the ticket alive on netting accounts, so they only reconcile from REST.
+   * Returns false when the row has no usable ticket (caller falls back).
+   */
+  private handlePositionClosed(
+    row: Record<string, unknown>,
+    identity: ActiveBrokerSessionIdentity,
+  ): boolean {
+    const rawTicket = row.ticket ?? row.position_ticket;
+    const ticket = typeof rawTicket === 'number' || typeof rawTicket === 'string'
+      ? String(rawTicket).trim()
+      : '';
+    if (!/^\d+$/.test(ticket) || !/[1-9]/.test(ticket)) {
+      return false;
+    }
+    const closeReason = readPositionCloseReason(row);
+    if (closeReason !== 'netting_close' && closeReason !== 'netting_reverse') {
+      usePositionsState.getState().finishOptimisticClose(ticket);
+    }
+    notifyModifyPositionSocketHint([rawTicket as string | number], identity.accountLogin);
+    this.schedulePositionsReconciliation(identity);
+    this.invalidateLifecycleQueryRoots(identity);
     return true;
   }
 
@@ -830,7 +940,7 @@ class BrokerRealtimeService {
         )),
       );
     } catch (error) {
-      console.warn(
+      console.error(
         '[BrokerRealtime] Failed to invalidate history queries',
         redactDiagnosticValue(error),
       );
@@ -859,6 +969,7 @@ class BrokerRealtimeService {
   private handleAccount(
     data: Record<string, unknown>,
     identity: ActiveBrokerSessionIdentity,
+    isFullSnapshot = false,
   ): boolean {
     // Use the same tested normalizer as the legacy account socket. It handles
     // nested envelopes, numeric strings, snake/camel aliases, and skips blank
@@ -870,7 +981,13 @@ class BrokerRealtimeService {
       ...(login !== undefined ? { login } : {}),
     };
     if (Object.keys(metrics).length === 0) return false;
-    useLiveAccountState.getState().updateMetrics(metrics);
+    if (isFullSnapshot) {
+      // `metrics_update` carries every metric; one that is missing failed on
+      // the server, so keep its last value and flag it stale.
+      useLiveAccountState.getState().applyMetricsSnapshot(metrics);
+    } else {
+      useLiveAccountState.getState().updateMetrics(metrics);
+    }
     return true;
   }
 
@@ -909,6 +1026,7 @@ class BrokerRealtimeService {
     }
 
     const shouldInvalidate =
+      isAccountChangingPositionEvent(eventName) ||
       isTerminalPositionUpdate({ event: eventName }) ||
       eventName.includes('partial.closed') ||
       eventName.includes('closed') ||

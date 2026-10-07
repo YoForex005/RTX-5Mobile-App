@@ -64,7 +64,8 @@ test('each broker card probes only its own validated feed status endpoint', () =
     /probeBrokerDirectoryHealth\([\s\S]*broker\.feedStatusUrl,[\s\S]*activeController\.signal/,
   );
   assert.doesNotMatch(health, /broker_id=|URLSearchParams|market_api_url/);
-  assert.match(health, /Provider online · policy unverified/);
+  assert.match(health, /normalizeFeedStatusVerdict\(payload, observedAt\)/);
+  assert.doesNotMatch(health, /normalizeConfirmedFeedStatus|upstreamConnected|\.upstream_connected/);
 });
 
 test('broker health badges refresh while focused, expire stale results, and clean up', () => {
@@ -121,8 +122,9 @@ test('the mounted route removes the retained cover even while the directory is l
 
   assert.match(
     source,
-    /useLayoutEffect\(\(\) => \{[\s\S]*if \(!isScreenFocused\)[\s\S]*scheduleBrokersLaunchCoverRemoval\(launchSnapshot\.revision\)[\s\S]*\}, \[isScreenFocused\]\)/,
+    /useLayoutEffect\(\(\) => \{[\s\S]*if \(!isScreenFocused\)[\s\S]*scheduleBrokersLaunchCoverRemoval\(launchSnapshot\.revision\)[\s\S]*\}, \[isScreenFocused, onSelectBroker\]\)/,
   );
+  assert.match(source, /if \(onSelectBroker\) return;/);
   assert.doesNotMatch(source, /directoryQuerySettled/);
   assert.doesNotMatch(source, /brokerRecords\.length === 0/);
 });
@@ -157,8 +159,8 @@ test('every broker picker entry waits for exact selected-server health before op
   }
 
   assert.match(screenSelect, /onAvailable: \(\) => \{[\s\S]*openBrokerDetail\(selection\)/);
-  assert.match(hostSelect, /onAvailable: \(\) => \{[\s\S]*showBrokerDetailLaunch\(selection\)/);
-  assert.match(routeSelect, /onAvailable: \(\) => \{[\s\S]*showBrokerDetailLaunch\(selection\)/);
+  assert.match(hostSelect, /onAvailable: \(\) => \{[\s\S]*selectGuestBrokerById\(broker\.brokerId/);
+  assert.match(routeSelect, /onAvailable: \(\) => \{[\s\S]*selectGuestBrokerById\(broker\.brokerId/);
   assert.doesNotMatch(screen, /prepareBrokerDetailLaunch/);
   assert.match(
     screen,

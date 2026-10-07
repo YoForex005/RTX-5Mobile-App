@@ -45,6 +45,7 @@ import {
 } from '../../../trade/tradeBackendCapabilities';
 import type { ChartTradeQueueEvent } from '../ChartTradeReceiptStack';
 import { requestOrrnnDemoTradeAuth } from '../../../trade/tradeAuthPrompt';
+import { markTradeIntent } from '../../../../utils/tradeIntent';
 
 const CHART_TRADE_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
@@ -56,9 +57,9 @@ const logChartTradeDiagnostic = (...args: Parameters<typeof console.log>) => {
   }
 };
 
-const warnChartTradeDiagnostic = (...args: Parameters<typeof console.warn>) => {
+const warnChartTradeDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (CHART_TRADE_DIAGNOSTICS_ENABLED) {
-    console.warn(...args.map(redactDiagnosticValue));
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
@@ -771,8 +772,11 @@ export function useTradeHandler({
     }
   };
 
-  const handleTrade = (side: TradeSide) =>
-    runCriticalTradeAction(`chart.${variant}.trade.${side}`, () => executeTrade(side));
+  const handleTrade = (side: TradeSide) => {
+    // Tap time for the Journal's order latency telemetry.
+    markTradeIntent();
+    return runCriticalTradeAction(`chart.${variant}.trade.${side}`, () => executeTrade(side));
+  };
 
   const isChartTradeActionBusy = (side: TradeSide) => activeSide === side && tradeTapLockRef.current;
   const chartTradeActionDisabled = resolveChartTradeActionDisabled({

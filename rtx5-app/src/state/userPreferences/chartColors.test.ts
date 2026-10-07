@@ -8,6 +8,17 @@ import {
   resolveChartColorsForTheme,
 } from './chartColors';
 
+test('default and saved legacy take-profit accents follow the theme while custom picks survive', () => {
+  for (const savedColor of ['#089981', '#4597FF', '#1D4ED8']) {
+    const saved = { ...DEFAULT_CHART_COLORS, tradeTpSl: savedColor };
+    assert.equal(resolveChartColorsForTheme(saved, 'custom', true).tradeTpSl, '#4597FF');
+    assert.equal(resolveChartColorsForTheme(saved, 'custom', false).tradeTpSl, '#1D4ED8');
+  }
+  const custom = { ...DEFAULT_CHART_COLORS, tradeTpSl: '#FACC15' };
+  assert.equal(resolveChartColorsForTheme(custom, 'custom', true).tradeTpSl, '#FACC15');
+  assert.equal(resolveChartColorsForTheme(custom, 'custom', false).tradeTpSl, '#FACC15');
+});
+
 test('chart color resolver uses app-theme structure with default green/red candles', () => {
   const lightColors = resolveChartColorsForTheme(DEFAULT_CHART_COLORS, DEFAULT_CHART_COLOR_SCHEME, false);
   const darkColors = resolveChartColorsForTheme(DEFAULT_CHART_COLORS, DEFAULT_CHART_COLOR_SCHEME, true);

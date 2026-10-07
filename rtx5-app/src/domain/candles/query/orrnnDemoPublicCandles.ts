@@ -30,7 +30,7 @@ export const resolveOrrnnDemoPublicCandleSelection = (
   symbol: string,
   timeframe: string,
 ): OrrnnDemoPublicCandleSelection | null => {
-  const normalizedSymbol = normalizeSymbol(symbol);
+  const normalizedSymbol = String(symbol).trim();
   const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
   if (
     !normalizedSymbol

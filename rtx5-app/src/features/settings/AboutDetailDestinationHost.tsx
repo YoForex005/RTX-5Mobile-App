@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useSyncExternalStore } from 'reac
 import { BackHandler, StyleSheet, View } from 'react-native';
 import { DeveloperContactRequestScreen } from './AboutScreen';
 import { LegalDocumentScreen } from './LegalDocumentScreen';
+import { requestBugReportClose } from './bugReportRuntime';
 import {
   ABOUT_DETAIL_DESTINATIONS,
   aboutDetailDestinationController,
@@ -48,7 +49,8 @@ export const AboutDetailDestinationHost = memo(function AboutDetailDestinationHo
       if (!aboutDetailDestinationController.isVisible()) {
         return false;
       }
-      closeHost();
+      if (aboutDetailDestinationController.getSnapshot().destination === 'contact-developer') requestBugReportClose(closeHost);
+      else closeHost();
       return true;
     });
     return () => subscription.remove();

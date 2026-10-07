@@ -136,6 +136,8 @@ test('trade feedback modal is an absolute overlay (not RN Modal) to avoid WebVie
   const source = readSource('src/ui/components/TradeFeedbackModal.tsx');
   assert.doesNotMatch(source, /from 'react-native'.*Modal|Modal,/);
   assert.doesNotMatch(source, /<Modal/);
+  assert.doesNotMatch(source, /Animated\.timing|opacityAnim|slideAnim/,
+    'receipt reconciliation must not hide and restart an already visible popup');
   assert.match(source, /receiptOverlay:\s*\{[\s\S]*\.\.\.StyleSheet\.absoluteFillObject/);
   assert.match(source, /overlay:\s*\{[\s\S]*\.\.\.StyleSheet\.absoluteFillObject/);
   assert.match(source, /zIndex: 10050/);

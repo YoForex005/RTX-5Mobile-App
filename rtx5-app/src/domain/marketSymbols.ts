@@ -65,6 +65,10 @@ const pickSymbol = (item: unknown): string | null => {
     return null;
   }
 
+  if (itemRecord.enabled === false || itemRecord.enabled === 0 || itemRecord.enabled === 'false') {
+    return null;
+  }
+
   for (const key of SYMBOL_FIELD_KEYS) {
     const value = itemRecord[key];
     if (typeof value === 'string') {

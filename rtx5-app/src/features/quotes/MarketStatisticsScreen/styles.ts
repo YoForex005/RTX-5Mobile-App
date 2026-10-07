@@ -41,7 +41,7 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: T.text,
       fontSize: 17,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     headerRightSpacer: {

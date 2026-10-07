@@ -623,8 +623,8 @@ test('chart header: OHLC values use theme-aware neutral color plus fixed high lo
   );
   assertSourceContains(
     nativeSource,
-    /const CHART_OHLC_HIGH_COLOR = '#089981'/,
-    'OHLC high must use the fixed green market color',
+    /const CHART_OHLC_HIGH_COLOR = GDark\.trading\.profit/,
+    'OHLC high must use the positive blue theme color',
   );
   assertSourceContains(
     nativeSource,
@@ -638,8 +638,8 @@ test('chart header: OHLC values use theme-aware neutral color plus fixed high lo
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'H', value: formatValue\(candle\?\.high\), color: CHART_OHLC_HIGH_COLOR \}/,
-    'H value must stay green regardless of candle direction',
+    /\{ label: 'H', value: formatValue\(candle\?\.high\), color: isDark \? CHART_OHLC_HIGH_COLOR : GLight\.trading\.profit \}/,
+    'H value must use theme-aware blue regardless of candle direction',
   );
   assertSourceContains(
     nativeSource,
@@ -685,7 +685,7 @@ test('chart header: OHLC values use theme-aware neutral color plus fixed high lo
   );
   assertSourceContains(
     webSource,
-    /\{ label: 'H', value: formatChartValue\(chartMetaLastCandle\.high\), color: CHART_OHLC_HIGH_COLOR \}/,
+    /\{ label: 'H', value: formatChartValue\(chartMetaLastCandle\.high\), color: isDark \? CHART_OHLC_HIGH_COLOR : GLight\.trading\.profit \}/,
     'web H value must stay green too',
   );
   assertSourceContains(
@@ -716,6 +716,11 @@ test('overlay bridge: repeated overlay sync clears previous lines before recreat
 test('overlay bridge: trade labels follow their price coordinate off screen', () => {
   const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
   const anchoredLineBody = extractFunctionBody(source, 'renderAnchoredTradeLine');
+  assertSourceContains(
+    anchoredLineBody,
+    /line\.style\.transform = isOpenPositionOverlayLine\(item\) \? 'scaleY\(0\.5\)' : 'none'/,
+    'only the open-position stroke becomes a hairline without scaling its labels',
+  );
   const anchoredLaneBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelLane');
   const applyAnchoredLaneBody = extractFunctionBody(source, 'applyAnchoredOverlayLabelLane');
   const anchoredTopsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelTops');

@@ -102,12 +102,24 @@ export const normalizeMarketStatusPayload = (
   const symbolValue = pick(record, ['symbol', 'Symbol', 'instrument', 'code']);
   const messageValue = pick(record, ['message', 'reason', 'status_message', 'statusMessage']);
 
+  const tradeOpen = toOptionalBoolean(
+    pick(record, ['trade_open', 'tradeOpen', 'trading_open', 'tradingOpen', 'tradable']),
+  );
+  // Contract v3 sends {symbol, quote_open, trade_open, message, server_time}
+  // with no status key. trade_open is authoritative: open when true, closed
+  // when false. A legacy status string is used only when trade_open is absent.
+  const status: MarketStatusPhase = tradeOpen === true
+    ? 'open'
+    : tradeOpen === false
+      ? 'closed'
+      : normalizePhase(pick(record, ['status', 'market_status', 'marketStatus', 'phase']));
+
   return {
     symbol:
       typeof symbolValue === 'string' && symbolValue.trim()
         ? symbolValue.trim()
         : fallbackSymbol,
-    status: normalizePhase(pick(record, ['status', 'market_status', 'marketStatus', 'phase'])),
+    status,
     session_open: toUnixSeconds(
       pick(record, ['session_open', 'sessionOpen', 'open_time', 'openTime', 'next_open', 'nextOpen']),
     ),
@@ -117,9 +129,7 @@ export const normalizeMarketStatusPayload = (
     quote_open: toOptionalBoolean(
       pick(record, ['quote_open', 'quoteOpen', 'quotes_open', 'quotesOpen', 'price_open', 'priceOpen']),
     ),
-    trade_open: toOptionalBoolean(
-      pick(record, ['trade_open', 'tradeOpen', 'trading_open', 'tradingOpen', 'tradable']),
-    ),
+    trade_open: tradeOpen,
     server_time: toUnixSeconds(
       pick(record, ['server_time', 'serverTime', 'timestamp', 'time']),
     ),
@@ -129,6 +139,44 @@ export const normalizeMarketStatusPayload = (
         : undefined,
   };
 };
+
+/**
+ * GET /market/status returns a bare array of per-symbol rows. Envelopes
+ * ({data:[...]}) are tolerated; rows without a symbol are dropped.
+ */
+export const normalizeMarketStatusListPayload = (payload: unknown): MarketStatusDTO[] => {
+  const record = asRecord(payload);
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray(record?.data)
+      ? record?.data as unknown[]
+      : Array.isArray(record?.items)
+        ? record?.items as unknown[]
+        : [];
+  return rows
+    .map((row) => normalizeMarketStatusPayload(row))
+    .filter((row) => Boolean(row.symbol));
+};
+
+/**
+ * Text to show beside a closed market (for example "schedule unavailable").
+ * Open markets return null because the server's message is just "open".
+ */
+export const resolveMarketStatusClosedMessage = (
+  status: Pick<MarketStatusDTO, 'status' | 'message'> | null | undefined,
+): string | null => {
+  if (!status || status.status !== 'closed') return null;
+  const message = typeof status.message === 'string' ? status.message.trim() : '';
+  return message && message.toLowerCase() !== 'closed' ? message : null;
+};
+
+export async function fetchAllMarketStatuses(): Promise<MarketStatusDTO[]> {
+  const res = await apiClient('/market/status');
+  if (!res.ok) {
+    throw new Error('Failed to fetch market status');
+  }
+  return normalizeMarketStatusListPayload(await res.json());
+}
 
 export async function fetchMarketStatus(symbol: string): Promise<MarketStatusDTO> {
   const res = await apiClient(`/market/status/${encodeURIComponent(symbol)}`);

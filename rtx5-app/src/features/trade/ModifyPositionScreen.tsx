@@ -12,7 +12,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import {
-  ActivityIndicator, Alert, Dimensions, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
   type LayoutChangeEvent, type StyleProp, type ViewStyle,
   Platform
 } from 'react-native';
@@ -67,6 +67,7 @@ import {
   SLTP_COMING_SOON_TITLE,
 } from './tradeBackendCapabilities';
 import { requestOrrnnDemoTradeAuth } from './tradeAuthPrompt';
+import { blockInvestorTradeAction, useInvestorReadOnlySession } from '../../hooks/useInvestorReadOnlySession';
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 const MODIFY_POSITION_QUOTE_COMMIT_INTERVAL_MS = 50;
@@ -229,7 +230,8 @@ const ModifyPositionTickChart = memo(function ModifyPositionTickChart({
     ));
   }, []);
 
-  const chartHeight = Math.max(220, Math.min(Dimensions.get('window').height * 0.32, 340));
+  const { height: windowHeight } = useWindowDimensions();
+  const chartHeight = Math.max(160, Math.min(windowHeight * 0.32, 340));
   const w = chartLayout.width;
   const h = chartLayout.height;
   let minPrice = Math.min(BID, ASK);
@@ -373,6 +375,7 @@ export function ModifyPositionScreen({
     : routePositionId;
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
+  const investorReadOnly = useInvestorReadOnlySession();
   const isDark = useIsDarkTheme();
   const themeActive = !hosted || hostedActive;
   const T = useTheme({ active: themeActive });
@@ -433,6 +436,14 @@ export function ModifyPositionScreen({
 
   const [stopLoss, setStopLoss] = useState<number | null>(null);
   const [takeProfit, setTakeProfit] = useState<number | null>(null);
+  // While the hidden numeric input is being typed, the raw text is the source
+  // of truth for what the field shows. Deriving the input value from the
+  // parsed number erased a trailing decimal point on every keystroke, which
+  // made decimal SL/TP edits impossible ("4140." re-rendered as "4140" and the
+  // next digit appended to the integer part). Steppers, presets, clear and
+  // position reloads all clear the raw text so display follows the number.
+  const [slInputText, setSlInputText] = useState<string | null>(null);
+  const [tpInputText, setTpInputText] = useState<string | null>(null);
   const modifySubmittingRef = useRef(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [positionPickerOpen, setPositionPickerOpen] = useState(false);
@@ -538,6 +549,8 @@ export function ModifyPositionScreen({
     if (!position) return;
     setStopLoss(position.sl && position.sl > 0 ? position.sl : null);
     setTakeProfit(position.tp && position.tp > 0 ? position.tp : null);
+    setSlInputText(null);
+    setTpInputText(null);
   }, [position?.id, position?.sl, position?.tp]);
 
 
@@ -742,7 +755,8 @@ export function ModifyPositionScreen({
   // quote must disable the mutation affordance. The handler still rechecks the
   // latest snapshot to close the small gap between render and press.
   const canModifyPosition = Boolean(
-    position
+    !investorReadOnly
+    && position
     && symbolsMatch
     && hasUsableMarketPrice
     && !existingPositionModifyLocked
@@ -766,6 +780,7 @@ export function ModifyPositionScreen({
       return;
     }
     setSubmitMessage(null);
+    setSlInputText(null);
     setStopLoss((prev) => {
       // If setting for the first time, bias it directly against the live matching price for the position side
       let base = prev;
@@ -803,6 +818,7 @@ export function ModifyPositionScreen({
       return;
     }
     setSubmitMessage(null);
+    setTpInputText(null);
     setTakeProfit((prev) => {
       let base = prev;
       if (!base) {
@@ -844,8 +860,10 @@ export function ModifyPositionScreen({
     ));
     const normalizedTarget = parseFloat(target.toFixed(decimals));
     if (kind === 'sl') {
+      setSlInputText(null);
       setStopLoss(normalizedTarget);
     } else {
+      setTpInputText(null);
       setTakeProfit(normalizedTarget);
     }
   }, [
@@ -872,19 +890,39 @@ export function ModifyPositionScreen({
    * Callback fired when the user manually types a new Stop Loss price into the input field.
    */
   const handleSlChange = (text: string) => {
+    setSlInputText(text);
+    if (text.trim() === '') {
+      setStopLoss(null);
+      return;
+    }
     const val = parseFloat(text);
     if (!isNaN(val)) setStopLoss(val);
-    if (text === '') setStopLoss(null);
   };
 
   /**
    * Callback fired when the user manually types a new Take Profit price into the input field.
    */
   const handleTpChange = (text: string) => {
+    setTpInputText(text);
+    if (text.trim() === '') {
+      setTakeProfit(null);
+      return;
+    }
     const val = parseFloat(text);
     if (!isNaN(val)) setTakeProfit(val);
-    if (text === '') setTakeProfit(null);
   };
+
+  // Leaving a field commits the typed text to a tick-snapped price and hands
+  // the display back to the numeric state.
+  const handleSlBlur = useCallback(() => {
+    setSlInputText(null);
+    setStopLoss((prev) => (prev === null ? null : snapStopTarget(prev)));
+  }, [snapStopTarget]);
+
+  const handleTpBlur = useCallback(() => {
+    setTpInputText(null);
+    setTakeProfit((prev) => (prev === null ? null : snapStopTarget(prev)));
+  }, [snapStopTarget]);
 
   /**
    * Submits the requested SL/TP modifications to the trade server and displays a success or error confirmation alert.
@@ -897,6 +935,8 @@ export function ModifyPositionScreen({
     })) {
       return;
     }
+    // Investor (read-only) login: the server would answer 403 INVESTOR_READ_ONLY.
+    if (blockInvestorTradeAction(t)) return;
     if (modifySubmittingRef.current || coordinatorBusy) {
       return;
     }
@@ -974,7 +1014,9 @@ export function ModifyPositionScreen({
     const previousTp = Number(position.tp) > 0 ? Number(position.tp) : 0;
 
     if (requestedSl === previousSl && requestedTp === previousTp) {
-      handleBack();
+      // Closing silently here read as "Modify does nothing" when a typed edit
+      // had been mangled back to the old value. Say why nothing was sent.
+      setSubmitMessage(t('No SL/TP changes to submit.'));
       return;
     }
 
@@ -1090,7 +1132,7 @@ export function ModifyPositionScreen({
 
   if (!position) {
     return (
-      <View style={styles.screen}>
+      <View style={[styles.screen, { paddingLeft: insets.left, paddingRight: insets.right }]}>
         <View style={{ height: insets.top, backgroundColor: screenBg }} />
         <View style={[styles.header, { paddingTop: 6 }]}>
           <View style={styles.headerTopRow}>
@@ -1130,7 +1172,7 @@ export function ModifyPositionScreen({
   const askFmt = formatModifyPrice(ASK, decimals);
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { paddingLeft: insets.left, paddingRight: insets.right }]}>
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
 
       {/* Header */}
@@ -1190,6 +1232,7 @@ export function ModifyPositionScreen({
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         bounces={false}
         alwaysBounceVertical={false}
         overScrollMode="never"
@@ -1211,14 +1254,14 @@ export function ModifyPositionScreen({
         <View style={styles.priceHero}>
           <View style={styles.priceCard}>
             <Text style={styles.priceLabel}>{t('BID')}</Text>
-            <Text style={[styles.priceNormal, { color: isBuy ? T.trading.sell.primary : T.trading.buy.primary }]}>
+            <Text style={[styles.priceNormal, { color: isBuy ? T.trading.sell.primary : T.trading.buy.primary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
               {bidFmt.main}<Text style={styles.priceHuge}>{bidFmt.huge}</Text>
             </Text>
           </View>
           <View style={styles.priceCardDivider} />
           <View style={styles.priceCard}>
             <Text style={styles.priceLabel}>{t('ASK')}</Text>
-            <Text style={[styles.priceNormal, { color: isBuy ? T.trading.buy.primary : T.trading.sell.primary }]}>
+            <Text style={[styles.priceNormal, { color: isBuy ? T.trading.buy.primary : T.trading.sell.primary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
               {askFmt.main}<Text style={styles.priceHuge}>{askFmt.huge}</Text>
             </Text>
           </View>
@@ -1294,6 +1337,8 @@ export function ModifyPositionScreen({
             onChangeText: (text: string) => void,
             onClear: () => void,
             rawValue: number | null,
+            inputText: string | null,
+            onBlur: () => void,
           ) => {
             const distanceInvalid = Boolean(impact && !impact.distanceValid);
             const distanceColor = distanceInvalid ? T.trading.sell.primary : T.text;
@@ -1362,8 +1407,9 @@ export function ModifyPositionScreen({
                   <TextInput
                     style={styles.stepperHiddenInput}
                     keyboardType="numeric"
-                    value={rawValue !== null ? rawValue.toString() : ''}
+                    value={inputText ?? (rawValue !== null ? rawValue.toString() : '')}
                     onChangeText={onChangeText}
+                    onBlur={onBlur}
                     placeholder="0"
                     placeholderTextColor="transparent"
                   />
@@ -1443,8 +1489,8 @@ export function ModifyPositionScreen({
 
           return (
             <View style={styles.stepperRow}>
-              {renderCard('sl', SL_COLOR, t('Stop Loss'), slParts, slImpact, handleStepSl, handleSlPreset, handleSlChange, () => setStopLoss(null), stopLoss)}
-              {renderCard('tp', TP_COLOR, t('Take Profit'), tpParts, tpImpact, handleStepTp, handleTpPreset, handleTpChange, () => setTakeProfit(null), takeProfit)}
+              {renderCard('sl', SL_COLOR, t('Stop Loss'), slParts, slImpact, handleStepSl, handleSlPreset, handleSlChange, () => { setSlInputText(null); setStopLoss(null); }, stopLoss, slInputText, handleSlBlur)}
+              {renderCard('tp', TP_COLOR, t('Take Profit'), tpParts, tpImpact, handleStepTp, handleTpPreset, handleTpChange, () => { setTpInputText(null); setTakeProfit(null); }, takeProfit, tpInputText, handleTpBlur)}
             </View>
           );
         })()}
@@ -1495,6 +1541,15 @@ export function ModifyPositionScreen({
                 quoteActionBlockMessage(quoteAvailability)
                 || 'Wait for a live bid/ask before modifying Stop Loss or Take Profit.',
               )}
+            </Text>
+          )}
+          {/* The submit button is disabled while the coordinator owns this
+              ticket; without a caption that read as a dead, silent button. */}
+          {!existingPositionModifyLocked && !submitMessage && !stopValidationError && hasUsableMarketPrice && (coordinatorBusy || coordinatorRateLimited) && (
+            <Text style={styles.validationText} accessibilityRole="alert">
+              {coordinatorRateLimited
+                ? t('Wait for the broker retry period before submitting again.')
+                : t('The previous modification is still being applied to this position.')}
             </Text>
           )}
         </View>
@@ -1636,6 +1691,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
   },
   headerTitleWrap: {
     flex: 1,
+    minWidth: 0,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1644,8 +1701,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
   headerActionLabel: {
     color: T.text,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '500',
     letterSpacing: 0.6,
+    flexShrink: 1,
   },
   headerTicketLabel: {
     color: T.textMuted,
@@ -1660,6 +1718,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
     justifyContent: 'center',
     gap: 6,
     marginTop: 2,
+    flexWrap: 'wrap',
   },
   headerSide: {
     fontSize: 15,
@@ -1702,6 +1761,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
   },
   priceCard: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
   },
   priceCardDivider: {
@@ -1718,6 +1778,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
     includeFontPadding: false,
   },
   priceNormal: {
+    width: '100%',
+    textAlign: 'center',
     fontSize: 24,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],

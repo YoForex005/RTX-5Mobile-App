@@ -12,7 +12,7 @@ export const colors = {
   border: GDark.border,
   text: GDark.text,
   textMuted: GDark.textMuted,
-  positive: GDark.trading.profit,   // #10B981
+  positive: GDark.trading.profit,
   negative: GDark.trading.loss,     // #EF4444
   warning: '#f59e0b',
   accent: GDark.accent,

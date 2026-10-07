@@ -17,6 +17,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -38,6 +39,8 @@ import Reanimated, {
 import { useTheme } from '../../theme/useTheme';
 import { useThemeMode } from '../../../state/themeMode';
 import { FastPressable } from '../FastPressable';
+import { scheduleAfterVisualFrame } from '../../../utils/afterVisualFrame';
+import { registerInteractionLifecycleHandler } from '../../../utils/interactionLifecycle';
 import { useTranslation } from '../../../i18n/useTranslation';
 import {
   scheduleActionSheetVisualHandoffCloseCommit,
@@ -386,7 +389,7 @@ export function ActionSheet({
   const styles = useMemo(() => makeActionSheetStyles(T, isDark), [T, isDark]);
   const { t } = useTranslation();
   const screenHeight = Dimensions.get('screen').height;
-  const { height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight, fontScale } = useWindowDimensions();
   const initialMeasuredHeight = resolveActionSheetInitialMeasuredHeight({
     instantOpen,
     screenHeight,
@@ -395,6 +398,7 @@ export function ActionSheet({
   const [mounted, setMounted] = useState(ACTION_SHEET_KEEP_HOST_MOUNTED || visible);
   const [query, setQuery] = useState('');
   const [currentOverlayHeight, setCurrentOverlayHeight] = useState(initialMeasuredHeight);
+  const [currentSheetHostHeight, setCurrentSheetHostHeight] = useState(initialMeasuredHeight);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [, refreshMt5ConfigSwapGuard] = useState(0);
   // Measured height from the host layout. Start from the visible window height
@@ -549,8 +553,8 @@ export function ActionSheet({
   const retainedAdoptionVisualKeyRef = useRef<string | null>(null);
   const entryAnimationStartedForOpenRef = useRef(false);
   const mt5DismissCompletedRef = useRef(false);
-  const mt5ConfigSwapRevealFrameRef = useRef<number | null>(null);
-  const mt5ConfigSwapAnimationFrameRef = useRef<number | null>(null);
+  const mt5ConfigSwapRevealCancelRef = useRef<(() => void) | null>(null);
+  const mt5ConfigSwapAnimationCancelRef = useRef<(() => void) | null>(null);
   const mt5ConfigSwapAnimationPendingRef = useRef(false);
   const mt5ConfigSwapHostParkedRef = useRef(false);
   const reactVisibleRef = useRef(visible);
@@ -591,13 +595,13 @@ export function ActionSheet({
     retainedAdoptionVisualKeyRef.current = null;
     entryAnimationStartedForOpenRef.current = false;
     mt5ConfigSwapAnimationPendingRef.current = true;
-    if (mt5ConfigSwapRevealFrameRef.current !== null) {
-      cancelAnimationFrame(mt5ConfigSwapRevealFrameRef.current);
-      mt5ConfigSwapRevealFrameRef.current = null;
+    if (mt5ConfigSwapRevealCancelRef.current !== null) {
+      mt5ConfigSwapRevealCancelRef.current();
+      mt5ConfigSwapRevealCancelRef.current = null;
     }
-    if (mt5ConfigSwapAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(mt5ConfigSwapAnimationFrameRef.current);
-      mt5ConfigSwapAnimationFrameRef.current = null;
+    if (mt5ConfigSwapAnimationCancelRef.current !== null) {
+      mt5ConfigSwapAnimationCancelRef.current();
+      mt5ConfigSwapAnimationCancelRef.current = null;
     }
     // Unlike shared animated props, this React-owned opacity participates in
     // the same native commit as the replacement subtree, guaranteeing that the
@@ -735,9 +739,9 @@ export function ActionSheet({
           // Guard release must not arm a second fallback entry animation.
           mt5ConfigSwapAnimationPendingRef.current = false;
         }
-        if (mt5ConfigSwapRevealFrameRef.current === null) {
-          mt5ConfigSwapRevealFrameRef.current = requestAnimationFrame(() => {
-            mt5ConfigSwapRevealFrameRef.current = null;
+        if (mt5ConfigSwapRevealCancelRef.current === null) {
+          mt5ConfigSwapRevealCancelRef.current = scheduleAfterVisualFrame(() => {
+            mt5ConfigSwapRevealCancelRef.current = null;
             if (reactVisibleRef.current) {
               mt5ConfigSwapHostParkedRef.current = false;
               // Remove the imperative native hide directly. Waiting for the
@@ -749,12 +753,12 @@ export function ActionSheet({
               if (
                 !retainedMt5RevealInFlight
                 && mt5ConfigSwapAnimationPendingRef.current
-                && mt5ConfigSwapAnimationFrameRef.current === null
+                && mt5ConfigSwapAnimationCancelRef.current === null
               ) {
                 // Let the now-visible parent reach the compositor before the
                 // child host reveals at its parked entry position.
-                mt5ConfigSwapAnimationFrameRef.current = requestAnimationFrame(() => {
-                  mt5ConfigSwapAnimationFrameRef.current = null;
+                mt5ConfigSwapAnimationCancelRef.current = scheduleAfterVisualFrame(() => {
+                  mt5ConfigSwapAnimationCancelRef.current = null;
                   if (
                     reactVisibleRef.current
                     && mt5ConfigSwapAnimationPendingRef.current
@@ -781,7 +785,7 @@ export function ActionSheet({
       if (activeEntryMotion === 'mt5Slide' && !retainedMt5RevealInFlight) {
         if (
           !mt5ConfigSwapHostParkedRef.current
-          && mt5ConfigSwapAnimationFrameRef.current === null
+          && mt5ConfigSwapAnimationCancelRef.current === null
         ) {
           // The target rows and capped geometry have already committed while
           // hidden. Start in layout so a coalesced reopen cannot remain parked
@@ -801,13 +805,13 @@ export function ActionSheet({
         }
       }
     } else if (activeEntryMotion === 'mt5Slide' || activeImmediateHostHideOnClose) {
-      if (mt5ConfigSwapRevealFrameRef.current !== null) {
-        cancelAnimationFrame(mt5ConfigSwapRevealFrameRef.current);
-        mt5ConfigSwapRevealFrameRef.current = null;
+      if (mt5ConfigSwapRevealCancelRef.current !== null) {
+        mt5ConfigSwapRevealCancelRef.current();
+        mt5ConfigSwapRevealCancelRef.current = null;
       }
-      if (mt5ConfigSwapAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(mt5ConfigSwapAnimationFrameRef.current);
-        mt5ConfigSwapAnimationFrameRef.current = null;
+      if (mt5ConfigSwapAnimationCancelRef.current !== null) {
+        mt5ConfigSwapAnimationCancelRef.current();
+        mt5ConfigSwapAnimationCancelRef.current = null;
       }
       mt5ConfigSwapAnimationPendingRef.current = false;
       if (mt5ConfigSwapHostParkedRef.current) {
@@ -941,13 +945,13 @@ export function ActionSheet({
       // A retained press can win while an ordinary/config-swap reveal is still
       // queued. It now owns the reveal, so remove every older parent-release
       // callback before seeding and exposing this exact mounted child.
-      if (mt5ConfigSwapRevealFrameRef.current !== null) {
-        cancelAnimationFrame(mt5ConfigSwapRevealFrameRef.current);
-        mt5ConfigSwapRevealFrameRef.current = null;
+      if (mt5ConfigSwapRevealCancelRef.current !== null) {
+        mt5ConfigSwapRevealCancelRef.current();
+        mt5ConfigSwapRevealCancelRef.current = null;
       }
-      if (mt5ConfigSwapAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(mt5ConfigSwapAnimationFrameRef.current);
-        mt5ConfigSwapAnimationFrameRef.current = null;
+      if (mt5ConfigSwapAnimationCancelRef.current !== null) {
+        mt5ConfigSwapAnimationCancelRef.current();
+        mt5ConfigSwapAnimationCancelRef.current = null;
       }
       mt5ConfigSwapAnimationPendingRef.current = false;
       if (mt5ConfigSwapHostParkedRef.current) {
@@ -1107,6 +1111,7 @@ export function ActionSheet({
   const actionRowMinHeight = isMt5StylePresentation
     ? ACTION_SHEET_MT5_PLAIN_ROW_MIN_HEIGHT
     : ACTION_SHEET_ROW_MIN_HEIGHT;
+  const wrapActionText = windowWidth - insets.left - insets.right < 360 || fontScale > 1.1;
   const actionsContentExtraHeight = isMt5StylePresentation
     ? ACTION_SHEET_MT5_PLAIN_ACTIONS_BOTTOM_PADDING
     : 0;
@@ -1130,6 +1135,7 @@ export function ActionSheet({
   // is disabled so it stops padding the bottom-anchored sheet up. Isolated —
   // every other searchable sheet keeps the avoidance math unchanged.
   const keepFullHeightSheet = activeSearchable && activeKeepFullHeightOnKeyboard;
+  const fixedSheetKeyboardPadding = keepFullHeightSheet ? keyboardHeight : 0;
   // Quotes symbol menus (and other non-searchable MT5 sheets) must never sit in
   // a KeyboardAvoidingView on iOS — the padding behavior can collapse the host
   // even with the keyboard closed and is the common "sheet shrinks on iOS only"
@@ -1152,17 +1158,21 @@ export function ActionSheet({
   const unhandledKeyboardLift = Math.max(0, eventKeyboardLift - resizeKeyboardLift);
   const measuredVisibleHeight = androidSearchableSheet
     ? measuredHeight - effectiveKeyboardLift
-    : measuredHeight;
+    : keepFullHeightSheet
+      ? measuredHeight
+      : Math.min(measuredHeight, currentOverlayHeight || measuredHeight, currentSheetHostHeight || measuredHeight, windowHeight || measuredHeight);
   const bottomSpacerHeight = unhandledKeyboardLift;
   // Use the measured layout height from the in-tree overlay host.
-  const availableWindowHeight = Math.max(260, measuredVisibleHeight);
+  const availableWindowHeight = Math.max(0, measuredVisibleHeight);
   const maxVisibleHeight = Math.max(
-    260,
+    0,
     availableWindowHeight - topInset - bottomInset - 12,
   );
   const reservedChromeHeight =
-    (activeTitle ? (isMt5StylePresentation ? 64 : 58) : (isMt5StylePresentation ? 0 : 28)) +
-    (activeSearchable ? 56 : 0);
+    (activeTitle ? (isMt5StylePresentation ? 64 : 58) * Math.max(1, fontScale) : (isMt5StylePresentation ? 0 : 28)) +
+    (activeSearchable ? Math.max(56, Math.ceil(22 * fontScale + 32)) : 0);
+  // Short windows need the title and search field to scroll with the actions.
+  const scrollSheetChrome = maxVisibleHeight < reservedChromeHeight + actionRowMinHeight * 2;
   const timeframeGridRows = Math.ceil(filteredActions.length / ACTION_SHEET_TIMEFRAME_GRID_COLUMNS);
   const estimatedTimeframeGridActionsHeight = timeframeGridRows > 0
     ? ACTION_SHEET_TIMEFRAME_GRID_VERTICAL_PADDING +
@@ -1233,13 +1243,13 @@ export function ActionSheet({
   const sheetHeightStyle = shouldLockSheetHeight
     ? { height: sheetMaxHeight }
     : { maxHeight: sheetMaxHeight };
-  const actionsMaxHeight = Math.max(140, sheetMaxHeight - reservedChromeHeight);
+  const actionsMaxHeight = Math.max(0, sheetMaxHeight - reservedChromeHeight - sheetBottomSafePad);
   const actionsMinHeight = sheetFloorMinHeight
-    ? Math.max(180, sheetFloorMinHeight - reservedChromeHeight)
+    ? Math.min(actionsMaxHeight, Math.max(0, sheetFloorMinHeight - reservedChromeHeight - sheetBottomSafePad))
     : undefined;
   const hasSubtitleActionRows = filteredActions.some((action) => Boolean(action.subtitle));
   const hasPlainActionRows = filteredActions.some((action) => !action.subtitle);
-  const hasVariableActionRowHeights = hasSubtitleActionRows && hasPlainActionRows;
+  const hasVariableActionRowHeights = (hasSubtitleActionRows && hasPlainActionRows) || wrapActionText;
   const uniformActionRowHeight = hasSubtitleActionRows
     ? ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT
     : actionRowMinHeight;
@@ -1248,12 +1258,14 @@ export function ActionSheet({
       action.subtitle ? ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT : actionRowMinHeight
     ),
     actionsContentExtraHeight,
-  );
+  ) + fixedSheetKeyboardPadding;
   // FlatList only scrolls reliably when its layout height is strictly smaller
   // than content. maxHeight alone often expands to full content on Android and
   // the parent clips the rest — tools past the first screen never appear.
-  const actionListNeedsScroll = estimatedFilteredActionsHeight > actionsMaxHeight + 0.5;
-  const actionListSizeStyle = actionListNeedsScroll
+  const actionListNeedsScroll = scrollSheetChrome || estimatedFilteredActionsHeight > actionsMaxHeight + 0.5;
+  const actionListSizeStyle = scrollSheetChrome
+    ? { height: Math.max(0, sheetMaxHeight - sheetBottomSafePad) }
+    : actionListNeedsScroll
     ? { height: actionsMaxHeight }
     : {
         maxHeight: actionsMaxHeight,
@@ -1298,6 +1310,8 @@ export function ActionSheet({
     : undefined;
   const shouldRenderInlineActions =
     !isTimeframeGridPresentation &&
+    !wrapActionText &&
+    !scrollSheetChrome &&
     !activeSearchable &&
     filteredActions.length <= ACTION_SHEET_INLINE_ACTION_LIMIT &&
     estimatedActionsHeight <= actionsMaxHeight;
@@ -1352,13 +1366,13 @@ export function ActionSheet({
     // A retained/config-swap reveal may already be queued when an action is
     // selected. Cancel both frames before hiding so neither callback can
     // restore the outgoing MT5 host after this close has committed.
-    if (mt5ConfigSwapRevealFrameRef.current !== null) {
-      cancelAnimationFrame(mt5ConfigSwapRevealFrameRef.current);
-      mt5ConfigSwapRevealFrameRef.current = null;
+    if (mt5ConfigSwapRevealCancelRef.current !== null) {
+      mt5ConfigSwapRevealCancelRef.current();
+      mt5ConfigSwapRevealCancelRef.current = null;
     }
-    if (mt5ConfigSwapAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(mt5ConfigSwapAnimationFrameRef.current);
-      mt5ConfigSwapAnimationFrameRef.current = null;
+    if (mt5ConfigSwapAnimationCancelRef.current !== null) {
+      mt5ConfigSwapAnimationCancelRef.current();
+      mt5ConfigSwapAnimationCancelRef.current = null;
     }
     mt5ConfigSwapAnimationPendingRef.current = false;
 
@@ -1409,6 +1423,47 @@ export function ActionSheet({
     onClose();
   }, [hideMt5ActionSheetNow, onClose]);
 
+  const resetActionSheetForLifecycle = useCallback(() => {
+    const shouldClose = reactVisibleRef.current || retainedVisualOwnerRef.current !== null;
+    // Stop old passive effects and queued reveal/action callbacks before
+    // touching animation values; stopAnimation can itself invoke callbacks.
+    reactVisibleRef.current = false;
+    pendingActionCancelRef.current?.();
+    pendingActionCancelRef.current = null;
+    pendingActionRef.current = null;
+    mt5ConfigSwapRevealCancelRef.current?.();
+    mt5ConfigSwapRevealCancelRef.current = null;
+    mt5ConfigSwapAnimationCancelRef.current?.();
+    mt5ConfigSwapAnimationCancelRef.current = null;
+    mt5ConfigSwapAnimationPendingRef.current = false;
+    mt5ConfigSwapHostParkedRef.current = false;
+    retainedVisualOwnerRef.current = null;
+    retainedAdoptionVisualKeyRef.current = null;
+    closeAnimationRunningRef.current = false;
+    mt5DismissCompletedRef.current = true;
+    entryAnimationStartedForOpenRef.current = false;
+    actionPressGestureRef.current = { start: null, cancelled: true };
+    cancelRetainedActionSheetPreview();
+    overlayOpacity.stopAnimation();
+    sheetTranslateY.stopAnimation();
+    overlayOpacity.setValue(0);
+    sheetTranslateY.setValue(resolveMt5EntryTranslateY());
+    writeMt5ActionSheetValuesOnUI(mt5HostOpacity, mt5OverlayOpacity, mt5SheetTranslateY, 0, resolveMt5EntryTranslateY());
+    overlayLayerRef.current?.setNativeProps({
+      style: { opacity: 0 }, pointerEvents: 'none',
+      accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants',
+    });
+    setVisibilityBarrierNow(false);
+    sheetBodyRef.current?.setNativeProps({ pointerEvents: 'none' });
+    hostHiddenImperativelyRef.current = true;
+    searchInputRef.current?.blur();
+    setKeyboardHeight(0);
+    hasMeasuredOverlayRef.current = false;
+    if (shouldClose) onClose();
+  }, [mt5HostOpacity, mt5OverlayOpacity, mt5SheetTranslateY, onClose, overlayOpacity, resolveMt5EntryTranslateY, setVisibilityBarrierNow, sheetTranslateY]);
+
+  useEffect(() => registerInteractionLifecycleHandler(resetActionSheetForLifecycle), [resetActionSheetForLifecycle]);
+
   const handleOverlayLayout = useCallback((event: { nativeEvent: { layout: { height: number } } }) => {
     const h = event.nativeEvent.layout.height;
     if (h > 0) {
@@ -1434,6 +1489,10 @@ export function ActionSheet({
       measuredSheetBodyHeightRef.current = height;
     }
   }, []);
+  const handleSheetHostLayout = useCallback((event: { nativeEvent: { layout: { height: number } } }) => {
+    const height = event.nativeEvent.layout.height;
+    if (height > 0) setCurrentSheetHostHeight(height);
+  }, []);
 
   // Dismiss keyboard when the ActionSheet opens and seed measured height for
   // this open cycle. Instant sheets must never reset downward after their
@@ -1457,7 +1516,7 @@ export function ActionSheet({
   }, [activeInstantOpen, activeVisualKey, visible]);
 
   useEffect(() => {
-    if (Platform.OS !== 'android' || !activeSearchable) {
+    if ((Platform.OS !== 'android' && !activeKeepFullHeightOnKeyboard) || !activeSearchable) {
       setKeyboardHeight(0);
       return;
     }
@@ -1490,17 +1549,17 @@ export function ActionSheet({
       showSub.remove();
       hideSub.remove();
     };
-  }, [activeSearchable, insets.bottom]);
+  }, [activeKeepFullHeightOnKeyboard, activeSearchable, insets.bottom]);
 
   useEffect(() => {
     return () => {
-      if (mt5ConfigSwapRevealFrameRef.current !== null) {
-        cancelAnimationFrame(mt5ConfigSwapRevealFrameRef.current);
-        mt5ConfigSwapRevealFrameRef.current = null;
+      if (mt5ConfigSwapRevealCancelRef.current !== null) {
+        mt5ConfigSwapRevealCancelRef.current();
+        mt5ConfigSwapRevealCancelRef.current = null;
       }
-      if (mt5ConfigSwapAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(mt5ConfigSwapAnimationFrameRef.current);
-        mt5ConfigSwapAnimationFrameRef.current = null;
+      if (mt5ConfigSwapAnimationCancelRef.current !== null) {
+        mt5ConfigSwapAnimationCancelRef.current();
+        mt5ConfigSwapAnimationCancelRef.current = null;
       }
       if (pendingActionCancelRef.current) {
         pendingActionCancelRef.current();
@@ -1773,6 +1832,7 @@ export function ActionSheet({
         disabled={isActiveDisabled}
         style={({ pressed }) => [
           styles.action,
+          wrapActionText && { paddingVertical: 8 },
           isMt5PlainPresentation && styles.actionMt5Plain,
           action.danger && !isMt5PlainPresentation && styles.actionDanger,
           action.subtitle && styles.actionWithSubtitle,
@@ -1799,7 +1859,7 @@ export function ActionSheet({
                   isMt5PlainPresentation ? styles.actionTextDisabledMt5Plain : styles.actionTextDisabled
                 ),
               ]}
-              numberOfLines={1}
+              numberOfLines={wrapActionText ? undefined : 1}
             >
               {localizedLabel}
             </Text>
@@ -1810,7 +1870,7 @@ export function ActionSheet({
                   activeCompactText && styles.actionSubtitleCompact,
                   isVisuallyMuted && styles.actionTextDisabled,
                 ]}
-                numberOfLines={1}
+                numberOfLines={wrapActionText ? undefined : 1}
               >
                 {action.subtitle}
               </Text>
@@ -1827,6 +1887,7 @@ export function ActionSheet({
     recordActionRowPressMove,
     recordActionRowPressStart,
     shouldRenderInlineActions,
+    wrapActionText,
     styles,
     t,
   ]);
@@ -1917,30 +1978,8 @@ export function ActionSheet({
   // No fixed height on Android: instant sheets start from the visible window
   // height and then ratchet upward from real layout. The sheet body paints on
   // the first frame so opening never looks like a late resize.
-  const sheetBody = (
-    <Animated.View
-      ref={sheetBodyRef}
-      collapsable={false}
-      onLayout={handleSheetBodyLayout}
-      pointerEvents={visible ? 'auto' : 'none'}
-      style={[
-        styles.sheetContainer,
-        {
-          opacity: 1,
-          transform: [{ translateY: sheetBodyTranslateY }],
-        },
-      ]}
-    >
-      <View
-        style={[
-          styles.sheet,
-          isMt5StylePresentation && styles.sheetMt5Plain,
-          isTimeframeGridPresentation && styles.sheetTimeframeGrid,
-          sheetHeightStyle,
-          !shouldLockSheetHeight && sheetMinHeight ? { minHeight: sheetMinHeight } : null,
-          sheetBottomSafePad > 0 ? { paddingBottom: sheetBottomSafePad } : null,
-        ]}
-      >
+  const sheetChrome = (
+    <View>
         {isMt5StylePresentation ? null : <View style={styles.handle} />}
 
         {activeTitle ? (
@@ -1999,7 +2038,7 @@ export function ActionSheet({
         )}
 
         {activeSearchable ? (
-          <View style={styles.searchContainer}>
+          <View style={[styles.searchContainer, { height: Math.max(40, Math.ceil(22 * fontScale + 16)) }]}>
             <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
             <TextInput
               ref={searchInputRef}
@@ -2013,18 +2052,50 @@ export function ActionSheet({
             />
           </View>
         ) : null}
+    </View>
+  );
+
+  const sheetBody = (
+    <Animated.View
+      ref={sheetBodyRef}
+      collapsable={false}
+      onLayout={handleSheetBodyLayout}
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[
+        styles.sheetContainer,
+        {
+          opacity: 1,
+          transform: [{ translateY: sheetBodyTranslateY }],
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.sheet,
+          { paddingLeft: insets.left, paddingRight: insets.right },
+          isMt5StylePresentation && styles.sheetMt5Plain,
+          isTimeframeGridPresentation && styles.sheetTimeframeGrid,
+          sheetHeightStyle,
+          !shouldLockSheetHeight && sheetMinHeight ? { minHeight: sheetMinHeight } : null,
+          sheetBottomSafePad > 0 ? { paddingBottom: sheetBottomSafePad } : null,
+        ]}
+      >
+        {!scrollSheetChrome ? sheetChrome : null}
 
         {isTimeframeGridPresentation ? (
-          <View
+          <ScrollView
             style={[
               styles.actionsScroll,
-              styles.timeframeGrid,
-              { maxHeight: actionsMaxHeight },
+              { maxHeight: scrollSheetChrome ? Math.max(0, sheetMaxHeight - sheetBottomSafePad) : actionsMaxHeight },
               actionsMinHeight ? { minHeight: actionsMinHeight } : null,
             ]}
+            keyboardShouldPersistTaps="always"
+            canCancelContentTouches={Platform.OS === 'ios'}
+            nestedScrollEnabled
           >
-            {timeframeGridActions}
-          </View>
+            {scrollSheetChrome ? sheetChrome : null}
+            <View style={styles.timeframeGrid}>{timeframeGridActions}</View>
+          </ScrollView>
         ) : shouldRenderInlineActions ? (
           <View
             style={[
@@ -2047,11 +2118,13 @@ export function ActionSheet({
               actionListSizeStyle,
             ]}
             data={filteredActions}
+            ListHeaderComponent={scrollSheetChrome ? sheetChrome : null}
             keyExtractor={keyAction}
             renderItem={renderAction}
             contentContainerStyle={[
               styles.actionsContent,
               isMt5PlainPresentation ? styles.actionsContentMt5Plain : null,
+              fixedSheetKeyboardPadding > 0 ? { paddingBottom: actionsContentExtraHeight + fixedSheetKeyboardPadding } : null,
               // flexGrow on a scrollable list content container can pin the
               // content height to the viewport and hide remaining rows.
               !actionListNeedsScroll && sheetFloorMinHeight
@@ -2078,7 +2151,7 @@ export function ActionSheet({
             maxToRenderPerBatch={actionListMaxToRenderPerBatch}
             updateCellsBatchingPeriod={16}
             windowSize={actionListWindowSize}
-            getItemLayout={hasVariableActionRowHeights
+            getItemLayout={hasVariableActionRowHeights || scrollSheetChrome
               ? undefined
               : (_data, index) => ({
                 length: uniformActionRowHeight,
@@ -2197,10 +2270,13 @@ export function ActionSheet({
             style={styles.sheetHost}
             pointerEvents="box-none"
           >
-            {renderedSheetBody}
+            <View style={styles.sheetHost} pointerEvents="box-none" onLayout={handleSheetHostLayout}>
+              {renderedSheetBody}
+            </View>
           </KeyboardAvoidingView>
         ) : (
           <View
+            onLayout={handleSheetHostLayout}
             style={[
               styles.sheetHost,
               // "Stay still" mode: pin the host to the full (stable) height, top-

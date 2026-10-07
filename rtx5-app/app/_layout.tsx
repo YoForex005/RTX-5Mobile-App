@@ -1,10 +1,11 @@
 import 'react-native-gesture-handler';
+import '../src/utils/installRuntimeConsole';
 import 'react-native-reanimated';
 import { wrapWithSentry } from '../src/services/sentry';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { PropsWithChildren, useEffect, useRef, useState } from 'react';
-import { AppState, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { memo, useEffect, useRef, useState } from 'react';
+import { AppState, StyleSheet, View } from 'react-native';
 import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { enableFreeze } from 'react-native-screens';
 import { AppProviders } from '../src/state/providers/AppProviders';
@@ -23,51 +24,26 @@ import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { safeRouterBack } from '../src/utils/navigation';
 import { SidebarDestinationHost } from '../src/ui/components/SidebarDestinationHost';
+import { RetainedRoutePrewarmProvider } from '../src/ui/components/RetainedRoutePrewarm';
 import { BrokersLaunchHost } from '../src/features/settings/BrokersLaunchHost';
 import { BrokerDetailLaunchHost } from '../src/features/settings/BrokerDetailLaunchHost';
 import { RegisterLaunchHost } from '../src/features/settings/RegisterLaunchHost';
 import { ChartConfigDestinationHost } from '../src/features/chart/ChartConfigDestinationHost';
 import { ChartSettingsHost } from '../src/features/chart/ChartSettingsHost';
 import { AboutDetailDestinationHost } from '../src/features/settings/AboutDetailDestinationHost';
+import { ShakeToReportBugHost } from '../src/features/settings/shakeToReport/ShakeToReportBugHost';
 import { QuoteInfoLaunchHost } from '../src/features/quotes/QuoteInfoLaunchHost';
 import { HistoryFilterHost } from '../src/features/history/HistoryFilterHost';
 import { TradePositionActionHost } from '../src/features/trade/TradePositionActionHost';
+import { GuestFlowHost } from '../src/features/auth/GuestFlowHost';
 import { ChartActionLaunchHost } from '../src/features/chart/ChartActionLaunchHost';
+import { BlownAccountJournalNavigator } from '../src/features/settings/JournalScreen/BlownAccountJournalNavigator';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 
 SplashScreen.preventAutoHideAsync();
 
 enableFreeze(true);
-
-const IPHONE_14_PRO_MAX = {
-  width: 430,
-  height: 932,
-};
-
-function WebIPhoneFrame({ children, bgColor }: PropsWithChildren<{ bgColor?: string }>) {
-  const { width, height } = useWindowDimensions();
-
-  if (Platform.OS !== 'web') {
-    return <>{children}</>;
-  }
-
-  const safeWidth = Math.max(width - 24, 1);
-  const safeHeight = Math.max(height - 24, 1);
-  const scale = Math.min(
-    safeWidth / IPHONE_14_PRO_MAX.width,
-    safeHeight / IPHONE_14_PRO_MAX.height,
-    1
-  );
-
-  return (
-    <View style={styles.webCanvas}>
-      <View style={[styles.deviceShell, { transform: [{ scale }] }]}>
-        <View style={[styles.deviceFrame, bgColor ? { backgroundColor: bgColor } : null]}>{children}</View>
-      </View>
-    </View>
-  );
-}
 
 function StartupLogoScreen() {
   return (
@@ -136,14 +112,13 @@ function ThemedNavigatorShell() {
   } as const;
 
   return (
-    <WebIPhoneFrame bgColor={T.bg}>
       <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
         <Stack
           screenOptions={{
             headerStyle: { backgroundColor: T.bg },
             headerTintColor: T.text,
             contentStyle: { backgroundColor: T.bg },
-            headerTitleStyle: { fontSize: 17, fontWeight: '600' },
+            headerTitleStyle: { fontSize: 17, fontWeight: '500' },
             headerTitleAlign: 'center',
             headerLeft: () => {
               const action = () => safeRouterBack(router, '/');
@@ -173,7 +148,7 @@ function ThemedNavigatorShell() {
           <Stack.Screen name='trade/close-by' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/modify-position' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/bulk' options={{ headerShown: false }} />
-          <Stack.Screen name='login' options={{ title: t('Login'), headerLeft: () => null }} />
+          <Stack.Screen name='login' options={brokerFlowScreenOptions} />
           <Stack.Screen name='register-entry' options={registerScreenOptions} />
           <Stack.Screen name='register' options={registerScreenOptions} />
           <Stack.Screen name='chart/objects' options={chartPageScreenOptions} />
@@ -208,25 +183,24 @@ function ThemedNavigatorShell() {
           <Stack.Screen name='settings/about' options={sidebarDetailScreenOptions} />
         </Stack>
       </ThemeProvider>
-    </WebIPhoneFrame>
   );
 }
 
-function InnerLayout() {
+const InnerLayout = memo(function InnerLayout() {
   // No theme subscription here — retained hosts must not re-render on every
   // light/dark press just because the navigator shell did.
   return (
     <>
       <AppStatusBar />
+      <BlownAccountJournalNavigator />
       <ThemedNavigatorShell />
       <ThemeModeRenderPriorityContext.Provider value="retained">
+        <RetainedRoutePrewarmProvider>
         {/* Root-level retained handoffs cover every native broker-flow route. */}
         <SidebarDestinationHost />
         {/* About row details (Privacy / Contact / Deletion) — above About host. */}
         <AboutDetailDestinationHost />
         <BrokersLaunchHost />
-        <BrokerDetailLaunchHost />
-        <RegisterLaunchHost />
         {/* Properties / Market Statistics — root-level so open/back covers the stack. */}
         <QuoteInfoLaunchHost />
         {/* History clock filter — retained host like Chart options. */}
@@ -237,44 +211,41 @@ function InnerLayout() {
         {/* Chart Preferences + nested config rows (sidebar-style instant open/back). */}
         <ChartSettingsHost />
         <ChartConfigDestinationHost />
+        </RetainedRoutePrewarmProvider>
       </ThemeModeRenderPriorityContext.Provider>
       <SidebarDrawer />
+      <ShakeToReportBugHost />
+      <GuestFlowHost />
     </>
   );
-}
+});
 
 import { brokerRealtimeService } from '../src/api/ws/BrokerRealtimeService';
 import { brokerApi } from '../src/api/brokerApi';
 import { accountWsService } from '../src/api/ws/accountSocket';
 import { wsService } from '../src/api/ws/socket';
 import { candlesWsService } from '../src/domain/candles/ws/candlesSocket';
-import { AccountsApiError, getAccountByIdResult } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
-import { prefetchAccountSummary } from '../src/utils/navigationPrefetch';
+import { flushTerminalJournalStorage } from '../src/state/terminalJournalState';
 import { useOtaUpdateOnLaunch } from '../src/utils/otaUpdates';
 import { hydratePersistedCandleCache } from '../src/domain/candles/state/persistedCandleCache';
 import { useDataAnalyzer } from '../src/features/chart/DataAnalyzer';
 import { OtaUpdateModal } from '../src/ui/components/OtaUpdateModal';
 import { scheduleAfterFirstFrame, scheduleIdleWork } from '../src/utils/startupScheduler';
+import { scheduleAfterVisualFrame } from '../src/utils/afterVisualFrame';
 import { bootstrapApp } from '../src/services/bootstrapApp';
+import { prefetchBrokerServers } from '../src/query/broker';
 import { installGlobalStartupErrorHandlers, logStartupDiagnostic } from '../src/utils/startupDiagnostics';
 import { restoreBrokerSession } from '../src/services/brokerSessionCoordinator';
 import {
   captureActiveBrokerSession,
-  captureActiveBrokerSessionProvenance,
   getActiveBrokerSessionIdentity,
+  getActiveBrokerSessionProvenance,
   isActiveBrokerSessionCurrent,
-  isActiveBrokerSessionProvenanceCurrent,
 } from '../src/state/activeBrokerSession';
-import {
-  beginAccountEnvironmentRefresh,
-  commitActiveAccountEnvironmentPayload,
-} from '../src/services/accountEnvironmentSession';
 import { redactDiagnosticValue } from '../src/utils/securityRedaction';
-import { installSecurityRedactedConsole } from '../src/utils/securityRedactedConsole';
 
-installSecurityRedactedConsole();
 installGlobalStartupErrorHandlers();
 
 function RootLayout() {
@@ -293,10 +264,23 @@ function RootLayout() {
 
   const hasHydrated = useUserPreferences((s) => s.hasHydrated);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
-  const accountDetails = useUserPreferences((s) => s.accountDetails);
+  const accountLogin = useUserPreferences((s) => s.accountDetails?.id);
   const [sessionRestoreComplete, setSessionRestoreComplete] = useState(false);
   const sessionRestoreStartedRef = useRef(false);
   const lifecycleResumeEpochRef = useRef(0);
+
+  useEffect(() => {
+    // This anonymous directory is needed by both restore validation and the
+    // first broker picker. Share its request while secure storage/fonts load.
+    void prefetchBrokerServers().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state => {
+      if (state !== 'active') void flushTerminalJournalStorage();
+    });
+    return () => { subscription.remove(); void flushTerminalJournalStorage(); };
+  }, []);
 
   useEffect(() => {
     if (!hasHydrated || sessionRestoreStartedRef.current) {
@@ -313,7 +297,7 @@ function RootLayout() {
         // The coordinator advances the epoch and clears runtime state before a
         // restore can fail. Keep startup fail-closed and show the login shell.
         useUserPreferences.getState().logout();
-        console.warn(
+        console.error(
           '[Session] Secure broker session restore failed',
           redactDiagnosticValue(error),
         );
@@ -333,7 +317,7 @@ function RootLayout() {
       hasHydrated,
       fontsReady,
       isLoggedIn,
-      hasAccountDetails: Boolean(accountDetails),
+      hasAccountDetails: Boolean(accountLogin),
       route: 'RootLayout',
     });
   }, []);
@@ -347,7 +331,7 @@ function RootLayout() {
     logStartupDiagnostic('storage.restore.completed', {
       store: 'userPreferences',
       isLoggedIn,
-      hasAccountDetails: Boolean(accountDetails),
+      hasAccountDetails: Boolean(accountLogin),
       chartSymbol,
       chartTimeframe,
     });
@@ -406,10 +390,14 @@ function RootLayout() {
           return bootstrapApp({ accountLogin: identity.accountLogin });
         })
         .catch((error) => {
-          console.warn(
-            '[Lifecycle] Failed to validate broker session on foreground:',
-            redactDiagnosticValue(error),
-          );
+          // Expected when offline or the token needs a fresh login; the next
+          // foreground or socket reconnect retries.
+          if (typeof __DEV__ !== 'undefined' && __DEV__) {
+            console.log(
+              '[Lifecycle] Failed to validate broker session on foreground:',
+              redactDiagnosticValue(error),
+            );
+          }
         });
     };
 
@@ -445,19 +433,18 @@ function RootLayout() {
     }
     if (isLoggedIn) {
       logStartupDiagnostic('auth.restore.started', {
-        hasAccountDetails: Boolean(accountDetails),
-        accountLoginPresent: Boolean(accountDetails?.id),
+        hasAccountDetails: Boolean(accountLogin),
+        accountLoginPresent: Boolean(accountLogin),
       });
       let cancelled = false;
-      const cancelScheduledBootWork: Array<() => void> = [];
-      const scheduleBootWork = (cancel: () => void) => {
-        cancelScheduledBootWork.push(cancel);
-      };
+      const capture = captureActiveBrokerSession();
+      if (!capture) return;
+      const identity = getActiveBrokerSessionIdentity(capture.session);
 
       const bootAccountData = async () => {
-        if (!accountDetails?.id) return;
+        if (!accountLogin || !isActiveBrokerSessionCurrent(identity)) return;
 
-        const mt5Login = String(accountDetails.id).trim();
+        const mt5Login = capture.session.accountLogin;
         const mt5LoginNumber = Number(mt5Login);
 
         if (cancelled) return;
@@ -467,105 +454,44 @@ function RootLayout() {
           });
           useLiveAccountState.getState().updateMetrics({ login: mt5LoginNumber });
           brokerRealtimeService.connect();
-          void bootstrapApp({ accountLogin: mt5Login }).catch((error) => {
+          void bootstrapApp({
+            accountLogin: mt5Login,
+            expectedProvenance: getActiveBrokerSessionProvenance(capture.session),
+          }).catch((error) => {
             if (!cancelled) {
-              console.warn(
+              console.error(
                 '[Bootstrap] Initial dashboard load failed:',
                 redactDiagnosticValue(error),
               );
             }
+            return null;
           });
 
-          scheduleBootWork(scheduleIdleWork(() => {
-            if (!cancelled) {
-              void usePositionsState.getState().refreshPositions(mt5Login);
-            }
-          }, { delayMs: 3500, timeoutMs: 5000 }));
-          scheduleBootWork(scheduleIdleWork(() => {
-            if (!cancelled) {
-              prefetchAccountSummary(mt5Login);
-            }
-          }, { delayMs: 4000, timeoutMs: 5000 }));
-
-          scheduleBootWork(scheduleIdleWork(async () => {
-            if (cancelled) return;
-            const expectedProvenance = captureActiveBrokerSessionProvenance();
-            if (
-              !expectedProvenance ||
-              expectedProvenance.identity.accountLogin !== mt5Login
-            ) {
-              return;
-            }
-            const environmentRefreshToken = beginAccountEnvironmentRefresh(expectedProvenance);
-            if (!environmentRefreshToken) return;
-            try {
-              const { raw: accountPayload, account: acct } =
-                await getAccountByIdResult(mt5Login);
-              if (
-                cancelled ||
-                !isActiveBrokerSessionProvenanceCurrent(expectedProvenance)
-              ) {
-                return;
-              }
-              useUserPreferences.getState().updateAccountDetails({
-                name: acct.name || `Account ${acct.login}`,
-              });
-              useLiveAccountState.getState().updateMetrics({
-                login: acct.login,
-                balance: acct.balance,
-                equity: acct.equity,
-                margin: acct.usedMargin,
-                margin_free: acct.freeMargin,
-                margin_level: acct.marginLevel,
-                floating: acct.floatingPnl
-              });
-              commitActiveAccountEnvironmentPayload(
-                accountPayload,
-                expectedProvenance,
-                environmentRefreshToken,
-              );
-            } catch (e) {
-              if (cancelled) return;
-              if (
-                e instanceof AccountsApiError
-                && (
-                  e.statusCode === 0
-                  || e.statusCode === 408
-                  || e.statusCode === 429
-                  || e.statusCode >= 500
-                )
-              ) {
-                console.info('[Hydration] Initial account metrics temporarily unavailable', {
-                  errorName: e.name,
-                  statusCode: e.statusCode,
-                });
-                return;
-              }
-              console.warn(
-                '[Hydration Error] Failed to fetch initial account metrics:',
-                redactDiagnosticValue(e),
-              );
-            }
-          }, { delayMs: 5000, timeoutMs: 6000 }));
+          // Bootstrap seeds positions and both account caches, applies profile
+          // metadata, and retries transient reads without duplicating startup.
         }
       };
 
-      void bootAccountData();
+      // The authenticated dashboard must paint before its optional account
+      // reads/socket setup compete with the Login handoff. Intent hydration
+      // remains owned by the auth flow and joins the same bootstrap request.
+      const cancelBootstrap = scheduleAfterVisualFrame(() => { void bootAccountData(); });
       return () => {
         cancelled = true;
-        cancelScheduledBootWork.forEach((cancel) => cancel());
+        cancelBootstrap();
       };
     } else {
       brokerRealtimeService.disconnect();
     }
-  }, [sessionRestoreComplete, isLoggedIn, accountDetails?.id]);
+  }, [sessionRestoreComplete, isLoggedIn, accountLogin]);
 
   useEffect(() => {
     if (hasHydrated && sessionRestoreComplete && fontsReady) {
-      // Small timeout allows SafeAreaProvider to measure insets on Android
-      setTimeout(() => {
+      // SafeAreaProvider already has initialWindowMetrics. Reveal the first
+      // committed screen after paint, without an additional fixed 100 ms wait.
+      return scheduleAfterVisualFrame(() => {
         void SplashScreen.hideAsync();
-      }, 100);
+      });
     }
   }, [hasHydrated, sessionRestoreComplete, fontsReady]);
 
@@ -597,39 +523,6 @@ function RootLayout() {
 export default wrapWithSentry(RootLayout);
 
 const styles = StyleSheet.create({
-  webCanvas: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#121212',
-  },
-  deviceShell: {
-    borderRadius: 44,
-    padding: 10,
-    backgroundColor: '#1E1E1E',
-    borderWidth: 1,
-    borderColor: '#1e2433',
-    ...Platform.select({
-      web: {
-        boxShadow: '0px 12px 22px rgba(0, 0, 0, 0.45)',
-      },
-      default: {
-        shadowColor: '#000',
-        shadowOpacity: 0.45,
-        shadowRadius: 22,
-        shadowOffset: { width: 0, height: 12 },
-      },
-    }),
-  },
-  deviceFrame: {
-    width: IPHONE_14_PRO_MAX.width,
-    height: IPHONE_14_PRO_MAX.height,
-    borderRadius: 34,
-    overflow: 'hidden',
-    backgroundColor: '#121212',
-    borderWidth: 1,
-    borderColor: '#242b3a',
-  },
   startupScreen: {
     flex: 1,
     alignItems: 'center',

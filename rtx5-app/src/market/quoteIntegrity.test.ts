@@ -13,7 +13,7 @@ import {
 
 const NOW = 1_800_000_000_000;
 
-test('allows a fresh websocket quote with valid bid/ask regardless of tradable flag', () => {
+test('allows a fresh websocket quote while respecting an explicit non-tradable flag', () => {
   assert.deepEqual(
     resolveQuoteActionAvailability({
       bid: 1.1,
@@ -35,7 +35,7 @@ test('allows a fresh websocket quote with valid bid/ask regardless of tradable f
       transport: 'websocket',
       tradable: false,
     }, NOW),
-    { allowed: true, bid: 4059.61, ask: 4059.71 },
+    { allowed: false, reason: 'not_tradable' },
   );
   assert.deepEqual(
     resolveQuoteActionAvailability({
@@ -55,7 +55,7 @@ test('REST snapshots and missing transport are never executable', () => {
   assert.equal(resolveQuoteActionAvailability(quote, NOW).allowed, false);
 });
 
-test('stale and degraded websocket quotes fail closed; tradable flag is ignored', () => {
+test('stale, degraded and non-tradable flags fail closed despite recent receipt', () => {
   const quote = {
     bid: 1.1,
     ask: 1.1002,
@@ -66,9 +66,9 @@ test('stale and degraded websocket quotes fail closed; tradable flag is ignored'
   };
   // Broker stale/degraded flags alone must not block a fresh live WS tick
   // (Modify Position was showing "live quote is stale" with live bid/ask).
-  assert.equal(resolveQuoteActionAvailability({ ...quote, stale: true }, NOW).allowed, true);
-  assert.equal(resolveQuoteActionAvailability({ ...quote, degraded: true }, NOW).allowed, true);
-  assert.equal(resolveQuoteActionAvailability({ ...quote, tradable: false }, NOW).allowed, true);
+  assert.equal(resolveQuoteActionAvailability({ ...quote, stale: true }, NOW).allowed, false);
+  assert.equal(resolveQuoteActionAvailability({ ...quote, degraded: true }, NOW).allowed, false);
+  assert.equal(resolveQuoteActionAvailability({ ...quote, tradable: false }, NOW).allowed, false);
   assert.equal(resolveQuoteActionAvailability({ ...quote, tradable: undefined }, NOW).allowed, true);
   assert.equal(
     resolveQuoteActionAvailability({

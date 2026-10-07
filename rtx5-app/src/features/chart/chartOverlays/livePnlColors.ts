@@ -5,14 +5,16 @@
  * appear in projected stop labels, while this palette must stay prominent as
  * the value updates over same-hue candle bodies.
  */
+import { GDark, GLight } from '../../../ui/theme/glass';
+
 export const LIVE_CHART_PNL_COLORS = {
   darkCanvas: {
-    profit: '#2CE087',
-    loss: '#F75A69',
+    profit: GDark.trading.profit,
+    loss: '#FF4D4F',
   },
   lightCanvas: {
-    profit: '#087D4D',
-    loss: '#BC2D21',
+    profit: GLight.trading.profit,
+    loss: '#C62828',
   },
 } as const;
 

@@ -5,79 +5,59 @@ import test from 'node:test';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
-test('journal screen renders persisted MT5-style terminal rows', () => {
+test('journal screen renders only the authenticated account-scoped server journal', () => {
   const source = readSource('src/features/settings/JournalScreen/JournalScreen.tsx');
 
-  assert.match(source, /useTerminalJournalState/);
-  assert.match(source, /Calendar/);
-  assert.match(source, /type JournalFilter = 'All' \| 'Trades' \| 'Accounts' \| 'Actions' \| 'Errors' \| 'Notes'/);
-  assert.match(source, /const FILTERS: JournalFilter\[\] = \['All', 'Trades', 'Accounts', 'Actions', 'Errors', 'Notes'\]/);
-  assert.match(source, /selectedDateIso/);
-  const calendarLauncherStart = source.indexOf('onPress={handleOpenCalendar}');
-  const calendarLauncherEnd = source.indexOf('</Pressable>', calendarLauncherStart);
-  assert.notEqual(calendarLauncherStart, -1);
-  assert.notEqual(calendarLauncherEnd, -1);
-  const calendarLauncherSource = source.slice(calendarLauncherStart, calendarLauncherEnd);
-  assert.match(calendarLauncherSource, /activateOnPressIn/);
-  assert.match(calendarLauncherSource, /activateOnTouchStart/);
-  assert.match(calendarLauncherSource, /unstable_pressDelay=\{0\}/);
-  assert.match(calendarLauncherSource, /latencyLabel="journal\.calendar\.open"/);
-  assert.doesNotMatch(calendarLauncherSource, /journalActionLabel/);
-  const noteLauncherSources = [...source.matchAll(/onPress=\{\(\) => setIsNoteOpen\(true\)\}/g)]
-    .map((match) => source.slice(match.index, source.indexOf('</Pressable>', match.index)));
-  assert.equal(noteLauncherSources.length, 2);
-  for (const noteLauncherSource of noteLauncherSources) {
-    assert.match(noteLauncherSource, /activateOnPressIn/);
-    assert.match(noteLauncherSource, /unstable_pressDelay=\{0\}/);
-    assert.doesNotMatch(noteLauncherSource, /activateOnTouchStart/);
-  }
-  assert.match(noteLauncherSources[0], /latencyLabel="journal\.toolbarNote"/);
-  assert.match(noteLauncherSources[1], /latencyLabel="journal\.addNote"/);
-  assert.match(source, /maxDate=\{todayDateIso\}/);
-  assert.match(source, /markedDates=\{markedDates\}/);
-  assert.match(source, /current=\{selectedDate\}/);
-  assert.match(source, /disableMonthChange/);
-  assert.doesNotMatch(source, /initialDate=\{selectedDate\}/);
-  assert.match(source, /formatTerminalTime/);
-  assert.match(source, /toTerminalLogRows\(terminalEntries\)/);
-  assert.match(source, /mergeJournalRows\(terminalRows\)/);
-  assert.match(source, /renderJournalRow/);
-  assert.match(source, /styles\.terminalLogTime/);
-  assert.match(source, /styles\.terminalLogSource/);
-  assert.match(source, /styles\.terminalLogMessage/);
-  assert.match(source, /t\('RTX5 Log'\)/);
-  assert.doesNotMatch(source, /t\('MT5 Log'\)/);
-  assert.match(source, /Terminal Log/);
-  assert.match(source, /\$\{t\('No real journal events recorded for'\)\} \$\{selectedDateLabel\}\./);
-  assert.doesNotMatch(source, /buildHistoryJournalRows/);
-  assert.doesNotMatch(source, /historyRows/);
-  assert.doesNotMatch(source, /history-open-log/);
-  assert.doesNotMatch(source, /Loading account journal/);
-  assert.doesNotMatch(source, /renderItem=\{renderActivityItem\}/);
+  assert.match(source, /<ServerJournalPanel[\s\S]*isScreenFocused=\{isScreenFocused\}[\s\S]*sessionScope=\{sessionScope\}/);
+  assert.match(source, /const sessionScope = useMemo\(\(\) => buildJournalSessionScopeKey\(querySession\), \[querySession\]\)/);
+  assert.match(source, /isAuthenticated=\{querySession !== null\}/);
+  assert.match(source, /t\('Terminal logs and connection events'\)/);
+  assert.doesNotMatch(source, /useJournalTrades|Session Summary|useTerminalJournalState|TerminalLogTable|Calendar|setIsNoteOpen|JournalRefreshButton|SectionList/);
 });
 
-test('journal refresh acknowledges immediately and coalesces slow requests', () => {
-  const screenSource = readSource('src/features/settings/JournalScreen/JournalScreen.tsx');
+test('server journal panel: focused refresh, abortable latest-wins loads, clipboard copy', () => {
+  const panel = readSource('src/features/settings/JournalScreen/serverJournal/ServerJournalPanel.tsx');
+  const hook = readSource('src/features/settings/JournalScreen/serverJournal/useServerJournal.ts');
+  const api = readSource('src/api/journal.ts');
+
+  assert.match(hook, /JOURNAL_AUTO_REFRESH_MS = 15_000/);
+  assert.match(hook, /setInterval/);
+  assert.match(hook, /if \(!active\) \{\s*return undefined;\s*\}/);
+  assert.match(hook, /if \(disposed \|\| controller\.signal\.aborted \|\| sequence !== requestSequenceRef\.current\) return;/);
+  assert.match(hook, /if \(cacheScopeRef\.current !== sessionScope\) \{\s*cacheRef\.current\.clear\(\);/);
+  assert.match(hook, /serverLogs: scopeHasLoaded \? state\.serverLogs : EMPTY_LOGS/);
+  assert.match(api, /apiClient\(`\/journal\?\$\{query\}`/);
+  assert.match(api, /apiVersion: 'v2'/);
+  assert.match(api, /filter=\$\{encodeURIComponent\(filter\)\}/);
+  assert.match(panel, /filter: search/);
+  assert.match(panel, /scrollToEnd\(\{ animated: false \}\)/);
+  assert.doesNotMatch(panel, /mergeJournalRows|terminalSamples|lastTradeLatencyMs/);
+  assert.match(api, /timeoutMs: JOURNAL_REQUEST_TIMEOUT_MS/);
+  assert.match(api, /'Request timed out after 30 seconds'/);
+  assert.match(api, /`HTTP Error: \$\{response\.status\}`/);
+  // Production binaries ship no clipboard native module (OTA runtime lock).
+  assert.doesNotMatch(panel, /expo-clipboard/);
+  assert.match(panel, /Share\.share\(\{ message: buildJournalTsv\(filteredLogs\) \}\)/);
+  assert.match(panel, /const canCopy = ownsCurrentRequest && filteredLogs\.length > 0/);
+  assert.match(panel, /getItemLayout=\{getItemLayout\}/);
+  assert.match(panel, /const SEARCH_DEBOUNCE_MS = 150/);
+  assert.match(panel, /const AUTO_FOLLOW_THRESHOLD_PX = 40/);
+  assert.match(panel, /const COPY_FEEDBACK_MS = 2000/);
+  for (const text of [
+    'Sign in to view the server journal',
+    'Loading server journal…',
+    'Unable to load the server journal',
+    'Refresh failed. Showing the latest response for this account.',
+    'No journal entries for the selected filters',
+  ]) {
+    assert.ok(panel.includes(`t('${text}')`), `missing state text: ${text}`);
+  }
+});
+
+test('journal live trade queries refresh without cancelling each other', () => {
   const liveJournalSource = readSource('src/features/settings/JournalScreen/liveJournal.ts');
   const dealsQuerySource = readSource('src/query/deals.ts');
-  const refreshLauncherStart = screenSource.indexOf('const JournalRefreshButton = React.memo');
-  const refreshLauncherEnd = screenSource.indexOf('const toCalendarDateString', refreshLauncherStart);
-  const refreshLauncherSource = screenSource.slice(refreshLauncherStart, refreshLauncherEnd);
 
-  assert.notEqual(refreshLauncherStart, -1);
-  assert.notEqual(refreshLauncherEnd, -1);
-  assert.match(refreshLauncherSource, /activateOnPressIn/);
-  assert.match(refreshLauncherSource, /activateOnTouchStart/);
-  assert.match(refreshLauncherSource, /unstable_pressDelay=\{0\}/);
-  assert.match(refreshLauncherSource, /ActivityIndicator/);
-  assert.match(refreshLauncherSource, /JOURNAL_REFRESH_FEEDBACK_MS/);
-  assert.match(refreshLauncherSource, /if \(!onRefresh\(\)\) \{/);
-  assert.match(refreshLauncherSource, /animating=\{showFeedback\}/);
-  assert.match(screenSource, /const refreshInFlightRef = useRef\(false\)/);
-  assert.match(screenSource, /if \(refreshInFlightRef\.current\) \{/);
-  assert.match(screenSource, /\}, \[refreshScopeKey\]\)/);
-  assert.match(screenSource, /scheduleAfterJournalVisualFeedback\(\(\) => \{/);
-  assert.doesNotMatch(screenSource, /message: 'refreshed journal'/);
   assert.match(liveJournalSource, /Promise\.all\(\[/);
   assert.equal((liveJournalSource.match(/cancelRefetch: false/g) ?? []).length, 2);
   assert.doesNotMatch(liveJournalSource, /usePositionsQuery|refetchPositions/);
@@ -91,61 +71,32 @@ test('journal refresh acknowledges immediately and coalesces slow requests', () 
   assert.match(liveJournalSource, /subscribed: active/);
   assert.doesNotMatch(liveJournalSource, /\.isFetching|\.isLoading/);
   assert.match(dealsQuerySource, /getDealsQueryKey\(cacheNamespace, login, from, to\)/);
-  assert.match(dealsQuerySource, /getLoginDealsWithRangeFallback\(login!, from, to\)/);
+  assert.match(dealsQuerySource, /fetchAccountDealsWithLoginFallback\(login, from, to\)/);
+  // Paged /account/deals is primary; /deals/{login} is only the fallback.
+  assert.match(
+    dealsQuerySource,
+    /await fetchAllAccountDeals\(\{ from, to \}\)[\s\S]*catch \(accountError\)[\s\S]*getLoginDealsWithRangeFallback\(login, from, to\)/,
+  );
   assert.match(dealsQuerySource, /if \(!shouldRetryDealsWithoutRange\(error\)\) throw error/);
   assert.match(dealsQuerySource, /subscribed: options\.subscribed/);
 });
 
-test('add note dismiss controls close immediately', () => {
-  const source = readSource('src/features/settings/JournalScreen/JournalScreen.tsx');
+test('market orders record one placement_terminal telemetry sample from the tap', () => {
+  const source = readSource('src/api/orders/placeMarketOrder.ts');
 
-  for (const latencyLabel of ['journal.noteOverlay', 'journal.noteClose']) {
-    const labelIndex = source.indexOf(`latencyLabel="${latencyLabel}"`);
-    const launcherStart = source.lastIndexOf('<Pressable', labelIndex);
-    const launcherEnd = source.indexOf(
-      latencyLabel === 'journal.noteOverlay' ? '/>' : '</Pressable>',
-      labelIndex,
-    );
-    const launcherSource = source.slice(launcherStart, launcherEnd);
-
-    assert.notEqual(labelIndex, -1);
-    assert.notEqual(launcherStart, -1);
-    assert.notEqual(launcherEnd, -1);
-    assert.match(launcherSource, /onPress=\{\(\) => setIsNoteOpen\(false\)\}/);
-    assert.match(launcherSource, /activateOnPressIn/);
-    assert.match(launcherSource, /activateOnTouchStart/);
-    assert.match(launcherSource, /unstable_pressDelay=\{0\}/);
+  assert.match(source, /const intentAtMs = takeTradeIntentStartedAt\(\);/);
+  assert.match(source, /phase: 'placement_terminal',/);
+  assert.match(source, /totalMs: Math\.max\(0, getApiLatencyNow\(\) - intentAtMs\)/);
+  assert.match(source, /record\(\{ status: 'filled' \}\);/);
+  assert.match(source, /record\(classifyPlacementFailure\(error, trace\.clientOrderId !== undefined\)\);/);
+  for (const path of [
+    'src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts',
+    'src/features/trade/OrderTicketScreen.tsx',
+    'src/features/quotes/SymbolDetailsScreen/SymbolDetailsScreen.tsx',
+    'src/features/chart/ChartScreen.web.tsx',
+  ]) {
+    assert.match(readSource(path), /\{\s*\/\/ Tap time for the Journal's order latency telemetry\.\s*markTradeIntent\(\);/, path);
   }
-
-  assert.match(source, /latencyLabel="journal\.noteClose"[\s\S]*accessibilityLabel="Close note"/);
-});
-
-test('calendar stays mounted and opens through an imperative native host', () => {
-  const source = readSource('src/features/settings/JournalScreen/JournalScreen.tsx');
-
-  assert.match(source, /const JournalCalendarOverlay = React\.memo\(React\.forwardRef/);
-  assert.match(source, /const calendarOverlayRef = useRef<JournalCalendarOverlayHandle>\(null\)/);
-  assert.match(source, /testID="journal-retained-calendar"/);
-  assert.match(source, /pointerEvents="none"/);
-  assert.match(source, /importantForAccessibility="no-hide-descendants"/);
-  assert.match(
-    source,
-    /const writeVisibility = useCallback\(\(visible: boolean\) => \{[\s\S]*style: \{ opacity: visible \? 1 : 0 \}[\s\S]*pointerEvents: visible \? 'auto' : 'none'/,
-  );
-  assert.match(source, /const handleOpenCalendar = useCallback\(\(\) => \{\s*calendarOverlayRef\.current\?\.open\(\);\s*\}, \[\]\)/);
-  assert.doesNotMatch(source, /message: 'opened journal calendar'/);
-  assert.match(source, /const calendarTheme = useMemo\(\(\) => \(\{/);
-  assert.match(source, /current=\{selectedDate\}/);
-  assert.match(source, /calendarResetRevision/);
-  assert.match(source, /onMonthChange=\{handleMonthChange\}/);
-  assert.match(source, /BackHandler\.addEventListener\([\s\S]*'hardwareBackPress'/);
-  assert.doesNotMatch(source, /isCalendarPrimed|setIsCalendarPrimed|pendingCalendarOpenRef|scheduleIdleWork/);
-  assert.match(source, /const JOURNAL_CALENDAR_BACKDROP_GUARD_MS = 40/);
-  assert.match(source, /const handleBackdropPress = useCallback[\s\S]*JOURNAL_CALENDAR_BACKDROP_GUARD_MS/);
-  assert.match(source, /onPress=\{close\}[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="journal\.calendarClose"/);
-  assert.match(source, /close\(\);\s*const dateString = day\.dateString;\s*scheduleAfterJournalVisualFeedback/);
-  assert.match(source, /<JournalCalendarOverlay[\s\S]*ref=\{calendarOverlayRef\}/);
-  assert.doesNotMatch(source, /isCalendarOpen|setIsCalendarOpen/);
 });
 
 test('market order API records request, success, and failure journal rows', () => {
@@ -184,9 +135,11 @@ test('terminal journal store writes MT5-like trade lines', () => {
   assert.match(source, /retainRecentEntries/);
   assert.match(source, /recordAppActionJournalEvent/);
   assert.match(source, /recordAccountJournalEvent/);
-  assert.match(source, /message: `\$\{formatLoginPrefix\(login\)\}\$\{buildMarketOrderText\(payload\)\}`/);
-  assert.match(source, /accepted \$\{requestText\}/);
-  assert.match(source, /order #\$\{ticket\} \$\{side\.toUpperCase\(\)\}/);
+  // Web-terminal wording: a start row, then the "Timing" + "Order ... filled" pair.
+  assert.match(source, /message: `\$\{formatLoginPrefix\(login\)\}Trade started: \$\{buildMarketOrderText\(payload\)\}`/);
+  assert.match(source, /Timing \$\{tradeText\}`/);
+  assert.match(source, /Order executed \$\{formatTradeText\(side, symbol, row\.volume \?\? watch\.volume\)\}/);
+  assert.match(source, /Order \$\{tradeText\} filled\$\{priceText\}\$\{ticketText\}/);
   assert.match(source, /const symbolText = symbol \? ` \$\{symbol\}` : ''/);
   assert.doesNotMatch(source, /return symbol \|\| 'symbol'/);
   assert.match(source, /close position #\$\{ticketId\}/);

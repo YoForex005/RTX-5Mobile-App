@@ -12,11 +12,12 @@
  */
 import { useTradingState } from '../../../state/tradingState';
 import { hasQuotePriceChange } from '../../../utils/quotePriceChange';
-import { calculateQuoteSpreadPoints } from '../../../utils/quoteSpread';
+import { calculateQuoteSpreadPoints, resolveQuoteDisplayDigits } from '../../../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../../../utils/quoteVolume';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 
 const QUOTE_STORE_FLUSH_INTERVAL_MS = 16;
+const QUOTE_STORE_FLUSH_FALLBACK_MS = 100;
 
 export interface FlushPipelineState {
   flushScheduled: boolean;
@@ -24,6 +25,7 @@ export interface FlushPipelineState {
   flushTimer: ReturnType<typeof setTimeout> | null;
   pendingUpdates: Map<string, any>;
   canCommitPendingUpdates?: () => boolean;
+  flushGeneration?: number;
 }
 
 export const scheduleFlush = (state: FlushPipelineState): void => {
@@ -32,17 +34,16 @@ export const scheduleFlush = (state: FlushPipelineState): void => {
   }
 
   state.flushScheduled = true;
+  const generation = state.flushGeneration = (state.flushGeneration ?? 0) + 1;
   const commitFlush = () => {
+    if (!state.flushScheduled || state.flushGeneration !== generation) return;
     if (state.flushAnimationFrame !== null) {
-      cancelAnimationFrame(state.flushAnimationFrame);
+      globalThis.cancelAnimationFrame?.(state.flushAnimationFrame);
       state.flushAnimationFrame = null;
     }
     if (state.flushTimer) {
       clearTimeout(state.flushTimer);
       state.flushTimer = null;
-    }
-    if (!state.flushScheduled) {
-      return;
     }
     state.flushScheduled = false;
     flushUpdates(state);
@@ -50,6 +51,7 @@ export const scheduleFlush = (state: FlushPipelineState): void => {
 
   if (typeof globalThis.requestAnimationFrame === 'function') {
     state.flushAnimationFrame = globalThis.requestAnimationFrame(commitFlush);
+    state.flushTimer = setTimeout(commitFlush, QUOTE_STORE_FLUSH_FALLBACK_MS);
     return;
   }
 
@@ -57,8 +59,9 @@ export const scheduleFlush = (state: FlushPipelineState): void => {
 };
 
 export const cancelFlush = (state: FlushPipelineState): void => {
+  state.flushGeneration = (state.flushGeneration ?? 0) + 1;
   if (state.flushAnimationFrame !== null) {
-    cancelAnimationFrame(state.flushAnimationFrame);
+    globalThis.cancelAnimationFrame?.(state.flushAnimationFrame);
     state.flushAnimationFrame = null;
   }
   if (state.flushTimer) {
@@ -112,7 +115,7 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         : existing?.lastPriceChangedAt;
 
       if (!existing) {
-        const digits = data.digits;
+        const digits = resolveQuoteDisplayDigits(symbol, bid, data.digits, data.point);
         const volume = resolveBackendQuoteVolume({ incoming: data.volume });
         const entry: any = {
           symbol,
@@ -142,7 +145,12 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         entry.spread = calculateQuoteSpreadPoints(bid, ask, digits) ?? entry.spread;
         newQuotes[symbol] = entry;
       } else {
-        const digits = data.digits ?? existing.digits;
+        const digits = resolveQuoteDisplayDigits(
+          symbol,
+          bid,
+          data.digits ?? existing.digits,
+          data.point ?? existing.point,
+        );
         const volume = resolveBackendQuoteVolume({ incoming: data.volume, previous: existing });
 
         // Single object creation — merge existing + server data in one allocation
@@ -188,6 +196,7 @@ export const flushUpdates = (state: FlushPipelineState): void => {
     // re-render on every tick — including identical-price heartbeats.
     // priceChangeCount is retained as a hint but not used for gating.
     void priceChangeCount;
+    if (appliedUpdateCount === 0) return tradingState;
     return { quotes: newQuotes, tickCount: tradingState.tickCount + appliedUpdateCount };
   });
 };

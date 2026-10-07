@@ -22,6 +22,8 @@ export type QuoteTickEvent = {
   tickId?: string;
   source?: string;
   authority?: string;
+  /** Hub quote state: live | delayed | inactive | no_quote | source_mismatch. */
+  marketState?: string;
   transport?: 'websocket' | 'rest_snapshot';
   stale?: boolean;
   tradable?: boolean;
@@ -57,6 +59,8 @@ export type NormalizedQuoteFeedUpdate = {
   tickId?: string;
   source?: string;
   authority?: string;
+  /** Hub quote state: live | delayed | inactive | no_quote | source_mismatch. */
+  marketState?: string;
   stale?: boolean;
   tradable?: boolean;
   ageMs?: number;
@@ -70,7 +74,11 @@ export type NormalizedQuoteFeedUpdate = {
 
 export type QuoteTickNormalizationResult =
   | { ok: true; update: NormalizedQuoteFeedUpdate }
-  | { ok: false; reason: 'missing_payload' | 'missing_symbol' | 'missing_bid_ask'; rawKeys: string[] };
+  | {
+      ok: false;
+      reason: 'missing_payload' | 'missing_symbol' | 'missing_bid_ask' | 'no_quote';
+      rawKeys: string[];
+    };
 
 const SYMBOL_KEYS = ['symbol', 'Symbol', 'SYMBOL', 's', 'S', 'instrument', 'instrumentSymbol'];
 const CHANNEL_KEYS = ['channel', 'topic', 'stream'];
@@ -115,6 +123,7 @@ const TICK_SIZE_KEYS = [
   'minimum_price_increment',
 ];
 const SEQUENCE_KEYS = ['sequence', 'seq', 'source_seq', 'sourceSeq', 'sequenceId', 'sourceSequence'];
+const MARKET_STATE_KEYS = ['market_state', 'marketState'];
 const TICK_ID_KEYS = ['tick_id', 'tickId', 'source_tick_id', 'sourceTickId'];
 const SOURCE_KEYS = ['source', 'feed_source', 'feedSource', 'provider'];
 const AUTHORITY_KEYS = ['authority', 'feed_authority', 'feedAuthority'];
@@ -199,6 +208,37 @@ const toCleanString = (value: unknown): string | undefined => {
   return cleaned ? cleaned : undefined;
 };
 
+/**
+ * /ws/feed sends `sequence` / `source_seq` as decimal strings ("293935").
+ * Parse them to numbers so the backward-sequence gate compares numerically;
+ * non-numeric identifiers are kept as trimmed strings.
+ */
+export const parseQuoteSequence = (value: unknown): string | number | undefined => {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+  }
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (/^\d+$/.test(trimmed)) {
+    const parsed = Number(trimmed);
+    if (Number.isSafeInteger(parsed)) {
+      return parsed;
+    }
+  }
+  return trimmed;
+};
+
+/** previous_close: 0 means "unknown" on the current hub (Trivanta). */
+const toKnownPreviousClose = (value: unknown): number | undefined => {
+  const parsed = toFiniteOptionalNumber(value);
+  return parsed !== undefined && parsed > 0 ? parsed : undefined;
+};
+
 const toOptionalBoolean = (value: unknown): boolean | undefined => {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value !== 0;
@@ -246,6 +286,8 @@ const resolveTimestamp = (
     timestampMs: pickFirstValue(records, [
       'timestamp_ms',
       'timestampMs',
+      'quote_time_ms',
+      'quoteTimeMs',
       'TimestampMs',
       'TIMESTAMP_MS',
       'hub_publish_timestamp',
@@ -255,7 +297,19 @@ const resolveTimestamp = (
       'hub_ingest_timestamp',
       'hubIngestTimestamp',
     ]),
-    time: pickFirstValue(records, ['time', 'Time', 'TIME', 'tick_time', 'tickTime', 'source_time', 'sourceTime']),
+    // /ws/feed `time` is Unix seconds (scaled later by
+    // normalizeQuoteTickTimestampToMs); timestamp_ms above always wins.
+    time: pickFirstValue(records, [
+      'time',
+      'Time',
+      'TIME',
+      'tick_time',
+      'tickTime',
+      'source_time',
+      'sourceTime',
+      'quote_time_unix',
+      'quoteTimeUnix',
+    ]),
     timeMs: pickFirstValue(records, ['time_ms', 'timeMs', 'tick_time_ms', 'tickTimeMs', 'source_time_ms', 'sourceTimeMs']),
     t: pickFirstValue(records, ['t', 'T', 'ts', 'TS']),
     lastTickAt: pickFirstValue(records, ['lastTickAt', 'last_tick_at', 'last_tick_time']),
@@ -310,6 +364,12 @@ export const normalizeQuoteTickPayload = (
     return { ok: false, reason: 'missing_symbol', rawKeys };
   }
 
+  // Snapshot entries for unknown/unquoted symbols carry has_quote:false and no
+  // bid/ask. They are expected, so report them apart from malformed ticks.
+  if (input.has_quote === false || input.hasQuote === false) {
+    return { ok: false, reason: 'no_quote', rawKeys };
+  }
+
   const bid = toFinitePrice(pickFirstValue(records, BID_KEYS));
   const rawAsk = pickFirstValue(records, ASK_KEYS);
   const ask = toFinitePrice(rawAsk);
@@ -320,9 +380,11 @@ export const normalizeQuoteTickPayload = (
   const last = toFinitePrice(pickFirstValue(records, LAST_KEYS)) ?? undefined;
   const metricRecords = withSessionRecords(records);
   const dailyOpen = toFiniteOptionalNumber(pickFirstValue(metricRecords, OPEN_KEYS));
-  const previousClose = toFiniteOptionalNumber(pickFirstValue(metricRecords, PREVIOUS_CLOSE_KEYS));
-  const high = toFiniteOptionalNumber(pickFirstValue(metricRecords, HIGH_KEYS));
-  const low = toFiniteOptionalNumber(pickFirstValue(metricRecords, LOW_KEYS));
+  const previousClose = toKnownPreviousClose(pickFirstValue(metricRecords, PREVIOUS_CLOSE_KEYS));
+  // /ws/feed has no top-level high/low: daily extremes come from
+  // session.high_bid / session.low_bid, reached through metricRecords.
+  const high = toPositiveOptionalNumber(pickFirstValue(metricRecords, HIGH_KEYS));
+  const low = toPositiveOptionalNumber(pickFirstValue(metricRecords, LOW_KEYS));
   const changePct = toFiniteOptionalNumber(pickFirstValue(metricRecords, CHANGE_KEYS));
   const spread = toFiniteOptionalNumber(pickFirstValue(metricRecords, SPREAD_KEYS));
   // Backend volume/tick_volume may be absent, but it should never be negative.
@@ -330,7 +392,8 @@ export const normalizeQuoteTickPayload = (
   const digits = toFiniteOptionalNumber(pickFirstValue(metricRecords, DIGITS_KEYS));
   const point = toPositiveOptionalNumber(pickFirstValue(metricRecords, POINT_KEYS));
   const tickSize = toPositiveOptionalNumber(pickFirstValue(metricRecords, TICK_SIZE_KEYS));
-  const sequence = pickFirstValue(metricRecords, SEQUENCE_KEYS) as string | number | undefined;
+  const sequence = parseQuoteSequence(pickFirstValue(metricRecords, SEQUENCE_KEYS));
+  const marketState = toCleanString(pickFirstValue(metricRecords, MARKET_STATE_KEYS));
   const tickId = toCleanString(pickFirstValue(metricRecords, TICK_ID_KEYS));
   const source = toCleanString(pickFirstValue(metricRecords, SOURCE_KEYS));
   const authority = toCleanString(pickFirstValue(metricRecords, AUTHORITY_KEYS));
@@ -365,6 +428,7 @@ export const normalizeQuoteTickPayload = (
       tickId,
       source,
       authority,
+      ...(marketState === undefined ? {} : { marketState }),
       stale,
       degraded,
       tradable,

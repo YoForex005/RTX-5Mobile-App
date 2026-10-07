@@ -45,7 +45,7 @@ test('auxiliary header matches ticker metadata and live OHLC without a second ca
   assert.doesNotMatch(headerSource, /timeframeText|\{timeframe \?/);
   assert.match(headerSource, /resolveChartSymbolFullName\(symbol\)/);
   assert.match(headerSource, /resolveChartSymbolCategory\(symbol\)/);
-  assert.match(headerSource, /CHART_OHLC_HIGH_COLOR = '#089981'/);
+  assert.match(headerSource, /CHART_OHLC_HIGH_COLOR = GDark\.trading\.profit/);
   assert.match(headerSource, /CHART_OHLC_LOW_COLOR = '#F23645'/);
   assert.match(headerSource, /\{showTicker \? \(/);
   assert.match(headerSource, /\{showOHLC && !compact \? \(/);

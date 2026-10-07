@@ -1,3 +1,4 @@
+import { scheduleAfterVisualFrames } from '../../utils/afterVisualFrame';
 /**
  * Controls the short handoff from the Accounts "+" button to the Brokers
  * route: reveal a lightweight Brokers shell, then start native navigation
@@ -177,18 +178,7 @@ export function scheduleBrokersLaunchNavigation(
     }
   };
 
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(runIfCurrent, 32);
-    return;
-  }
-
-  // The shell is already mounted and actionable. Give its touch frame and the
-  // following paint both to native before starting cached route/module work.
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(runIfCurrent, 0);
-    });
-  });
+  return scheduleAfterVisualFrames(runIfCurrent);
 }
 
 /**
@@ -201,14 +191,5 @@ export function scheduleBrokersLaunchCoverRemoval(revision: number) {
     brokersLaunchController.hide(revision);
   };
 
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(hideIfCurrent, 32);
-    return;
-  }
-
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(hideIfCurrent, 0);
-    });
-  });
+  return scheduleAfterVisualFrames(hideIfCurrent);
 }

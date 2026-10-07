@@ -1,4 +1,3 @@
-import type { FeedAuthContext } from '../state/activeBrokerSession';
 import {
   feedHealthCanSafelyRetry,
   type FeedHealthReasonCategory,
@@ -18,7 +17,7 @@ export type FeedHealthBannerModel = Readonly<{
   canRetry: boolean;
 }>;
 
-export type CompactFeedStatusLabel = 'LIVE' | 'Connecting...' | 'Unavailable';
+export type CompactFeedStatusLabel = 'LIVE' | 'Connecting...' | 'Reconnecting...' | 'Delayed' | 'Unavailable';
 
 const TERMINAL_FEED_STATUSES = new Set<FeedHealthStatus>([
   'disabled_unconfigured',
@@ -39,6 +38,17 @@ export const resolveCompactFeedStatusLabel = (
   if (TERMINAL_FEED_STATUSES.has(status)) {
     return 'Unavailable';
   }
+  if (status === 'reconnecting') {
+    return 'Reconnecting...';
+  }
+  if (status === 'stale_or_degraded') {
+    return 'Delayed';
+  }
+  // A proven connection can be quiet while the header's narrower tick sample
+  // is warming. It has not returned to an initial connection attempt.
+  if (status === 'healthy' && !hasFreshTick) {
+    return 'Delayed';
+  }
   return hasFreshTick ? 'LIVE' : 'Connecting...';
 };
 
@@ -48,6 +58,7 @@ const reasonLabels: Record<FeedHealthReasonCategory, string> = {
   health_policy_unconfigured: 'Feed health policy is awaiting approval',
   awaiting_server_health: 'Waiting for broker feed health',
   awaiting_live_tick: 'Waiting for a live market tick',
+  live_ticks: 'Live prices are streaming',
   server_status_incomplete: 'Broker health response is incomplete',
   server_status_stale: 'Broker health status is outdated',
   local_tick_stale: 'Live prices have stopped updating',
@@ -59,14 +70,6 @@ const reasonLabels: Record<FeedHealthReasonCategory, string> = {
   scheduled_market_closed: 'Market is closed on schedule',
 };
 
-/** Login/session-level reasons that are more specific than generic unconfigured. */
-const FEED_AUTH_DISABLED_LABELS = Object.freeze({
-  missing_contract:
-    'Login did not include feed auth contract (feed_auth_context). Re-login after backend fix.',
-  missing_credential:
-    'Feed token missing from login/refresh. Sign in again after backend issues a feed_token.',
-} as const);
-
 const cleanBrokerLabel = (brokerName: string): string => {
   const value = String(brokerName ?? '').trim();
   if (!value) return 'Selected broker';
@@ -77,30 +80,9 @@ const cleanBrokerLabel = (brokerName: string): string => {
     .join(' ');
 };
 
-const resolveReasonLabel = (
-  state: FeedHealthState,
-  feedAuthContext?: FeedAuthContext | null,
-): string => {
-  if (
-    state.reasonCategory === 'session_unconfigured' &&
-    feedAuthContext?.mode === 'disabled_unconfigured'
-  ) {
-    return FEED_AUTH_DISABLED_LABELS[feedAuthContext.reason];
-  }
-  if (
-    state.reasonCategory === 'credentials_unavailable' &&
-    feedAuthContext?.mode === 'disabled_unconfigured' &&
-    feedAuthContext.reason === 'missing_credential'
-  ) {
-    return FEED_AUTH_DISABLED_LABELS.missing_credential;
-  }
-  return reasonLabels[state.reasonCategory];
-};
-
 export const buildFeedHealthBannerModel = (
   state: FeedHealthState,
   brokerName: string,
-  feedAuthContext?: FeedAuthContext | null,
 ): FeedHealthBannerModel => {
   const unavailable =
     state.status === 'disabled_unconfigured' ||
@@ -117,7 +99,7 @@ export const buildFeedHealthBannerModel = (
     tone: unavailable ? 'critical' : 'warning',
     title: unavailable ? 'Market Data Unavailable' : 'Prices Delayed',
     brokerLabel: cleanBrokerLabel(brokerName),
-    reasonLabel: resolveReasonLabel(state, feedAuthContext),
+    reasonLabel: reasonLabels[state.reasonCategory],
     ...(state.lastSuccessAt ? { lastSuccessAt: state.lastSuccessAt } : {}),
     canRetry: feedHealthCanSafelyRetry(state),
   });

@@ -23,10 +23,12 @@ type WebViewMessage = {
 type Listener<T> = (payload: T) => void;
 
 function createFakeChartEnvironment({
+  deferredAnimationFrames = false,
   nullCoordinateTimeFromX = Number.POSITIVE_INFINITY,
+  priceFormat = { precision: 5 },
   seriesData: suppliedSeriesData,
   touch = false,
-}: { nullCoordinateTimeFromX?: number; seriesData?: Array<Record<string, number>>; touch?: boolean } = {}) {
+}: { deferredAnimationFrames?: boolean; nullCoordinateTimeFromX?: number; priceFormat?: { precision?: number; minMove?: number }; seriesData?: Array<Record<string, number>>; touch?: boolean } = {}) {
   const clickListeners: Array<Listener<ChartClickParam>> = [];
   const moveListeners: Array<Listener<ChartClickParam>> = [];
   const messages: WebViewMessage[] = [];
@@ -36,6 +38,10 @@ function createFakeChartEnvironment({
   const attachedPrimitives: unknown[] = [];
   const detachedPrimitives: unknown[] = [];
   const hostListeners: Record<string, Array<Listener<any>>> = {};
+  const animationFrames = new Map<number, () => void>();
+  let nextAnimationFrameId = 0;
+  let priceCoordinateOrigin = 100;
+  let pixelsPerPriceUnit = 10;
   const createElement = () => {
     const element: any = {
       children: [] as any[],
@@ -122,7 +128,7 @@ function createFakeChartEnvironment({
         primitive.attached({ chart, requestUpdate: () => undefined, series });
       }
     },
-    coordinateToPrice: (y: number) => 100 - y / 10,
+    coordinateToPrice: (y: number) => priceCoordinateOrigin - y / pixelsPerPriceUnit,
     data: () => seriesData,
     dataByIndex: (index: number) => ({
       close: 4,
@@ -139,8 +145,8 @@ function createFakeChartEnvironment({
         primitive.detached();
       }
     },
-    options: () => ({ priceFormat: { precision: 5 } }),
-    priceToCoordinate: (price: number) => (100 - price) * 10,
+    options: () => ({ priceFormat }),
+    priceToCoordinate: (price: number) => (priceCoordinateOrigin - price) * pixelsPerPriceUnit,
   };
 
   const fakeWindow: any = {
@@ -156,6 +162,14 @@ function createFakeChartEnvironment({
   };
   if (touch) {
     fakeWindow.ontouchstart = null;
+  }
+  if (deferredAnimationFrames) {
+    fakeWindow.requestAnimationFrame = (callback: () => void) => {
+      const id = ++nextAnimationFrameId;
+      animationFrames.set(id, callback);
+      return id;
+    };
+    fakeWindow.cancelAnimationFrame = (id: number) => animationFrames.delete(id);
   }
 
   (globalThis as any).window = fakeWindow;
@@ -239,6 +253,11 @@ function createFakeChartEnvironment({
     crosshairMessages,
     detachedPrimitives,
     drawingMessages,
+    flushAnimationFrames: () => {
+      const callbacks = [...animationFrames.values()];
+      animationFrames.clear();
+      callbacks.forEach((callback) => callback());
+    },
     host,
     latestDrawings,
     listenerCounts,
@@ -246,6 +265,11 @@ function createFakeChartEnvironment({
     messages,
     move,
     priceScaleActions,
+    setPriceCoordinateMapping: (origin: number, pixelsPerUnit = 10) => {
+      priceCoordinateOrigin = origin;
+      pixelsPerPriceUnit = pixelsPerUnit;
+    },
+    timeScale,
     timeScaleActions,
     toolsChanged,
     touchEnd,
@@ -317,34 +341,559 @@ test('Crosshair stays passive and does not create drawing records', () => {
   assert.deepEqual(harness.latestDrawings(), []);
 });
 
-test('Crosshair touch mode shows and locks the professional cursor overlay without drawing records', () => {
+test('Crosshair fixes the viewport until inspection is turned off', () => {
+  for (const touch of [false, true]) {
+    const harness = createFakeChartEnvironment({ touch });
+    harness.manager.setActiveTool('crosshair');
+    const locked = harness.appliedOptions.at(-1) as any;
+    assert.deepEqual(locked.handleScroll, {
+      mouseWheel: false, pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false,
+    });
+    assert.deepEqual(locked.handleScale, {
+      mouseWheel: false, pinch: false, axisPressedMouseMove: false,
+    });
+    harness.touchStart(120, 140);
+    harness.touchMove(160, 170);
+    harness.touchEnd(160, 170);
+    harness.move(160, 170);
+    if (touch) {
+      assert.ok(harness.crosshairMessages().some((message) => message.active === true));
+    }
+    assert.deepEqual(harness.latestDrawings(), []);
+    harness.manager.setActiveTool('none');
+    const restored = harness.appliedOptions.at(-1) as any;
+    assert.equal(restored.handleScroll.horzTouchDrag, true);
+    assert.equal(restored.handleScroll.pressedMouseMove, true);
+    assert.equal(restored.handleScale.pinch, true);
+    assert.equal(restored.handleScale.mouseWheel, true);
+    assert.equal(restored.handleScale.axisPressedMouseMove, true);
+    assert.equal(harness.manager._crosshairLocked, false);
+  }
+});
+
+test('Crosshair activation immediately shows a centered cursor with axis labels and no popup or lock badge', () => {
   const harness = createFakeChartEnvironment({ touch: true });
 
   harness.manager.setActiveTool('crosshair');
-  const startEvent = harness.touchStart(120, 140);
-  const endEvent = harness.touchEnd(120, 140);
-  harness.click(120, 140);
 
   const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
   assert.ok(overlay);
+  const [vertical, horizontal, priceLabel, timeLabel, center, tooltip, lockBadge] = overlay.children;
   assert.equal(overlay.style.display, 'block');
-  assert.ok(overlay.children.some((child: any) => child.textContent === 'LOCK'));
-  // Crosshair mode locks touch-action so the WebView never claims a drawing
-  // drag-edit as a native gesture (which fired pointercancel mid-drag).
+  assert.equal(vertical.style.left, '150px');
+  assert.equal(horizontal.style.top, '148px');
+  assert.equal(priceLabel.style.display, 'block');
+  assert.equal(priceLabel.textContent, '85.20000');
+  assert.equal(timeLabel.style.display, 'block');
+  assert.notEqual(timeLabel.textContent, '');
+  assert.equal(center.textContent, '');
+  assert.equal(center.children.length, 4);
+  assert.ok(center.children.every((arm: any) => arm.style.display === 'block' && arm.style.background === '#2962FF'));
+  assert.ok(center.children.every((arm: any) => {
+    const left = Number.parseFloat(arm.style.left);
+    const top = Number.parseFloat(arm.style.top);
+    const right = left + Number.parseFloat(arm.style.width);
+    const bottom = top + Number.parseFloat(arm.style.height);
+    return !(left <= 11 && right >= 11 && top <= 11 && bottom >= 11);
+  }), 'four separate arms leave the center clear');
+  assert.equal(center.style.color, '#2962FF');
+  assert.equal(priceLabel.style.background, '#D3D3D3');
+  assert.equal(priceLabel.style.color, '#000000');
+  assert.equal(priceLabel.style.font, '400 13px Arial, sans-serif');
+  assert.equal(priceLabel.style.borderRadius, '0');
+  assert.equal(priceLabel.style.boxShadow, 'none');
+  assert.equal(timeLabel.style.background, '#D3D3D3');
+  assert.equal(timeLabel.style.color, '#000000');
+  assert.equal(tooltip.style.display, 'none');
+  assert.equal(tooltip.innerHTML, '');
+  assert.equal(lockBadge.style.display, 'none');
+  assert.equal(lockBadge.textContent, '');
+  assert.equal(harness.manager._crosshairLocked, false);
   assert.equal(harness.host.style.touchAction, 'none');
-  assert.equal(startEvent.preventDefaultCalls, 0);
-  assert.equal(endEvent.preventDefaultCalls, 0);
-  assert.equal(harness.latestDrawings().length, 0);
   assert.ok(harness.crosshairMessages().some((message) => message.active === true));
   assert.deepEqual(harness.latestDrawings(), []);
+});
 
-  harness.touchStart(120, 140);
-  harness.touchMove(124, 144);
-  harness.touchEnd(124, 144);
-  harness.click(124, 144);
+test('Crosshair native guide geometry respects device pixels, occludes the ruler anchor, and restores Area styling', () => {
+  const harness = createFakeChartEnvironment({
+    seriesData: [{ time: 1, value: 85 }, { time: 2, value: 87 }], touch: true,
+  });
+  const fakeWindow = (globalThis as any).window;
+  fakeWindow.devicePixelRatio = 3;
+  harness.manager._chart.options = () => ({ layout: { background: { type: 'solid', color: '#121212' } } });
+  harness.manager.setActiveTool('crosshair');
+  harness.touchStart(180, 180);
+  harness.touchEnd(180, 180);
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  for (const index of [0, 12]) {
+    const guide = overlay.children[index];
+    assert.equal(Number.parseFloat(guide.style.width) * fakeWindow.devicePixelRatio, 2);
+    assert.equal(guide.style.borderLeft, '0');
+    assert.equal(guide.style.background, 'repeating-linear-gradient(to bottom, #D3D3D3 0px, #D3D3D3 4px, transparent 4px, transparent 7px)');
+  }
+  for (const index of [1, 13]) {
+    const guide = overlay.children[index];
+    assert.equal(Number.parseFloat(guide.style.height) * fakeWindow.devicePixelRatio, 2);
+    assert.equal(guide.style.borderTop, '0');
+    assert.equal(guide.style.background, 'repeating-linear-gradient(to right, #D3D3D3 0px, #D3D3D3 4px, transparent 4px, transparent 7px)');
+  }
+  assert.equal(overlay.children[8].style.background, '#121212');
+  harness.manager._chart.options = () => ({ layout: { background: { type: 'solid', color: 'transparent' } } });
+  fakeWindow.getComputedStyle = () => ({ backgroundColor: 'rgb(255, 255, 255)' });
+  harness.manager.refreshCrosshairData();
+  assert.equal(overlay.children[8].style.background, 'rgb(255, 255, 255)');
+  fakeWindow.getComputedStyle = () => ({ backgroundColor: 'rgba(0, 0, 0, 0)' });
+  harness.manager.refreshCrosshairData();
+  assert.equal(overlay.children[8].style.background, '#000000');
 
+  harness.manager.setCrosshairConfig({ areaSeriesInspector: true });
+  assert.equal(overlay.children[0].style.width, '0');
+  assert.equal(overlay.children[0].style.background, 'none');
+  assert.equal(overlay.children[0].style.marginLeft, '0');
+  assert.equal(overlay.children[0].style.borderLeft, '1px solid rgba(148, 163, 184, 0.68)');
+  assert.equal(overlay.children[1].style.height, '0');
+  assert.equal(overlay.children[1].style.background, 'none');
+  assert.equal(overlay.children[1].style.display, 'none');
+  assert.equal(overlay.children[8].style.display, 'none');
+});
+
+test('Crosshair drags update continuously and retain their final location after release and repeated activation', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  const [vertical, horizontal] = overlay.children;
+
+  const startEvent = harness.touchStart(20, 250);
+  assert.equal(vertical.style.left, '150px');
+  assert.equal(horizontal.style.top, '148px');
+  harness.touchMove(22, 251);
+  assert.equal(vertical.style.left, '150px');
+  assert.equal(horizontal.style.top, '149px');
+  // The library reports the absolute finger position during and after the
+  // gesture; it must never overwrite the bridge's relative cursor movement.
+  harness.move(22, 251);
+  assert.equal(vertical.style.left, '150px');
+  harness.touchMove(30, 245);
+  const endEvent = harness.touchEnd(30, 245);
+  harness.move(30, 245);
+  harness.click(30, 245);
+  harness.manager.setActiveTool('crosshair');
+
+  assert.equal(overlay.style.display, 'block');
+  assert.equal(vertical.style.left, '160px');
+  assert.equal(horizontal.style.top, '143px');
+  assert.equal(harness.manager._crosshairLocked, false);
+  assert.equal(harness.manager._crosshairRulerAnchor, null);
+  assert.equal(startEvent.preventDefaultCalls, 0);
+  assert.equal(endEvent.preventDefaultCalls, 0);
+  assert.deepEqual(harness.latestDrawings(), []);
+});
+
+test('Crosshair snaps to logical bar centers and starts each drag from the visible cursor without accumulating residual motion', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  harness.touchStart(40, 250);
+  harness.touchMove(44, 243);
+  assert.equal(overlay.children[0].style.left, '150px');
+  harness.touchEnd(44, 243);
+  assert.equal(harness.manager._lastCrosshairParam.point.x, 150);
+
+  harness.touchStart(80, 250);
+  harness.touchMove(84, 243);
+  harness.touchEnd(84, 243);
+  assert.equal(overlay.children[0].style.left, '150px', 'a new drag must not accumulate the previous four-pixel residual');
+
+  harness.touchStart(80, 250);
+  harness.touchMove(86, 250);
+  assert.equal(overlay.children[0].style.left, '160px');
+  harness.touchMove(94, 250);
+  assert.equal(overlay.children[0].style.left, '160px');
+  harness.touchMove(96, 250);
+  assert.equal(overlay.children[0].style.left, '170px');
+  harness.touchEnd(96, 250);
+  assert.equal(harness.manager._lastCrosshairState.logicalIndex, 17);
+  assert.equal(harness.manager._lastCrosshairState.time, 17);
+});
+
+test('Crosshair regular time labels show the UTC weekday, date, year, and selected bar time', () => {
+  const baseTime = Date.UTC(2026, 9, 5, 12, 11) / 1000;
+  const seriesData = Array.from({ length: 30 }, (_, index) => ({
+    time: baseTime + (index + 1) * 60, open: 90, high: 95, low: 85, close: 92,
+  }));
+  const harness = createFakeChartEnvironment({ seriesData, touch: true });
+  harness.timeScale.coordinateToTime = (x) => baseTime + Math.max(1, Math.round(x / 10)) * 60;
+  harness.timeScale.timeToIndex = (time) => (time - baseTime) / 60;
+  harness.manager.setCrosshairConfig({ timeframe: 'M1' });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.equal(overlay.children[3].textContent, "Mon 5 Oct '26 12:26");
+});
+
+test('Crosshair pending render uses updated timeframe labels without resurrecting a dismissed cursor', () => {
+  const baseTime = Date.UTC(2026, 9, 5, 12, 11) / 1000;
+  const harness = createFakeChartEnvironment({ deferredAnimationFrames: true, touch: true });
+  harness.timeScale.coordinateToTime = (x) => baseTime + Math.max(1, Math.round(x / 10)) * 60;
+  harness.manager.setCrosshairConfig({ timeframe: 'M1' });
+  harness.manager.setActiveTool('crosshair');
+  assert.equal(harness.manager._crosshairVisible, false);
+  harness.manager.setCrosshairConfig({ timeframe: 'D1' });
+  harness.flushAnimationFrames();
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.equal(overlay.children[3].textContent, "Mon 5 Oct '26");
+  harness.manager.setActiveTool('none');
+  harness.manager.setCrosshairConfig({ timeframe: 'M1' });
+  harness.flushAnimationFrames();
   assert.equal(overlay.style.display, 'none');
-  assert.ok(harness.crosshairMessages().some((message) => message.active === false));
+  assert.equal(harness.manager._pendingCrosshairState, null);
+});
+
+test('Crosshair clipped drag reverses immediately from the visible edge and ruler stats flip below the top', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  harness.touchStart(180, 100);
+  harness.touchEnd(180, 100);
+  overlay.children[11].offsetWidth = 100;
+  overlay.children[11].offsetHeight = 32;
+  harness.touchStart(100, 100);
+  harness.touchMove(500, -200);
+  assert.equal(overlay.children[0].style.left, '290px');
+  assert.equal(overlay.children[1].style.top, '2px');
+  assert.equal(overlay.children[11].style.top, '6px');
+  const anchor = harness.manager._crosshairRulerAnchor;
+  harness.touchMove(460, -150);
+  assert.equal(overlay.children[0].style.left, '250px');
+  assert.equal(overlay.children[1].style.top, '52px');
+  harness.touchEnd(460, -150);
+  assert.equal(overlay.children[0].style.left, '250px');
+  assert.equal(overlay.children[1].style.top, '52px');
+  assert.equal(harness.manager._crosshairRulerAnchor, anchor);
+});
+
+test('Crosshair stationary tap starts a transient ruler with broker points and two price/time labels', () => {
+  const seriesData = Array.from({ length: 30 }, (_, index) => ({
+    time: (index + 1) * 60, open: 190, high: 191, low: 189, close: 190,
+  }));
+  const harness = createFakeChartEnvironment({
+    priceFormat: { minMove: 0.01, precision: 3 }, seriesData, touch: true,
+  });
+  harness.setPriceCoordinateMapping(204.8);
+  harness.timeScale.coordinateToTime = (x) => Math.max(1, Math.round(x / 10)) * 60;
+  harness.timeScale.timeToIndex = (time) => time / 60;
+  harness.manager.setCrosshairConfig({ pointSize: 0.001 });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  const [vertical, horizontal, priceLabel, timeLabel, , tooltip, lockBadge, rectangle, anchor, anchorPriceLabel, anchorTimeLabel, stats] = overlay.children;
+
+  harness.touchStart(208, 148.55);
+  assert.equal(vertical.style.left, '150px');
+  assert.equal(horizontal.style.top, '148px');
+  harness.touchEnd(208, 148.55);
+
+  assert.equal(rectangle.style.display, 'block');
+  assert.equal(rectangle.style.left, '150px');
+  assert.equal(rectangle.style.width, '60px');
+  assert.equal(rectangle.style.border, '0');
+  assert.equal(rectangle.style.background, 'rgba(244, 67, 54, 0.20)');
+  assert.equal(anchor.style.left, '150px');
+  assert.equal(anchor.style.top, '148px');
+  assert.equal(anchor.style.width, '8px');
+  assert.equal(anchor.style.height, '8px');
+  assert.equal(priceLabel.textContent, '189.945');
+  assert.equal(anchorPriceLabel.textContent, '190.000');
+  assert.equal(anchorPriceLabel.style.display, 'block');
+  assert.equal(anchorTimeLabel.style.display, 'block');
+  assert.notEqual(anchorTimeLabel.textContent, timeLabel.textContent);
+  assert.equal(stats.textContent, '55 points (-0.03%, -0.055)\n6 bars, 6m');
+  assert.equal(stats.style.background, '#D3D3D3');
+  assert.equal(stats.style.color, '#000000');
+  assert.equal(stats.style.font, '400 13px Arial, sans-serif');
+  assert.equal(overlay.children[12].style.display, 'block');
+  assert.equal(overlay.children[12].style.left, '150px');
+  assert.equal(overlay.children[12].style.height, '296px');
+  assert.equal(overlay.children[13].style.display, 'block');
+  assert.equal(overlay.children[13].style.top, '148px');
+  assert.equal(overlay.children[13].style.width, '296px');
+  assert.equal(tooltip.style.display, 'none');
+  assert.equal(lockBadge.style.display, 'none');
+  assert.equal(harness.manager.getActiveTool(), 'crosshair');
+  assert.deepEqual(harness.latestDrawings(), []);
+});
+
+test('Crosshair positive ruler uses a signed percent, blue fill, and a gray stats label above its endpoint', () => {
+  const harness = createFakeChartEnvironment({ priceFormat: { precision: 3 }, touch: true });
+  harness.setPriceCoordinateMapping(204.8);
+  harness.manager.setCrosshairConfig({ pointSize: 0.001 });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  overlay.children[11].offsetWidth = 120;
+  overlay.children[11].offsetHeight = 32;
+  harness.touchStart(180, 147.57);
+  harness.touchEnd(180, 147.57);
+
+  assert.match(overlay.children[11].textContent, /^43 points \(\+0.02%, \+0.043\)/);
+  assert.equal(overlay.children[7].style.background, 'rgba(33, 150, 243, 0.20)');
+  assert.equal(overlay.children[7].style.border, '0');
+  assert.equal(overlay.children[11].style.left, '56px', 'label flips left when there is insufficient room to the right');
+  assert.equal(overlay.children[11].style.top, '112px');
+});
+
+test('Crosshair negative ruler stats sit below and beside the endpoint rather than inside the rectangle', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  overlay.children[11].offsetWidth = 100;
+  overlay.children[11].offsetHeight = 32;
+  harness.touchStart(120, 180);
+  harness.touchEnd(120, 180);
+  assert.equal(overlay.children[11].style.left, '124px');
+  assert.equal(overlay.children[11].style.top, '184px');
+  assert.equal(overlay.children[12].style.height, '296px');
+  assert.equal(overlay.children[13].style.width, '296px');
+});
+
+test('Crosshair ruler points and price change use the same digit-rounded prices as its axis labels', () => {
+  const harness = createFakeChartEnvironment({ priceFormat: { minMove: 0.01, precision: 3 }, touch: true });
+  harness.setPriceCoordinateMapping(76.5276);
+  harness.manager.setActiveTool('crosshair');
+  harness.touchStart(180, 149.612);
+  harness.touchEnd(180, 149.612);
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.equal(overlay.children[9].textContent, '61.728');
+  assert.equal(overlay.children[2].textContent, '61.566');
+  assert.match(overlay.children[11].textContent, /^162 points \(-0.26%, -0.162\)/);
+  assert.equal(harness.manager._resolveCrosshairPointSize(), 0.001, 'digit point must not be replaced by a larger trading tick size');
+});
+
+test('Crosshair tap on the current cursor shows a zero ruler and a second tap exits inspection', () => {
+  const harness = createFakeChartEnvironment({ priceFormat: { precision: 3 }, touch: true });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  harness.touchStart(148, 148);
+  harness.touchEnd(148, 148);
+  assert.equal(overlay.children[11].textContent, '0 points (0.00%, +0.000)\n0 bars, 0m');
+  assert.ok(harness.manager._crosshairRulerAnchor);
+
+  harness.touchStart(210, 190);
+  harness.touchEnd(210, 190);
+  assert.equal(harness.manager.getActiveTool(), 'none');
+  assert.equal(overlay.style.display, 'none');
+  assert.equal(harness.manager._crosshairRulerAnchor, null);
+  assert.equal(harness.toolsChanged().at(-1)?.tool, 'none');
+  const restored = harness.appliedOptions.at(-1) as any;
+  assert.equal(restored.handleScroll.horzTouchDrag, true);
+  assert.equal(restored.handleScale.pinch, true);
+  assert.deepEqual(harness.latestDrawings(), []);
+});
+
+test('Crosshair ruler taps inspect the exact pointer price even when drawing magnet snapping is enabled', () => {
+  const harness = createFakeChartEnvironment({
+    seriesData: Array.from({ length: 30 }, (_, index) => ({
+      time: index + 1, open: 85, high: 87, low: 83, close: 84,
+    })),
+    touch: true,
+  });
+  harness.manager.setCrosshairConfig({
+    snap: { enabled: true, type: 'ohlc-nearest', thresholdPx: 18 },
+  });
+  harness.manager.setActiveTool('crosshair');
+  harness.touchStart(180, 164);
+  harness.touchEnd(180, 164);
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.equal(overlay.children[2].textContent, '83.60000');
+  assert.equal(overlay.children[1].style.top, '164px');
+  assert.deepEqual(harness.latestDrawings(), []);
+});
+
+test('Crosshair ruler drag moves only the endpoint by touch delta and survives library events and release', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  harness.manager.setCrosshairConfig({ pointSize: 0.1 });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  harness.touchStart(208, 180);
+  harness.touchEnd(208, 180);
+  const originalAnchor = harness.manager._crosshairRulerAnchor;
+
+  harness.touchStart(10, 220);
+  assert.equal(overlay.children[0].style.left, '210px');
+  harness.touchMove(30, 200);
+  harness.move(30, 200);
+  harness.touchEnd(30, 200);
+  harness.move(30, 200);
+  harness.click(30, 200);
+  harness.manager.setActiveTool('crosshair');
+
+  assert.equal(overlay.style.display, 'block');
+  assert.equal(overlay.children[0].style.left, '230px');
+  assert.equal(overlay.children[1].style.top, '160px');
+  assert.equal(overlay.children[8].style.left, '150px');
+  assert.equal(overlay.children[8].style.top, '148px');
+  assert.equal(harness.manager._crosshairRulerAnchor, originalAnchor);
+  assert.match(overlay.children[11].textContent, /^12 points \(-1.41%, -1.20000\)\n8 bars, 8s$/);
+  assert.deepEqual(harness.latestDrawings(), []);
+});
+
+test('Crosshair ruler measures logical bars in future space without clamping them to the final candle', () => {
+  const harness = createFakeChartEnvironment({
+    nullCoordinateTimeFromX: 40,
+    seriesData: [{ time: 1, open: 90, high: 91, low: 80, close: 85 }, { time: 2, open: 90, high: 91, low: 80, close: 85 }],
+    touch: true,
+  });
+  harness.manager.setActiveTool('crosshair');
+  harness.touchStart(248, 180);
+  harness.touchEnd(248, 180);
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.match(overlay.children[11].textContent, /\n10 bars, 10s$/);
+  assert.equal(harness.manager._crosshairRulerAnchor.dataIndex, 1);
+  assert.equal(harness.manager._lastCrosshairState.dataIndex, 1);
+});
+
+test('Crosshair ruler elapsed time follows actual timestamps across gaps instead of multiplying bars by timeframe', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  harness.timeScale.coordinateToTime = (x) => {
+    const bar = Math.max(1, Math.round(x / 10));
+    return bar * 60 + (bar >= 20 ? 86400 : 0);
+  };
+  harness.manager.setActiveTool('crosshair');
+  harness.touchStart(208, 180);
+  harness.touchEnd(208, 180);
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.match(overlay.children[11].textContent, /\n6 bars, 1d 6m$/);
+  assert.doesNotMatch(overlay.children[11].textContent, /6 bars, 6m$/);
+});
+
+test('Crosshair ruler preserves remaining minutes after whole hours', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  harness.timeScale.coordinateToTime = (x) => Math.max(1, Math.round(x / 10)) * 15 * 60;
+  harness.manager.setCrosshairConfig({ timeframe: 'M15' });
+  harness.manager.setActiveTool('crosshair');
+  harness.touchStart(210, 180);
+  harness.touchEnd(210, 180);
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.match(overlay.children[11].textContent, /\n6 bars, 1h 30m$/);
+  harness.touchStart(10, 250);
+  harness.touchMove(30, 250);
+  harness.touchEnd(30, 250);
+  assert.match(overlay.children[11].textContent, /\n8 bars, 2h$/);
+});
+
+test('Crosshair live-scale refresh keeps both ruler labels and measurement aligned with retained screen positions', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  harness.manager.setCrosshairConfig({ pointSize: 0.01 });
+  harness.manager.setActiveTool('crosshair');
+  harness.touchStart(180, 160);
+  harness.touchEnd(180, 160);
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+
+  harness.setPriceCoordinateMapping(110, 20);
+  harness.timeScale.coordinateToTime = (x) => Math.max(1, Math.round(x / 10)) + 3600;
+  harness.manager.refreshCrosshairData();
+
+  assert.equal(overlay.children[0].style.left, '180px');
+  assert.equal(overlay.children[1].style.top, '160px');
+  assert.equal(overlay.children[8].style.left, '150px');
+  assert.equal(overlay.children[8].style.top, '148px');
+  assert.equal(overlay.children[2].textContent, '102.00000');
+  assert.equal(overlay.children[9].textContent, '102.60000');
+  assert.equal(harness.manager._crosshairRulerAnchor.time, 3615);
+  assert.equal(harness.manager._lastCrosshairState.time, 3618);
+  assert.match(overlay.children[11].textContent, /^60 points .*\n3 bars, 3s$/);
+});
+
+test('Crosshair point metadata clears by context and survives partial magnet config without symbol guesses', () => {
+  const harness = createFakeChartEnvironment({ priceFormat: {}, touch: true });
+  harness.manager.setCrosshairConfig({ symbol: 'GBPUSD', pointSize: 0.00001 });
+  assert.equal(harness.manager._resolveCrosshairPointSize(), 0.00001);
+  harness.manager.setCrosshairConfig({ snap: { enabled: true } });
+  assert.equal(harness.manager._resolveCrosshairPointSize(), 0.00001);
+  harness.manager.setCrosshairConfig({ symbol: 'BTCUSD', pointSize: null });
+  assert.equal(harness.manager._resolveCrosshairPointSize(), null);
+  harness.manager.setCrosshairConfig({ pointSize: 0.01 });
+  harness.manager.setCrosshairConfig({ symbol: 'XAUUSD' });
+  assert.equal(harness.manager._resolveCrosshairPointSize(), null);
+  harness.manager.setCrosshairConfig({ pointSize: -1 });
+  assert.equal(harness.manager._resolveCrosshairPointSize(), null);
+  harness.manager.setActiveTool('crosshair');
+  harness.touchStart(180, 170);
+  harness.touchEnd(180, 170);
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.match(overlay.children[11].textContent, /^Price change/);
+  assert.doesNotMatch(overlay.children[11].textContent, /points/);
+});
+
+test('Crosshair survives empty move events, touch cancellation, and suppressed multitouch gestures', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  harness.manager.setActiveTool('crosshair');
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  const [vertical, horizontal] = overlay.children;
+  const first = { clientX: 148, clientY: 148, identifier: 1 };
+  const second = { clientX: 210, clientY: 180, identifier: 2 };
+  const event = (touches: any[], changedTouches = touches) => ({
+    touches,
+    changedTouches,
+    preventDefault: () => undefined,
+    stopPropagation: () => undefined,
+    stopImmediatePropagation: () => undefined,
+  });
+
+  harness.manager._handleCrosshairMove({});
+  harness.manager._handleTouchCancel(event([]));
+  harness.manager._handleTouchStart(event([first, second], [second]));
+  harness.manager._handleTouchMove(event([first, second]));
+  harness.manager._handleCrosshairMove({ point: { x: 210, y: 180 }, time: 21 });
+  harness.manager._handleTouchEnd(event([], [first, second]));
+
+  assert.equal(overlay.style.display, 'block');
+  assert.equal(vertical.style.left, '150px');
+  assert.equal(horizontal.style.top, '148px');
+  assert.equal(harness.manager._crosshairLocked, false);
+  assert.deepEqual(harness.latestDrawings(), []);
+});
+
+test('Crosshair retries its centered seed when candle data arrives after activation', () => {
+  const seriesData: Array<Record<string, number>> = [];
+  const harness = createFakeChartEnvironment({ seriesData, touch: true });
+  harness.manager.setActiveTool('crosshair');
+  assert.equal(harness.manager._regularCrosshairSeedPending, true);
+  assert.equal(harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true'), undefined);
+
+  seriesData.push({ time: 1, open: 90, high: 95, low: 80, close: 92 });
+  harness.manager.refreshCrosshairData();
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.ok(overlay);
+  assert.equal(overlay.style.display, 'block');
+  assert.equal(overlay.children[0].style.left, '150px');
+  assert.equal(harness.manager._regularCrosshairSeedPending, false);
+});
+
+test('Crosshair toggle-off and drawing replay discard any queued cursor render', () => {
+  for (const reset of ['toggle-off', 'replay']) {
+    const harness = createFakeChartEnvironment({ deferredAnimationFrames: true, touch: true });
+    harness.manager.setActiveTool('crosshair');
+    harness.flushAnimationFrames();
+    const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+    assert.equal(overlay.style.display, 'block');
+    harness.touchStart(148, 148);
+    harness.touchMove(160, 170);
+    if (reset === 'toggle-off') {
+      harness.manager.setActiveTool('none');
+    } else {
+      harness.manager.setSerializedDrawings([]);
+    }
+    harness.flushAnimationFrames();
+    harness.manager.refreshCrosshairData();
+    harness.flushAnimationFrames();
+    assert.equal(overlay.style.display, 'none');
+    assert.equal(harness.manager._lastCrosshairParam, null);
+    assert.equal(harness.manager._pendingCrosshairState, null);
+
+    harness.manager.setActiveTool('crosshair');
+    harness.flushAnimationFrames();
+    assert.equal(overlay.style.display, 'block');
+    assert.equal(overlay.children[0].style.left, '150px');
+    assert.equal(overlay.children[1].style.top, '148px');
+  }
 });
 
 test('Area inspector configuration is disabled by default and remains settable independently of magnet mode', () => {

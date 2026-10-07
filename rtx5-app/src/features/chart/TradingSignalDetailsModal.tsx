@@ -281,7 +281,7 @@ function makeStyles(T: any, isDark: boolean) {
       color: T.textMuted,
     },
     tcLogoPlaceholder: {
-      backgroundColor: '#22C55E',
+      backgroundColor: T.trading.profit,
       borderRadius: 12,
       paddingHorizontal: 6,
       paddingVertical: 3,

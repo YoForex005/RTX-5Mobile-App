@@ -122,7 +122,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       color: T.text,
       fontSize: 18,
       lineHeight: 24,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     subtitle: {

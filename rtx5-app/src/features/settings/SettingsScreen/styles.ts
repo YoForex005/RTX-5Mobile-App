@@ -60,7 +60,7 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
     borderWidth: 1, borderColor: themeMode === 'dark' ? SETTINGS_DARK_BORDER : T.borderMedium,
   },
   headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { color: themeMode === 'dark' ? SETTINGS_DARK_PRIMARY_TEXT : T.text, fontSize: 18, fontWeight: '600' },
+  headerTitle: { color: themeMode === 'dark' ? SETTINGS_DARK_PRIMARY_TEXT : T.text, fontSize: 18, fontWeight: '500' },
   headerSub: { color: themeMode === 'dark' ? SETTINGS_DARK_SECONDARY_TEXT : T.textSub, fontSize: 13, fontWeight: '500', marginTop: 2 },
   searchBtn: {
     width: 40, height: 40, borderRadius: 10,
@@ -94,9 +94,7 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
   },
-  ribbonDemo: { backgroundColor: '#10B981' },
-  ribbonLive: { backgroundColor: themeMode === 'dark' ? SETTINGS_DARK_ACCENT : '#3B82F6' },
-  ribbonText: { color: '#FFF', fontSize: 12, fontWeight: '600', letterSpacing: 0.4 },
+  ribbonText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.4 },
 
   accTopRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

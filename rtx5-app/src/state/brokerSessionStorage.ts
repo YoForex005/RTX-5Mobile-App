@@ -10,7 +10,6 @@ import {
   LEGACY_AUTH_CREDENTIAL_KEYS,
   LEGACY_ACCESS_TOKEN_KEY,
   LEGACY_EXPIRES_AT_KEY,
-  LEGACY_FEED_TOKEN_KEYS,
   LEGACY_REFRESH_TOKEN_KEY,
   SecureCredentialBundleStore,
   type LegacyAuthCredentialInput,
@@ -24,8 +23,6 @@ export const ACTIVE_BROKER_LOGO_URL_KEY = 'logo_url';
 export const ACCESS_TOKEN_KEY = LEGACY_ACCESS_TOKEN_KEY;
 export const REFRESH_TOKEN_KEY = LEGACY_REFRESH_TOKEN_KEY;
 export const EXPIRES_AT_KEY = LEGACY_EXPIRES_AT_KEY;
-export const FEED_BROKER_TOKEN_KEY = LEGACY_FEED_TOKEN_KEYS[0];
-export const FEED_BROKER_TOKEN_STORAGE_KEYS = LEGACY_FEED_TOKEN_KEYS;
 export { AUTH_CREDENTIAL_BUNDLE_KEY };
 
 const secureCredentialBundleStore = new SecureCredentialBundleStore({
@@ -65,21 +62,21 @@ export async function clearLegacySelectedBrokerSession(): Promise<void> {
   ]);
 }
 
-export async function getStoredFeedBrokerToken(expected?: {
-  brokerId?: string | null;
-  accountLogin?: string | number | null;
-}): Promise<string> {
-  await assertNativeAuthCredentialStorage();
-  const bundle = await secureCredentialBundleStore.get(expected);
-  return bundle?.feedToken ?? '';
-}
-
 export async function clearAuthSessionTokens(): Promise<void> {
   if (Platform.OS === 'web') {
     await clearLegacyWebAuthStorage();
     return;
   }
   await secureCredentialBundleStore.clear();
+}
+
+/** Removes obsolete unbound aliases without changing the active credential bundle. */
+export async function clearLegacyAuthSessionCredentials(): Promise<void> {
+  if (Platform.OS === 'web') {
+    await AsyncStorage.multiRemove([...LEGACY_AUTH_CREDENTIAL_KEYS]);
+    return;
+  }
+  await secureCredentialBundleStore.clearLegacy();
 }
 
 export async function replaceAuthSessionCredentials(

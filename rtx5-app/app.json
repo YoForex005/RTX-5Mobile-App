@@ -58,6 +58,20 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow RTX5 to select screenshots you want to attach to a bug report.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Allow RTX5 to detect a phone shake to open Report a Bug."
+        }
+      ],
+      [
         "expo-font",
         {
           "fonts": [
@@ -74,6 +88,7 @@
       ],
       "./withAdiRegistration.js",
       "./withNetworkSecurityConfig.js",
+      "./withAndroidLauncherIcons.js",
       [
         "expo-build-properties",
         {

@@ -43,6 +43,7 @@ import {
 } from '../../state/activeBrokerSession';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 import { requestOrrnnDemoTradeAuth } from './tradeAuthPrompt';
+import { blockInvestorTradeAction, useInvestorReadOnlySession } from '../../hooks/useInvestorReadOnlySession';
 
 const CANVAS_DARK = '#121212';
 const CARD_DARK = '#1E1E1E';
@@ -111,6 +112,7 @@ export function ClosePositionScreen({
   const themeActive = isScreenFocused;
   const T = useTheme({ active: themeActive });
   const { t } = useTranslation();
+  const investorReadOnly = useInvestorReadOnlySession();
   const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
@@ -235,6 +237,8 @@ export function ClosePositionScreen({
     })) {
       return;
     }
+    // Investor (read-only) login: the server would answer 403 INVESTOR_READ_ONLY.
+    if (blockInvestorTradeAction(t)) return;
     if (!position || actionLockRef.current || isClosing) {
       return;
     }
@@ -318,7 +322,7 @@ export function ClosePositionScreen({
         void invalidateSessionQueryRoots(
           appQueryClient,
           actionProvenance.cacheNamespace,
-          ['positionHistory', 'accountDeals', 'deals', 'positions', 'ordersByLogin', 'accountSummary', 'exposure', 'transactions'],
+          ['positionHistory', 'accountDeals', 'deals', 'positions', 'ordersByLogin', 'accountSummary', 'transactions'],
         );
         if (resolvedLogin) {
           void state.refreshPositions(resolvedLogin);
@@ -364,7 +368,7 @@ export function ClosePositionScreen({
 
   if (!position) {
     return (
-      <View style={[styles.root, { backgroundColor: screenBg }]}>
+      <View style={[styles.root, { backgroundColor: screenBg, paddingLeft: insets.left, paddingRight: insets.right }]}>
         {header}
         <View style={styles.centered}>
           <ActivityIndicator size="small" color={T.accent} />
@@ -377,7 +381,7 @@ export function ClosePositionScreen({
   const symbol = position.symbol.replace(/\//g, '');
 
   return (
-    <View style={[styles.root, { backgroundColor: screenBg }]}>
+    <View style={[styles.root, { backgroundColor: screenBg, paddingLeft: insets.left, paddingRight: insets.right }]}>
       {header}
       <ScrollView
         canCancelContentTouches={Platform.OS === 'ios'}
@@ -438,9 +442,9 @@ export function ClosePositionScreen({
           <Pressable
             style={[
               styles.primaryBtn,
-              (isClosing || actionLocked || !quoteAvailability.allowed) && styles.btnDisabled,
+              (investorReadOnly || isClosing || actionLocked || !quoteAvailability.allowed) && styles.btnDisabled,
             ]}
-            disabled={isClosing || actionLocked || !quoteAvailability.allowed}
+            disabled={investorReadOnly || isClosing || actionLocked || !quoteAvailability.allowed}
             onPress={() => { void handleClosePosition(); }}
             activateOnPressIn
             latencyLabel="closePosition.submit"
@@ -485,7 +489,7 @@ const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
   customHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48,
+    minHeight: 48,
     paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: isDark ? DIVIDER_DARK : T.borderSubtle,
@@ -494,7 +498,7 @@ const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
   headerTitle: {
     flex: 1,
     fontSize: 17,
-    fontWeight: '600',
+    fontWeight: '500',
     textAlign: 'center',
     letterSpacing: 0.15,
   },
@@ -611,7 +615,7 @@ const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
     padding: 14,
   },
   statusBoxSuccess: {
-    borderColor: isDark ? 'rgba(16,185,129,0.34)' : 'rgba(5,150,105,0.24)',
+    borderColor: `${T.trading.profit}55`,
     backgroundColor: T.upGlow,
   },
   statusBoxError: {

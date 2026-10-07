@@ -97,6 +97,45 @@ test('login submit requires health success for the exact selected broker server 
   );
 });
 
+test('a healthy broker is never reported unavailable just because health is not verified yet', () => {
+  const source = readSource('app/login.tsx');
+  const pressable = readSource('src/ui/components/FastPressable.tsx');
+
+  // A disabled LOGIN must not submit through touch-start activation: RN's
+  // Pressable withholds press callbacks while disabled, but onTouchStart does not.
+  assert.match(
+    pressable,
+    /const handleTouchStart = useCallback\([\s\S]*if \(disabledRef\.current\) \{[\s\S]*return;\s*\}[\s\S]*if \(activateOnTouchStart && onPress && !pressAlreadyHandled\) \{/,
+  );
+  assert.match(pressable, /disabledRef\.current = disabled;/);
+
+  // Submit joins (or runs) the probe for the exact host before failing closed.
+  assert.match(
+    source,
+    /if \(healthVerifiedBrokerServerUrlRef\.current !== normalizedServerUrl\) \{[\s\S]*await probeBrokerHealth\(normalizedServerUrl\);[\s\S]*\}\s*if \(healthVerifiedBrokerServerUrlRef\.current !== normalizedServerUrl\) \{\s*const unavailableMessage = t\('Selected broker is unavailable'\);/,
+  );
+  assert.match(source, /inFlight\.url === normalizedServerUrl[\s\S]*return inFlight\.promise;/);
+
+  // A failed probe re-checks the same selected host with backoff.
+  assert.match(source, /const BROKER_HEALTH_REPROBE_DELAYS_MS = \[2000, 4000, 8000, 15000\] as const;/);
+  assert.match(
+    source,
+    /setBrokerHealthWarning\(t\('Selected broker is unavailable'\)\);\s*scheduleBrokerHealthReprobe\(normalizedServerUrl\);/,
+  );
+  assert.match(source, /selectedBrokerServerUrlRef\.current !== serverUrl/);
+
+  // Pre-warm only clears a verification that belongs to a different host, and
+  // blurring the broker field with the same broker keeps the verified result.
+  assert.match(
+    source,
+    /healthVerifiedBrokerServerUrlRef\.current\s*&& healthVerifiedBrokerServerUrlRef\.current !== serverUrl\s*\) \{\s*clearBrokerHealthVerification\(\);/,
+  );
+  assert.match(
+    source,
+    /if \(normalizeBrokerKey\(value\) === normalizeBrokerKey\(brokerIdValueRef\.current \?\? brokerId\)\) \{[\s\S]*return;\s*\}/,
+  );
+});
+
 test('login screen exposes register account navigation to the demo registration screen', () => {
   const source = readSource('app/login.tsx');
 
@@ -114,9 +153,12 @@ test('login screen exposes register account navigation to the demo registration 
 test('login broker id can be selected from the broker directory dropdown', () => {
   const source = readSource('app/login.tsx');
 
-  assert.match(source, /import \{ ActionSheet \} from '\.\.\/src\/ui\/components\/ActionSheet'/);
-  assert.match(source, /import \{ useBrokerServers, getBrokerConfigQueryKey \} from '\.\.\/src\/query\/broker'/);
-  assert.match(source, /const \[brokerPickerOpen, setBrokerPickerOpen\] = useState\(false\)/);
+  assert.match(source, /from '\.\.\/src\/features\/settings\/loginBrokerPicker'/);
+  assert.match(source, /import \{ useBrokerServers \} from '\.\.\/src\/query\/broker'/);
+  // Open state must not live in the login screen's own state: toggling it
+  // re-rendered the whole form inside the touch event (267ms first frame).
+  assert.match(source, /const \[brokerPickerStore\] = useState\(createLoginBrokerPickerStore\)/);
+  assert.doesNotMatch(source, /brokerPickerOpen|setBrokerPickerOpen/);
   assert.match(source, /useBrokerServers\(true\)/);
   assert.match(source, /const brokerOptions = useMemo<LoginBrokerOption\[\]>\(\(\) => \{/);
   assert.match(source, /const selectedBrokerOption = useMemo\(\(\) => \{/);
@@ -149,19 +191,19 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   assert.doesNotMatch(source, /\{t\('Trading Server'\)\}/);
   assert.match(
     source,
-    /<View style=\{styles\.fieldValueColumn\}>[\s\S]*?<View style=\{styles\.brokerHealthStatusSlot\}>[\s\S]*?isBrokerHealthChecking[\s\S]*?brokerHealthWarning[\s\S]*?<\/View>\s*<\/View>\s*<Pressable/,
+    /<View style=\{styles\.fieldValueColumn\}>[\s\S]*?<View style=\{styles\.brokerHealthStatusSlot\}>[\s\S]*?isBrokerHealthChecking[\s\S]*?brokerHealthWarning[\s\S]*?<\/View>\s*<\/View>\s*<LoginBrokerPickerExpandedState store=\{brokerPickerStore\}>\s*\{\(brokerPickerExpanded\) => \(\s*<Pressable/,
   );
   assert.match(source, /searchPlaceholder="Search brokers\.\.\."/);
   assert.match(
     source,
-    /<ActionSheet[\s\S]*visible=\{brokerPickerOpen\}[\s\S]*actions=\{brokerPickerActions\}[\s\S]*searchable=\{brokerOptions\.length > 0\}[\s\S]*detent="large"[\s\S]*instantOpen[\s\S]*entryMotion="instant"[\s\S]*immediateHostHideOnClose[\s\S]*runActionAfterClose=\{false\}/,
+    /<LoginBrokerPickerSheet[\s\S]*store=\{brokerPickerStore\}[\s\S]*actions=\{brokerPickerActions\}[\s\S]*searchable=\{brokerOptions\.length > 0\}[\s\S]*detent="large"[\s\S]*instantOpen[\s\S]*entryMotion="instant"[\s\S]*immediateHostHideOnClose[\s\S]*runActionAfterClose=\{false\}/,
   );
   assert.match(
     source,
-    /brokerInputRow:\s*\{[\s\S]*height: 80,[\s\S]*minHeight: 80,[\s\S]*paddingVertical: 0,/,
+    /brokerInputRow:\s*\{[\s\S]*minHeight: Math\.max\(80, Math\.ceil\(80 \* fontScale\)\),[\s\S]*paddingVertical: 12,/,
   );
   assert.match(source, /inputRow:\s*\{\s*width: '100%',[\s\S]*minHeight: 58,/);
-  assert.match(source, /brokerHealthStatusSlot:\s*\{[\s\S]*minHeight: 17,/);
+  assert.match(source, /brokerHealthStatusSlot:\s*\{[\s\S]*minHeight: 0,/);
   assert.match(source, /inputLeadingIcon:\s*\{[\s\S]*width: 32,[\s\S]*textAlign: 'center',[\s\S]*marginRight: 10,/);
   assert.match(source, /input:\s*\{[\s\S]*textAlignVertical: 'center',/);
 });
@@ -187,6 +229,8 @@ test('logged-out demo broker is only an initial default and cannot overwrite a u
     defaultEffectSource,
     /hasResolvedLoggedOutBrokerDefaultRef\.current = true;[\s\S]*selectBrokerOption\(publicDemoOption\)/,
   );
+  assert.match(defaultEffectSource, /option\.brokerId === ORRNN_PUBLIC_DEMO_LOGIN_BROKER_ID/);
+  assert.match(defaultEffectSource, /option\.serverUrl === ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL/);
   assert.match(
     source,
     /const selectBrokerOptionFromPicker = useCallback\(\(option: LoginBrokerOption\) => \{\s*hasResolvedLoggedOutBrokerDefaultRef\.current = true;\s*selectBrokerOption\(option\);/,
@@ -236,7 +280,7 @@ test('login validation snapshots the latest committed native field values', () =
   );
   assert.match(
     demoLoginRequestSource,
-    /const loginRequestPromise = loginAPI\(\s*isOrrnnDemoLogin\s*\? \{[\s\S]*?login: Number\(numericDemoLogin\),[\s\S]*?password: currentPassword,[\s\S]*?broker_id: ORRNN_DEMO_PUBLIC_BROKER_ID,[\s\S]*?\}\s*: \{[\s\S]*?username: normalizedAccountId,[\s\S]*?password: currentPassword,[\s\S]*?broker_id: normalizedBrokerId,[\s\S]*?\},\s*\{ serverUrl: normalizedServerUrl, signal: loginAbortController\.signal \},\s*\);/,
+    /const loginRequestPromise = loginAPI\(\s*isOrrnnDemoLogin\s*\? \{[\s\S]*?login: Number\(numericDemoLogin\),[\s\S]*?password: currentPassword,[\s\S]*?broker_id: ORRNN_DEMO_PUBLIC_BROKER_ID,[\s\S]*?\}\s*: \{[\s\S]*?username: normalizedAccountId,[\s\S]*?password: currentPassword,[\s\S]*?broker_id: selectedEndpoints\.brokerId,[\s\S]*?\},\s*\{ serverUrl: normalizedServerUrl, signal: loginAbortController\.signal \},\s*\);/,
   );
   assert.match(source, /const brokerIdValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const brokerServerUrlValueRef = useRef<string \| null>\(null\)/);
@@ -310,7 +354,9 @@ test('login atomically commits the validated secure session before navigation', 
   const firstSuccessNavigationIndex = Math.min(...successNavigationIndices);
   const lastSuccessNavigationIndex = Math.max(...successNavigationIndices);
   const postLoginWorkIndex = source.indexOf('schedulePostLoginWork(() => {', lastSuccessNavigationIndex);
-  const brokerConfigRefreshIndex = source.indexOf('void getBrokerConfig(canonicalBrokerId)', postLoginWorkIndex);
+  // Contract v3: /broker/config server_name + /account/{login} name are
+  // applied by the post-login profile enrichment.
+  const brokerConfigRefreshIndex = source.indexOf('void enrichSignedInAccountProfile({', postLoginWorkIndex);
   const handleLoginEndIndex = source.indexOf('const releaseLoginSubmitPressGuard', postLoginWorkIndex);
 
   assert.notEqual(loginRequestIndex, -1);
@@ -329,7 +375,7 @@ test('login atomically commits the validated secure session before navigation', 
     /checkBrokerServerHealth/,
     'login should not run a serial health probe after the user presses submit',
   );
-  assert.match(loginCriticalPath, /if \(normalizeBrokerKey\(canonicalBrokerId\) !== normalizeBrokerKey\(selectedEndpoints\.brokerId\)\)/);
+  assert.match(loginCriticalPath, /if \(!isSameBrokerId\(responseBrokerId, selectedEndpoints\.brokerId\)\)/);
   assert.match(loginCriticalPath, /await commitBrokerSession\(\{/);
   assert.match(loginCriticalPath, /brokerId: selectedEndpoints\.brokerId/);
   assert.match(loginCriticalPath, /apiBase: selectedEndpoints\.apiBase/);
@@ -378,10 +424,10 @@ test('login atomically commits the validated secure session before navigation', 
   );
   assert.match(source, /authorizeBrokerSessionCommit\(\)[\s\S]*signal: loginAbortController\.signal/);
   assert.match(source, /bootstrapApp\(\{[\s\S]*expectedProvenance: committedProvenance/);
-  assert.match(
-    source,
-    /queryClient\.setQueryData\(\s*getBrokerConfigQueryKey\(committedSession\.session\.cacheNamespace, canonicalBrokerId\),\s*brokerConfig,\s*\)/,
-  );
+  // Contract v3: server_name/name arrive through the post-login enrichment;
+  // the broker config cache root is invalidated instead of hand-seeded.
+  assert.match(source, /void enrichSignedInAccountProfile\(\{[\s\S]*provenance: committedProvenance/);
+  assert.match(source, /invalidateSessionQueryRoots\([\s\S]*'brokerConfig'\]/);
 });
 
 test('broker detail login atomically commits the selected directory session before navigation', () => {
@@ -401,7 +447,7 @@ test('broker detail login atomically commits the selected directory session befo
   assert.match(source, /scheduleBrokerDetailKeyboardDismiss\(\);/);
   assert.doesNotMatch(source, /checkBrokerServerHealth/);
   const brokerDetailCriticalPath = source.slice(submitIndex, routerReplaceIndex);
-  assert.match(brokerDetailCriticalPath, /canonicalBrokerId\.trim\(\)\.toLowerCase\(\)[\s\S]*!== selectedEndpoints\.brokerId\.trim\(\)\.toLowerCase\(\)/);
+  assert.match(brokerDetailCriticalPath, /if \(!isSameBrokerId\(responseBrokerId, selectedEndpoints\.brokerId\)\)/);
   assert.match(brokerDetailCriticalPath, /await commitBrokerSession\(\{/);
   assert.match(brokerDetailCriticalPath, /brokerId: selectedEndpoints\.brokerId/);
   assert.match(brokerDetailCriticalPath, /apiBase: selectedEndpoints\.apiBase/);

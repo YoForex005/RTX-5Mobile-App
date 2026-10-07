@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { create } from 'zustand';
 import type { ThemeMode } from './userPreferences/types';
+import { scheduleAfterVisualFrame } from '../utils/afterVisualFrame';
 
 type ThemeModeState = {
   themeMode: ThemeMode;
@@ -60,7 +61,7 @@ export function applyImmediateThemeVisuals(mode: ThemeMode) {
     try {
       applier(mode);
     } catch (error) {
-      console.warn('[ThemeMode] Failed to apply an immediate theme visual', error);
+      console.error('[ThemeMode] Failed to apply an immediate theme visual', error);
     }
   });
 }
@@ -75,7 +76,7 @@ function flushThemeModePostPaintWork() {
     try {
       task();
     } catch (error) {
-      console.warn('[ThemeMode] Failed to run post-paint theme work', error);
+      console.error('[ThemeMode] Failed to run post-paint theme work', error);
     }
   });
 
@@ -102,14 +103,7 @@ function scheduleThemeModePostPaintFlush() {
   }
   themeModePostPaintScheduled = true;
 
-  const scheduleAfterFrame =
-    typeof globalThis.requestAnimationFrame === 'function'
-      ? globalThis.requestAnimationFrame
-      : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
-
-  scheduleAfterFrame(() => {
-    setTimeout(flushThemeModePostPaintWork, 0);
-  });
+  scheduleAfterVisualFrame(flushThemeModePostPaintWork);
 }
 
 /**

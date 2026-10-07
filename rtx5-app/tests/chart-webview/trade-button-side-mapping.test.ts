@@ -251,11 +251,11 @@ test('compact footer lot slot paints the full center area in dark theme', () => 
 
   assert.match(
     buttonSource,
-    /<View style=\{\[baseStyles\.tradeControlsRow, themeStyles\.tradeControlsRow\]\}>/,
+    /<View\s+style=\{\[baseStyles\.tradeControlsRow, themeStyles\.tradeControlsRow, \{ minHeight: footerRowHeight \}\]\}/,
   );
   assert.match(
     buttonSource,
-    /<View style=\{\[baseStyles\.actionLotSlot, compactPane && baseStyles\.actionLotSlotCompact, themeStyles\.actionLotSlot\]\}>/,
+    /<View style=\{\[baseStyles\.actionLotSlot, compactPane && baseStyles\.actionLotSlotCompact, themeStyles\.actionLotSlot, \{ height: footerRowHeight \}\]\}>/,
   );
   assert.match(
     stylesSource,
@@ -339,11 +339,11 @@ test('compact footer buy and sell backgrounds cover the full button slots', () =
   );
   assert.match(
     buttonSource,
-    /<View style=\{\[baseStyles\.actionButtonSlot, \{ backgroundColor: sellTileColor \}\]\}>/,
+    /<View style=\{\[baseStyles\.actionButtonSlot, \{ backgroundColor: sellTileColor, height: footerRowHeight \}\]\}>/,
   );
   assert.match(
     buttonSource,
-    /<View style=\{\[baseStyles\.actionButtonSlot, \{ backgroundColor: buyTileColor \}\]\}>/,
+    /<View style=\{\[baseStyles\.actionButtonSlot, \{ backgroundColor: buyTileColor, height: footerRowHeight \}\]\}>/,
   );
   assert.match(
     buttonSource,

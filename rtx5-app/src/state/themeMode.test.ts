@@ -11,6 +11,28 @@ const waitForTimerTurn = () =>
     setTimeout(resolve, 0);
   });
 
+test('an interrupted frame cannot strand retained themes or repeat preference work', async () => {
+  const originalFrame = globalThis.requestAnimationFrame;
+  let frame: FrameRequestCallback | undefined;
+  globalThis.requestAnimationFrame = callback => { frame = callback; return 1; };
+  let writes = 0;
+  try {
+    setImmediateThemeMode('dark', { deferRetained: false });
+    setImmediateThemeMode('light');
+    scheduleAfterImmediateThemePaint(() => { writes++; });
+    assert.equal(useThemeModeState.getState().retainedThemeMode, 'dark');
+    await new Promise(resolve => setTimeout(resolve, 130));
+    assert.equal(useThemeModeState.getState().retainedThemeMode, 'light');
+    assert.equal(writes, 1);
+    frame?.(0);
+    await waitForTimerTurn();
+    assert.equal(writes, 1);
+  } finally {
+    setImmediateThemeMode('dark', { deferRetained: false });
+    globalThis.requestAnimationFrame = originalFrame;
+  }
+});
+
 test('post-paint theme work settles the latest immediate and retained modes together', async () => {
   const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
   const frameCallbacks: FrameRequestCallback[] = [];

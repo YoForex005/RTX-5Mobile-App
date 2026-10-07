@@ -10,6 +10,7 @@ import { chartToolsSurface } from './surfaces/chartToolsSurface';
 import { marketInfoSurface } from './surfaces/marketInfoSurface';
 import { settingsInfoSurface } from './surfaces/settingsInfoSurface';
 import { tradeScreensSurface } from './surfaces/tradeScreensSurface';
+import { bugReportSurface } from './surfaces/bugReportSurface';
 
 export type TranslationKey = string;
 
@@ -2917,5 +2918,5 @@ export const isRTL = (lang: LanguageCode) => lang === 'ar';
 
 export function translate(key: TranslationKey | string, language: unknown): string {
   const normalizedLanguage = normalizeLanguageCode(language);
-  return DICTIONARIES[normalizedLanguage]?.[key] ?? key;
+  return DICTIONARIES[normalizedLanguage]?.[key] ?? bugReportSurface[normalizedLanguage]?.[key] ?? key;
 }

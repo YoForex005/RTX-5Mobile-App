@@ -25,6 +25,7 @@ import {
   type AccountEnvironmentState,
 } from '../domain/accountType';
 import { recordAccountJournalEvent } from './terminalJournalState';
+import { createSavedAccountCredentialQueue } from './savedAccountCredentialQueue';
 
 export type SavedAccountType = AccountEnvironment;
 
@@ -271,7 +272,7 @@ export const useSavedAccounts = create<SavedAccountsState>()(
             JSON.parse(value);
             return value;
           } catch (error) {
-            console.warn('[SavedAccounts] Ignoring unreadable persisted accounts', error);
+            console.error('[SavedAccounts] Ignoring unreadable persisted accounts', error);
             void AsyncStorage.removeItem(name).catch(() => {});
             return null;
           }
@@ -302,24 +303,29 @@ const encodeCredentialKeyPart = (value: string) =>
 export const makeSavedAccountCredentialKey = (brokerId: string, login: string) =>
   `rtx5_saved_account_pass.${encodeCredentialKeyPart(brokerId)}.${encodeCredentialKeyPart(login)}`;
 
+const enqueueCredentialOperation = createSavedAccountCredentialQueue();
+
 export async function setSavedAccountPassword(
   brokerId: string,
   login: string,
   password: string,
 ): Promise<void> {
-  await setSecureItemAsync(makeSavedAccountCredentialKey(brokerId, login), password);
+  await enqueueCredentialOperation(makeSavedAccountCredentialKey(brokerId, login), () =>
+    setSecureItemAsync(makeSavedAccountCredentialKey(brokerId, login), password));
 }
 
 export async function getSavedAccountPassword(
   brokerId: string,
   login: string,
 ): Promise<string | null> {
-  return getSecureItemAsync(makeSavedAccountCredentialKey(brokerId, login));
+  return enqueueCredentialOperation(makeSavedAccountCredentialKey(brokerId, login), () =>
+    getSecureItemAsync(makeSavedAccountCredentialKey(brokerId, login)));
 }
 
 export async function removeSavedAccountPassword(
   brokerId: string,
   login: string,
 ): Promise<void> {
-  await removeSecureItemAsync(makeSavedAccountCredentialKey(brokerId, login));
+  await enqueueCredentialOperation(makeSavedAccountCredentialKey(brokerId, login), () =>
+    removeSecureItemAsync(makeSavedAccountCredentialKey(brokerId, login)));
 }

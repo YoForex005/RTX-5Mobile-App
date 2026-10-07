@@ -1,12 +1,9 @@
 import { timedFetch } from '../../../utils/apiLatency';
-import { normalizeConfirmedFeedStatus } from '../../../market/feedHealthProbe';
+import { normalizeFeedStatusVerdict } from '../../../market/feedHealthProbe';
 
 export type BrokerDirectoryHealthState =
-  | 'provider_online_unverified'
   | 'healthy'
   | 'delayed'
-  | 'market_closed'
-  | 'auth_failed'
   | 'provider_down'
   | 'unavailable';
 
@@ -22,42 +19,37 @@ export const BROKER_DIRECTORY_HEALTH_REFRESH_INTERVAL_MS = 30_000;
 export const BROKER_DIRECTORY_HEALTH_RESULT_MAX_AGE_MS = 45_000;
 
 const RESULT: Record<BrokerDirectoryHealthState, BrokerDirectoryHealthResult> = {
-  provider_online_unverified: Object.freeze({
-    state: 'provider_online_unverified',
-    label: 'Provider online · policy unverified',
-  }),
   healthy: Object.freeze({ state: 'healthy', label: 'Market data available' }),
   delayed: Object.freeze({ state: 'delayed', label: 'Prices delayed' }),
-  market_closed: Object.freeze({ state: 'market_closed', label: 'Market closed' }),
-  auth_failed: Object.freeze({ state: 'auth_failed', label: 'Feed authentication unavailable' }),
   provider_down: Object.freeze({ state: 'provider_down', label: 'Provider unavailable' }),
-  unavailable: Object.freeze({ state: 'unavailable', label: 'Status unavailable' }),
+  // Only the market-data status endpoint failed (e.g. Trivanta's /ws/feed/status
+  // answering a Cloudflare 502 while /health and REST are up). Say so, rather
+  // than a bare "Status unavailable" that reads as "broker unavailable".
+  unavailable: Object.freeze({ state: 'unavailable', label: 'Market data status unavailable' }),
 };
 
+/**
+ * Contract v3 (5.2) verdict of one /ws/feed/status payload:
+ * healthy → healthy, degraded → delayed, down → provider_down. The fields v3
+ * says to ignore (`status`, `upstream_connected`, `auth_accepted`,
+ * `market_available`) never affect the badge.
+ */
 export const classifyBrokerDirectoryHealth = (
   payload: unknown,
   observedAt: number,
 ): BrokerDirectoryHealthResult => {
-  const health = normalizeConfirmedFeedStatus(payload, observedAt);
-  if (!health) return RESULT.unavailable;
-  if (health.authAccepted === false) return RESULT.auth_failed;
-  if (health.providerConnected === false || health.upstreamConnected === false) {
-    return RESULT.provider_down;
+  const status = normalizeFeedStatusVerdict(payload, observedAt);
+  if (!status) return RESULT.unavailable;
+  switch (status.verdict) {
+    case 'healthy':
+      return RESULT.healthy;
+    case 'degraded':
+      return RESULT.delayed;
+    case 'down':
+      return RESULT.provider_down;
+    default:
+      return RESULT.unavailable;
   }
-  if (health.scheduledMarketClosed) return RESULT.market_closed;
-  if (health.stale || health.degraded || health.marketAvailable === false) {
-    return RESULT.delayed;
-  }
-  // A directory card never upgrades provider connectivity into a universal
-  // "live" claim. Healthy requires the broker status contract to positively
-  // confirm authentication and market availability for this exact endpoint.
-  if (health.authAccepted === true && health.marketAvailable === true) {
-    return RESULT.healthy;
-  }
-  if (health.providerConnected === true || health.upstreamConnected === true) {
-    return RESULT.provider_online_unverified;
-  }
-  return RESULT.unavailable;
 };
 
 export const probeBrokerDirectoryHealth = async (

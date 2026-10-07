@@ -3,6 +3,8 @@
  * show the tapped screen now, then let the real navigation route catch up.
  */
 import { useSyncExternalStore } from 'react';
+import { scheduleAfterVisualFrame } from '../../utils/afterVisualFrame';
+import { registerInteractionLifecycleHandler } from '../../utils/interactionLifecycle';
 
 export const FAST_TAB_ROUTE_NAMES = ['quotes', 'chart', 'trade', 'history', 'settings'] as const;
 export type FastTabRouteName = (typeof FAST_TAB_ROUTE_NAMES)[number];
@@ -12,7 +14,7 @@ type FastTabVisualSnapshot = Readonly<{
   revision: number;
 }>;
 
-export type FastTabVisualApplier = (routeName: FastTabRouteName) => void;
+export type FastTabVisualApplier = (routeName: FastTabRouteName, force?: boolean) => void;
 
 type FastTabVisualController = {
   version: number;
@@ -22,11 +24,12 @@ type FastTabVisualController = {
   show: (routeName: FastTabRouteName, notifySubscribers?: boolean) => number;
   clear: (revision?: number) => void;
   confirm: (revision: number) => void;
+  reapply: () => void;
   registerVisualApplier: (applier: FastTabVisualApplier) => () => void;
   registerSidebarChromeApplier: (applier: FastTabVisualApplier) => () => void;
 };
 
-const FAST_TAB_VISUAL_CONTROLLER_VERSION = 7;
+const FAST_TAB_VISUAL_CONTROLLER_VERSION = 8;
 
 type FastTabVisualGlobal = typeof globalThis & {
   __rtx5FastTabVisualController?: FastTabVisualController;
@@ -167,6 +170,14 @@ export function createFastTabVisualController(): FastTabVisualController {
         visualAppliers.delete(applier);
       };
     },
+    reapply: () => {
+      // Retained native layers may be reattached while the JS route is
+      // unchanged. Bypass the usual no-op caches once after resume.
+      const routeName = snapshot.routeName ?? actualRouteName;
+      if (!routeName) return;
+      visualAppliers.forEach(applier => applier(routeName, true));
+      sidebarChromeAppliers.forEach(applier => applier(routeName, true));
+    },
     registerSidebarChromeApplier: (applier: FastTabVisualApplier) => {
       sidebarChromeAppliers.add(applier);
       if (snapshot.routeName ?? actualRouteName) {
@@ -220,6 +231,10 @@ export function registerFastTabSidebarChromeApplier(applier: FastTabVisualApplie
 }
 
 export function clearFastTabVisual(revision?: number) {
+  if (revision === undefined || fastTabVisualController.getSnapshot().revision === revision) {
+    cancelPendingFastTabNavigation?.();
+    cancelPendingFastTabNavigation = null;
+  }
   fastTabVisualController.clear(revision);
 }
 
@@ -242,8 +257,12 @@ export function useFastTabVisualSnapshot() {
   );
 }
 
-// A drawer close gets a short pause so its closing animation stays smooth.
-const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 60;
+let cancelPendingFastTabNavigation: (() => void) | null = null;
+registerInteractionLifecycleHandler(phase => {
+  if (phase === 'suspend') clearFastTabVisual();
+  else fastTabVisualController.reapply();
+});
+const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 0;
 
 // A bottom-menu tap has no drawer animation, so it needs no extra pause.
 export const TAB_BAR_NAVIGATION_SETTLE_DELAY_MS = 0;
@@ -252,20 +271,22 @@ export const TAB_BAR_NAVIGATION_SETTLE_DELAY_MS = 0;
  * Lets the requested screen paint first, then updates the real route.
  * The revision check makes sure only the newest rapid tap can finish.
  *
- * Bottom-menu taps use settleDelayMs=0: one frame is enough for the native
- * scene swap to commit, then route focus flips so the previous tab stops live
- * work immediately. Drawer closes keep a second frame + settle delay so the
- * close animation is not starved by navigation/focus work.
+ * Both navigation surfaces reveal their cached screen in the touch turn.
+ * Focus follows paint without a fixed animation wait. Superseded work is
+ * cancelled; a stalled frame queue cannot leave focus behind for five seconds.
  */
 export function scheduleFastTabNavigation(
   revision: number,
   action: () => void,
   settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,
 ) {
+  cancelPendingFastTabNavigation?.();
+  cancelPendingFastTabNavigation = null;
   const requestedSnapshot = fastTabVisualController.getSnapshot();
   const requestedRouteName =
     requestedSnapshot.revision === revision ? requestedSnapshot.routeName : null;
   const runIfCurrent = () => {
+    cancelPendingFastTabNavigation = null;
     const currentSnapshot = fastTabVisualController.getSnapshot();
     if (
       requestedRouteName !== null &&
@@ -276,19 +297,15 @@ export function scheduleFastTabNavigation(
     }
   };
 
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(runIfCurrent, settleDelayMs > 0 ? Math.max(settleDelayMs, 16) : 0);
-    return;
-  }
-
-  if (settleDelayMs <= 0) {
-    globalThis.requestAnimationFrame(runIfCurrent);
-    return;
-  }
-
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(runIfCurrent, settleDelayMs);
-    });
-  });
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  const cancelFrame = scheduleAfterVisualFrame(() => {
+    if (settleDelayMs > 0) settleTimer = setTimeout(runIfCurrent, settleDelayMs);
+    else runIfCurrent();
+  }, 250);
+  const cancel = () => {
+    cancelFrame();
+    if (settleTimer !== undefined) clearTimeout(settleTimer);
+  };
+  cancelPendingFastTabNavigation = cancel;
+  return cancel;
 }

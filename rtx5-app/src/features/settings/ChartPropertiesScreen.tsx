@@ -503,7 +503,7 @@ export function ChartPropertiesScreen({
   return (
     <Screen style={styles.screen}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <View style={styles.headerRow}>
           <Pressable
             onPress={handleReturnFromSchema}
@@ -889,7 +889,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 17,
-      fontWeight: '700',
+      fontWeight: '500',
       letterSpacing: 0.3,
     },
     scroll: {
@@ -947,7 +947,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 7,
       height: 7,
       borderRadius: 999,
-      backgroundColor: '#22C55E',
+      backgroundColor: T.trading.profit,
     },
     liveBadgeText: {
       color: isDark ? '#DBEAFE' : '#1D4ED8',

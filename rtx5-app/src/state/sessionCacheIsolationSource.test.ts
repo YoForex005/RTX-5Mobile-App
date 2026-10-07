@@ -80,12 +80,12 @@ test('market and instrument queries use the active epoch namespace and guarded J
   );
   assert.match(market, /queryKey: \['market', cacheNamespace, 'symbols', 'instrument-catalog-v3'\]/);
   assert.match(market, /if \(isPublicDemoMarket\) \{[\s\S]*getOrrnnDemoPublicMarketCatalog\(\)[\s\S]*return catalog\.symbols/);
-  assert.match(market, /apiJsonClient<unknown>\('\/instruments'\)/);
+  assert.match(market, /fetchInstrumentCatalogResponse\(authenticatedCacheNamespace\)/);
   assert.match(market, /commitApiJson\(result, authenticatedCacheNamespace/);
   assert.match(market, /primeInstrumentMetaCacheFromCatalogPayload\(data, authenticatedCacheNamespace\)/);
   assert.doesNotMatch(market, /placeholderData: \(previousData\) => previousData/);
 
-  assert.match(instruments, /INSTRUMENT_META_QUERY_VERSION = 'instrument-meta-v3'/);
+  assert.match(instruments, /INSTRUMENT_META_QUERY_VERSION = 'instrument-meta-v4'/);
   assert.match(instruments, /queryKey: \['instrument', cacheNamespace, INSTRUMENT_META_QUERY_VERSION, normalizedSymbol\]/);
   assert.match(instruments, /fetchInstrumentMeta\(symbol, cacheNamespace\)/);
   assert.match(instrumentApi, /commitApiJson\(result, cacheNamespace/);

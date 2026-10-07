@@ -111,10 +111,12 @@ test('order-ticket launch navigation starts after the shell paint frames', async
     });
 
     assert.equal(navigations, 0);
-    // Navigation runs on the first paint frame after the shell is shown.
+    // rAF is before paint; route construction must wait until after it.
     const first = frameQueue;
     frameQueue = [];
     first.forEach((callback) => callback(0));
+    assert.equal(navigations, 0);
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(navigations, 1);
     assert.equal(orderTicketLaunchController.getSnapshot().navigationStarted, true);
     assert.equal(orderTicketLaunchController.getSnapshot().origin, 'chart');

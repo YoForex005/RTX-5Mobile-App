@@ -12,7 +12,7 @@ import {
 import { normalizeSymbol, normalizeTimeframeStrict, normalizeTimestampToMs } from '../domain/candles/core/timeframeUtils';
 import { sanitizeCandlesForChart } from '../domain/candles/normalization/chartAdapter';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
-import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
+import { calculateQuoteSpreadPoints, resolveQuoteDisplayDigits } from '../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../utils/quoteVolume';
 
 const trimCandleCacheEntries = (
@@ -123,7 +123,7 @@ export const useTradingState = create<TradingState>((set) => ({
           return state;
         }
 
-        const digits = data.digits;
+        const digits = resolveQuoteDisplayDigits(normalizedSymbol, bid, data.digits, data.point);
         const volume = resolveBackendQuoteVolume({ incoming: data.volume });
         const lastTickAt =
           feedTickAt ??
@@ -169,7 +169,12 @@ export const useTradingState = create<TradingState>((set) => ({
       const prevBidState = Number.isFinite(incomingBid) && incomingBid !== existing.bid ? existing.bid : existing.prevBid;
       const prevAskState = Number.isFinite(incomingAsk) && incomingAsk !== existing.ask ? existing.ask : existing.prevAsk;
 
-      const digits = data.digits ?? existing.digits;
+      const digits = resolveQuoteDisplayDigits(
+        normalizedSymbol,
+        data.bid ?? existing.bid,
+        data.digits ?? existing.digits,
+        data.point ?? existing.point,
+      );
       const volume = resolveBackendQuoteVolume({ incoming: data.volume, previous: existing });
       const lastTickAt =
         feedTickAt ??
@@ -212,9 +217,11 @@ export const useTradingState = create<TradingState>((set) => ({
     }),
 
   setAccount: (data) =>
-    set((state) => ({
-      account: state.account ? { ...state.account, ...data } : (data as AccountSummary),
-    })),
+    set((state) => {
+      if (state.account && (Object.keys(data) as Array<keyof AccountSummary>)
+        .every(key => Object.is(state.account![key], data[key]))) return state;
+      return { account: state.account ? { ...state.account, ...data } : (data as AccountSummary) };
+    }),
 
   setCandleHistory: (symbol, timeframe, history) =>
     set((state) => {
@@ -259,4 +266,21 @@ export const resetSessionMarketData = (): void => {
 /** Public seam for invalidating old-generation quotes without clearing account/candles. */
 export const resetQuoteMarketData = (): void => {
   useTradingState.getState().resetQuoteMarketData();
+};
+
+/** Retain display prices while denying execution until the next valid feed update. */
+export const markQuoteMarketDataUnavailable = (symbol?: string): void => {
+  const key = symbol === undefined ? undefined : normalizeSymbol(symbol);
+  useTradingState.setState(state => {
+    let changed = false;
+    const quotes = Object.fromEntries(Object.entries(state.quotes).map(([candidate, quote]) => {
+      if ((key !== undefined && normalizeSymbol(candidate) !== key) ||
+          (quote.stale === true && quote.tradable === false && quote.degraded === true)) {
+        return [candidate, quote];
+      }
+      changed = true;
+      return [candidate, { ...quote, stale: true, tradable: false, degraded: true }];
+    }));
+    return changed ? { quotes } : state;
+  });
 };

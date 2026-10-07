@@ -13,7 +13,7 @@ const screenSource = readFileSync(
 );
 
 test('shared chart toolbar enumerates every pane-routed command', () => {
-  for (const command of ['timeframe', 'sltp', 'drawings', 'settings', 'fullscreen', 'more']) {
+  for (const command of ['crosshair', 'timeframe', 'sltp', 'drawings', 'settings', 'more']) {
     assert.match(source, new RegExp(`'${command}'`));
   }
 });
@@ -30,9 +30,13 @@ test('confirmed pane handoff executes the latest handler instead of a stale clos
 });
 
 test('every shared top-toolbar control routes through confirmed window ownership', () => {
-  for (const command of ['timeframe', 'sltp', 'drawings', 'settings', 'fullscreen', 'more']) {
+  const toolbarSource = screenSource.slice(
+    screenSource.indexOf('const renderCompactHeaderToolbar'),
+    screenSource.indexOf('const renderChartTradeSheetTopHeader'),
+  );
+  for (const command of ['crosshair', 'timeframe', 'sltp', 'drawings', 'more']) {
     assert.match(
-      screenSource,
+      toolbarSource,
       new RegExp(`routeChartWindowToolbarAction\\('${command}'\\)`),
     );
   }
@@ -43,6 +47,11 @@ test('every shared top-toolbar control routes through confirmed window ownership
 });
 
 test('timeframe broadcasts before selection and fullscreen isolates after selection', () => {
+  assert.match(
+    screenSource,
+    /const chartMoreActions = useMemo\([\s\S]*label: t\(isChartExpanded \? 'Exit fullscreen' : 'Fullscreen'\)[\s\S]*hideChartActionSheet\(\);\s*handleToggleChartExpanded\(\);/,
+  );
+  assert.doesNotMatch(screenSource, /accessibilityLabel="Toggle Fullscreen"/);
   assert.match(
     screenSource,
     /chartWindows\.toolbarTargetPaneId === null[\s\S]*chartWindows\.state\.panes[\s\S]*chartWindows\.updateToolbarTargetContext\(\{ timeframe: nextTimeframe \}\)/,

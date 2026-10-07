@@ -23,6 +23,7 @@ test('trade bulk action sheet uses the MT5 plain icon action contract', () => {
   assert.match(bulkConfigSource, /name="trending-up-outline"[\s\S]*label: t\('Close Profitable Positions'\)/);
   assert.match(bulkConfigSource, /name="trending-down-outline"[\s\S]*label: t\('Close Losing Positions'\)/);
   assert.match(bulkConfigSource, /name="arrow-up-circle-outline"[\s\S]*label: t\('Close Buy Positions'\)/);
+  assert.match(bulkConfigSource, /name="arrow-down-circle-outline"[\s\S]*label: t\('Close Sell Positions'\)/);
 });
 
 test('trade position long-press action sheet uses the MT5 plain icon action contract', () => {
@@ -89,19 +90,24 @@ test('trade position swipe drawer stays visible on iOS', () => {
 test('trade position swipe actions have separated visual and touch targets', () => {
   const overlaySource = readSource('src/ui/components/TradePositionRow/OverlayActions.tsx');
   const stylesSource = readSource('src/ui/components/TradePositionRow/styles.ts');
+  const rowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
+  const tradeScreenSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
 
   assert.equal(
     (overlaySource.match(/hitSlop=\{0\}/g) ?? []).length,
-    5,
+    6,
     'every position action must use the non-overlapping hit target',
   );
   assert.doesNotMatch(overlaySource, /hitSlop=\{12\}|activateOnPressIn|activateOnTouchStart/);
   assert.match(
     stylesSource,
-    /actionBtnContainer: \{[\s\S]*width: 48,[\s\S]*height: 48,[\s\S]*marginLeft: 4,[\s\S]*alignItems: 'center',[\s\S]*justifyContent: 'center'/,
+    /actionBtnContainer: \{[\s\S]*width: 44,[\s\S]*height: 44,[\s\S]*marginLeft: 0,[\s\S]*alignItems: 'center',[\s\S]*justifyContent: 'center'/,
   );
   assert.match(stylesSource, /actionBtnPressable: \{[\s\S]*borderRadius: 24/);
   assert.match(stylesSource, /actionBtn: \{[\s\S]*width: 38,[\s\S]*height: 38/);
+  assert.match(overlaySource, /accessibilityLabel=\{t\('Close Sell Positions'\)\}[\s\S]*name="arrow-down-circle-outline"/);
+  assert.match(rowSource, /onCloseSell=\{onCloseSellPress \? \(\) => runOverlayAction\(onCloseSellPress\) : undefined\}/);
+  assert.match(tradeScreenSource, /const showCloseSellPositions = useCallback\(\(\) => \{[\s\S]*navigateToBulkMode\('sell'\)/);
 });
 
 test('trade rows and summary use direct live websocket quote listeners', () => {
@@ -143,12 +149,10 @@ test('trade expanded position row shows backend point metadata and backend accou
   assert.match(rowSource, /import \{ useInstrumentMeta \} from '..\/..\/..\/query\/instruments'/);
   assert.match(rowSource, /accountLeverage\?: number \| null/);
   assert.match(rowSource, /const \{ data: instrumentMeta \} = useInstrumentMeta\(item\.symbol, active\)/);
-  assert.match(rowSource, /const pointValue = resolveTradePositionPointValue\(\{ symbol: item\.symbol, instrumentMeta, liveQuote \}\)/);
-  assert.match(rowSource, /instrumentMeta\?\.point[\s\S]*liveQuote\?\.point[\s\S]*instrumentMeta\?\.tickSize[\s\S]*liveQuote\?\.tickSize/);
-  assert.match(rowSource, /resolvePointFromDigits\(instrumentMeta\?\.digits\)[\s\S]*resolvePointFromDigits\(liveQuote\?\.digits\)/);
-  assert.match(rowSource, /resolveSymbolPointFallback\(symbol\)/);
+  assert.match(rowSource, /const pointValue = resolveTradePositionPointValue\(\{ instrumentMeta, liveQuote \}\)/);
+  assert.match(rowSource, /const pointText = formatPointSize\(pointValue\)/);
   assert.match(rowSource, /const leverageText = formatTradeLeverage\(accountLeverage\)/);
-  assert.match(expandedSource, />Point<\/Text>[\s\S]*\{pointText\}/);
+  assert.match(expandedSource, />Point size<\/Text>[\s\S]*\{pointText\}/);
   assert.match(expandedSource, />Leverage<\/Text>[\s\S]*\{leverageText\}/);
   // The Limits value is the single intentional tap target, and it must fire on
   // press RELEASE (never touch-down) so the row's swipe pan can cancel it when
@@ -158,12 +162,9 @@ test('trade expanded position row shows backend point metadata and backend accou
   assert.doesNotMatch(expandedSource, /ActionSheet|Select/);
 });
 
-test('trade expanded point fallback covers digits and common symbol classes', () => {
+test('trade expanded point display never guesses from symbol classes or tick size', () => {
   const rowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
 
-  assert.match(rowSource, /function resolvePointFromDigits\([\s\S]*return Math\.pow\(10, -value\)/);
-  assert.match(rowSource, /cleanedSymbol\.includes\('BTC'\)[\s\S]*cleanedSymbol\.includes\('ETH'\)/);
-  assert.match(rowSource, /cleanedSymbol\.includes\('XAU'\)[\s\S]*cleanedSymbol\.includes\('XAG'\)/);
-  assert.match(rowSource, /return quote === 'JPY' \? 0\.001 : 0\.00001/);
-  assert.match(rowSource, /return 0\.01/);
+  assert.doesNotMatch(rowSource, /resolveSymbolPointFallback|FIAT_SYMBOL_CODES|instrumentMeta\?\.tickSize|liveQuote\?\.tickSize/);
+  assert.match(rowSource, /from '\.\.\/\.\.\/\.\.\/utils\/pricePoint'/);
 });

@@ -428,11 +428,11 @@ test('an alternating MT5 config is parked before React can paint replacement row
   );
   assert.match(
     visibilityEffectSource,
-    /if \(retainedMt5RevealInFlight\) \{[\s\S]*mt5ConfigSwapAnimationPendingRef\.current = false[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*mt5ConfigSwapHostParkedRef\.current = false[\s\S]*refreshMt5ConfigSwapGuard/,
+    /if \(retainedMt5RevealInFlight\) \{[\s\S]*mt5ConfigSwapAnimationPendingRef\.current = false[\s\S]*scheduleAfterVisualFrame\(\(\) => \{[\s\S]*mt5ConfigSwapHostParkedRef\.current = false[\s\S]*refreshMt5ConfigSwapGuard/,
   );
   assert.match(
     visibilityEffectSource,
-    /mt5ConfigSwapHostParkedRef\.current = false[\s\S]*setNativeProps\(\{ style: \{ opacity: 1 \} \}\)[\s\S]*mt5ConfigSwapAnimationFrameRef\.current = requestAnimationFrame\(\(\) => \{[\s\S]*startActionSheetEntryAnimation\(\{[\s\S]*mt5ConfigSwapAnimationPendingRef\.current = false/,
+    /mt5ConfigSwapHostParkedRef\.current = false[\s\S]*setNativeProps\(\{ style: \{ opacity: 1 \} \}\)[\s\S]*mt5ConfigSwapAnimationCancelRef\.current = scheduleAfterVisualFrame\(\(\) => \{[\s\S]*startActionSheetEntryAnimation\(\{[\s\S]*mt5ConfigSwapAnimationPendingRef\.current = false/,
   );
   assert.match(
     source,
@@ -538,11 +538,11 @@ test('android instant sheets keep final-frame opening while MT5 sheets snap the 
   );
   assert.match(
     source,
-    /const hideMt5ActionSheetNow = useCallback\(\(\) => \{[\s\S]*cancelAnimationFrame\(mt5ConfigSwapRevealFrameRef\.current\)[\s\S]*cancelAnimationFrame\(mt5ConfigSwapAnimationFrameRef\.current\)[\s\S]*mt5ConfigSwapAnimationPendingRef\.current = false;[\s\S]*writeMt5ActionSheetValuesOnUI\(/,
+    /const hideMt5ActionSheetNow = useCallback\(\(\) => \{[\s\S]*mt5ConfigSwapRevealCancelRef\.current\(\)[\s\S]*mt5ConfigSwapAnimationCancelRef\.current\(\)[\s\S]*mt5ConfigSwapAnimationPendingRef\.current = false;[\s\S]*writeMt5ActionSheetValuesOnUI\(/,
   );
   assert.match(
     source,
-    /if \(wantsVisible && activeEntryMotion === 'mt5Slide'\) \{[\s\S]*cancelAnimationFrame\(mt5ConfigSwapRevealFrameRef\.current\)[\s\S]*cancelAnimationFrame\(mt5ConfigSwapAnimationFrameRef\.current\)[\s\S]*mt5ConfigSwapAnimationPendingRef\.current = false;[\s\S]*mt5ConfigSwapHostParkedRef\.current = false;[\s\S]*writeMt5ActionSheetValuesOnUI\([\s\S]*style: \{ opacity: interactive \? 1 : 0 \}[\s\S]*hostHiddenImperativelyRef\.current = !interactive;[\s\S]*startActionSheetEntryAnimation\(/,
+    /if \(wantsVisible && activeEntryMotion === 'mt5Slide'\) \{[\s\S]*mt5ConfigSwapRevealCancelRef\.current\(\)[\s\S]*mt5ConfigSwapAnimationCancelRef\.current\(\)[\s\S]*mt5ConfigSwapAnimationPendingRef\.current = false;[\s\S]*mt5ConfigSwapHostParkedRef\.current = false;[\s\S]*writeMt5ActionSheetValuesOnUI\([\s\S]*style: \{ opacity: interactive \? 1 : 0 \}[\s\S]*hostHiddenImperativelyRef\.current = !interactive;[\s\S]*startActionSheetEntryAnimation\(/,
   );
   assert.match(
     source,
@@ -589,7 +589,7 @@ test('android instant sheets keep final-frame opening while MT5 sheets snap the 
   assert.match(source, /overlayLayerRef\.current\?\.setNativeProps\(\{\s*style: \{ opacity: 0 \},[\s\S]*hostHiddenImperativelyRef\.current = true/);
   assert.match(source, /const maximumVisibleActionRowCount = activeMaximumVisibleActionRows[\s\S]*Math\.floor\(activeMaximumVisibleActionRows\)/);
   assert.match(source, /const maximumActionsViewportHeight = maximumVisibleActionRowCount[\s\S]*activeActions[\s\S]*slice\(0, maximumVisibleActionRowCount\)[\s\S]*ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT[\s\S]*reservedChromeHeight \+ maximumActionsViewportHeight/);
-  assert.match(source, /const hasVariableActionRowHeights = hasSubtitleActionRows && hasPlainActionRows[\s\S]*uniformActionRowHeight = hasSubtitleActionRows[\s\S]*ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT/);
+  assert.match(source, /const hasVariableActionRowHeights = \(hasSubtitleActionRows && hasPlainActionRows\) \|\| wrapActionText[\s\S]*uniformActionRowHeight = hasSubtitleActionRows[\s\S]*ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT/);
   assert.match(source, /const estimatedVisibleActionRows = Math\.max\(1,[\s\S]*usableViewportHeight[\s\S]*ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT[\s\S]*occupiedHeight >= usableViewportHeight/);
   assert.match(source, /deferredInitialActionRows = maximumVisibleActionRowCount[\s\S]*Math\.min\(maximumVisibleActionRowCount, estimatedVisibleActionRows\)[\s\S]*progressiveOpenCap = activeDeferOffscreenActions[\s\S]*\? Math\.max\(deferredInitialActionRows/);
   assert.match(
@@ -597,7 +597,7 @@ test('android instant sheets keep final-frame opening while MT5 sheets snap the 
     /initialNumToRender=\{initialActionRowsToRender\}[\s\S]*windowSize=\{actionListWindowSize\}[\s\S]*getItemLayout=\{hasVariableActionRowHeights/,
   );
   assert.match(source, /const actionListWindowSize = activeDeferOffscreenActions \? 7 : 3/);
-  assert.match(source, /const actionListNeedsScroll = estimatedFilteredActionsHeight > actionsMaxHeight/);
+  assert.match(source, /const actionListNeedsScroll = scrollSheetChrome \|\| estimatedFilteredActionsHeight > actionsMaxHeight/);
   assert.match(source, /actionListNeedsScroll\s*\? \{ height: actionsMaxHeight \}/);
   assert.match(
     source,
@@ -670,7 +670,7 @@ test('android searchable sheets clamp to live overlay height during keyboard foc
   );
   assert.match(source, /const bottomSpacerHeight = unhandledKeyboardLift/);
   assert.match(source, /setCurrentOverlayHeight\(h\)/);
-  assert.match(source, /const availableWindowHeight = Math\.max\(260, measuredVisibleHeight\)/);
+  assert.match(source, /const availableWindowHeight = Math\.max\(0, measuredVisibleHeight\)/);
   assert.match(source, /sheetHeightStyle/);
   assert.match(source, /height: bottomSpacerHeight/);
   assert.doesNotMatch(source, /height: bottomInset \+ keyboardLift/);

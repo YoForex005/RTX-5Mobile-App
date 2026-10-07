@@ -77,7 +77,7 @@ test('Chart Preferences and Schema & Colors back controls fire on touch-down', (
   );
 });
 
-test('Chart toolbar Preferences opens and closes via retained host (no stack push on tap)', () => {
+test('Chart More-menu Preferences opens and closes via retained host (no stack push on tap)', () => {
   const nativeSource = readSource('src/features/chart/ChartScreen.native.tsx');
   const hostSource = readSource('src/features/chart/ChartSettingsHost.tsx');
   const controllerSource = readSource('src/features/chart/chartSettingsHostController.ts');
@@ -95,9 +95,13 @@ test('Chart toolbar Preferences opens and closes via retained host (no stack pus
     ),
     /router\.push\(['"]\/chart\/settings['"]\)/,
   );
+  const moreActionsSource = nativeSource.slice(
+    nativeSource.indexOf('const chartMoreActions'),
+    nativeSource.indexOf('const chartScaleActions'),
+  );
   assert.match(
-    nativeSource,
-    /accessibilityLabel="Chart settings"[\s\S]*onPress=\{\(\) => routeChartWindowToolbarAction\('settings'\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/,
+    moreActionsSource,
+    /label: t\('Chart Preferences'\)[\s\S]*icon: <Ionicons name="options-outline"[\s\S]*activateOnPressIn: true[\s\S]*onPress: \(\) => \{\s*hideChartActionSheet\(\);\s*handleOpenSettingsScreen\(\);/,
   );
   assert.match(
     nativeSource,
@@ -198,6 +202,7 @@ test('root layout mounts ChartSettingsHost and ChartConfigDestinationHost with o
   assert.match(rootSource, /import \{ TradePositionActionHost \} from/);
   assert.match(
     rootSource,
-    /<RegisterLaunchHost \/>[\s\S]*<TradePositionActionHost \/>[\s\S]*<ChartSettingsHost \/>[\s\S]*<ChartConfigDestinationHost \/>[\s\S]*<SidebarDrawer \/>/,
+    /<TradePositionActionHost \/>[\s\S]*<ChartSettingsHost \/>[\s\S]*<ChartConfigDestinationHost \/>[\s\S]*<SidebarDrawer \/>/,
   );
 });
+

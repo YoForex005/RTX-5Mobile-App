@@ -30,8 +30,8 @@ import { scheduleIdleWork } from '../../utils/startupScheduler';
  * the WebView surface; authenticated retained candle+Bid work still follows
  * its existing session-safe lifecycle.
  */
-export const CHART_SURFACE_STARTUP_BOOT_DELAY_MS = 2000;
-const CHART_SURFACE_STARTUP_BOOT_IDLE_TIMEOUT_MS = 5000;
+export const CHART_SURFACE_STARTUP_BOOT_DELAY_MS = 1000;
+const CHART_SURFACE_STARTUP_BOOT_IDLE_TIMEOUT_MS = 3000;
 
 export function useChartSurfaceStartupBoot(surfaceAlreadyActivated: boolean): boolean {
   const preferencesHydrated = useUserPreferences((state) => state.hasHydrated);

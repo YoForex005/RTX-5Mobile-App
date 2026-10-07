@@ -159,7 +159,7 @@ export function CloseByScreen({
 
   if (!sourcePosition) {
     return (
-      <View style={[styles.root, { backgroundColor: screenBg }]}>
+      <View style={[styles.root, { backgroundColor: screenBg, paddingLeft: insets.left, paddingRight: insets.right }]}>
         {header}
         <View style={[styles.statusBox, styles.statusBoxError]}>
           <Text style={[styles.statusText, styles.statusTextError]}>
@@ -174,7 +174,7 @@ export function CloseByScreen({
   const sourcePnl = getLivePnl(sourcePosition);
 
   return (
-    <View style={[styles.root, { backgroundColor: screenBg }]}>
+    <View style={[styles.root, { backgroundColor: screenBg, paddingLeft: insets.left, paddingRight: insets.right }]}>
       {header}
       <ScrollView
         canCancelContentTouches={Platform.OS === 'ios'}
@@ -284,7 +284,7 @@ const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
   customHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48,
+    minHeight: 48,
     paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: isDark ? DIVIDER_DARK : T.borderSubtle,
@@ -293,7 +293,7 @@ const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
   headerTitleText: {
     flex: 1,
     fontSize: 17,
-    fontWeight: '600',
+    fontWeight: '500',
     textAlign: 'center',
     letterSpacing: 0.15,
   },
@@ -427,7 +427,7 @@ const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
     padding: 14,
   },
   statusBoxSuccess: {
-    borderColor: isDark ? 'rgba(16,185,129,0.34)' : 'rgba(5,150,105,0.24)',
+    borderColor: `${T.trading.profit}55`,
     backgroundColor: T.upGlow,
   },
   statusBoxError: {

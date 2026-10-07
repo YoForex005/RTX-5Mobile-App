@@ -1,3 +1,4 @@
+import { scheduleAfterVisualFrames } from '../../utils/afterVisualFrame';
 /**
  * Controls the root-level handoff from Broker Detail to the Demo Account
  * route. The preview can be revealed synchronously, while native navigation
@@ -254,16 +255,7 @@ export function scheduleRegisterLaunchNavigation(
     }
   };
 
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(runIfCurrent, 32);
-    return;
-  }
-
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(runIfCurrent, 0);
-    });
-  });
+  return scheduleAfterVisualFrames(runIfCurrent);
 }
 
 /** Removes the root preview only after the destination has had two paints. */
@@ -272,14 +264,5 @@ export function scheduleRegisterLaunchCoverRemoval(revision: number) {
     registerLaunchController.hide(revision);
   };
 
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(hideIfCurrent, 32);
-    return;
-  }
-
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(hideIfCurrent, 0);
-    });
-  });
+  return scheduleAfterVisualFrames(hideIfCurrent);
 }

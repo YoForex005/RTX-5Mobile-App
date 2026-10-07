@@ -1,3 +1,4 @@
+import { GDark, GLight } from '../../../ui/theme/glass';
 import { Ionicons } from '@expo/vector-icons';
 import React, { memo, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -9,7 +10,7 @@ import {
 } from '../chartSymbolMetadata';
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 
-export const CHART_OHLC_HIGH_COLOR = '#089981';
+export const CHART_OHLC_HIGH_COLOR = GDark.trading.profit;
 export const CHART_OHLC_LOW_COLOR = '#F23645';
 
 export type ChartSymbolHeaderOverlayProps = Readonly<{
@@ -47,7 +48,7 @@ export const ChartSymbolHeaderOverlay = memo(function ChartSymbolHeaderOverlay({
   );
   const ohlcItems = [
     { label: 'O', value: formatValue(candle?.open), color: neutralColor },
-    { label: 'H', value: formatValue(candle?.high), color: CHART_OHLC_HIGH_COLOR },
+    { label: 'H', value: formatValue(candle?.high), color: isDark ? CHART_OHLC_HIGH_COLOR : GLight.trading.profit },
     { label: 'L', value: formatValue(candle?.low), color: CHART_OHLC_LOW_COLOR },
     { label: 'C', value: formatValue(candle?.close), color: neutralColor },
   ];

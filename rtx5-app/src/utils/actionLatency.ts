@@ -5,6 +5,10 @@ export const APP_ACTION_MAX_LATENCY_MS = 20;
 export const CRITICAL_TRADE_ACTION_MAX_LATENCY_MS = 10;
 export const FAST_PRESS_GUARD_RESET_MS = 120;
 const STALE_ACTION_LATENCY_SAMPLE_MS = 5000;
+// Dev builds run unoptimised JS, so small overruns of the 20ms budget are
+// normal there and not actionable. Only a delay a user can perceive (100ms)
+// raises a LogBox warning; smaller overruns are still logged to Metro.
+export const PERCEPTIBLE_ACTION_LATENCY_MS = 100;
 
 export function getInteractionNow() {
   return typeof globalThis.performance?.now === 'function'
@@ -18,6 +22,11 @@ export function scheduleActionLatencyCheck(
   budgetMs = APP_ACTION_MAX_LATENCY_MS,
 ) {
   if (typeof __DEV__ === 'undefined' || !__DEV__) {
+    return;
+  }
+  // Timing each tap adds frame callbacks, timers and LogBox work to the very
+  // interaction being measured. Enable it only for an explicit profiling run.
+  if (process.env.EXPO_PUBLIC_ENABLE_ACTION_LATENCY_LOGS !== 'true') {
     return;
   }
 
@@ -40,9 +49,13 @@ export function scheduleActionLatencyCheck(
       console.info(`[ActionTiming] ${label} first frame ${Math.round(elapsedMs)}ms`);
     }
     if (elapsedMs > budgetMs) {
-      console.warn(
-        `[Action] ${label} first frame took ${Math.round(elapsedMs)}ms; budget is ${budgetMs}ms.`,
-      );
+      const message =
+        `[Action] ${label} first frame took ${Math.round(elapsedMs)}ms; budget is ${budgetMs}ms.`;
+      if (elapsedMs > PERCEPTIBLE_ACTION_LATENCY_MS) {
+        console.warn(message);
+      } else {
+        console.log(message);
+      }
     }
   };
 

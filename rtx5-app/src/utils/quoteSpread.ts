@@ -20,6 +20,30 @@ const resolveDigits = (digits: unknown): number | undefined => {
   return Math.max(0, Math.min(8, Math.floor(parsed)));
 };
 
+export const resolveQuoteDisplayDigits = (
+  symbol: string,
+  bid: unknown,
+  digits?: unknown,
+  point?: unknown,
+): number => {
+  const explicitDigits = resolveDigits(digits);
+  if (explicitDigits !== undefined) return explicitDigits;
+
+  const pointValue = toFiniteNumber(point);
+  if (pointValue !== undefined && pointValue > 0) {
+    const pointDigits = -Math.log10(pointValue);
+    if (Number.isInteger(pointDigits) && pointDigits >= 0 && pointDigits <= 8) {
+      return pointDigits;
+    }
+  }
+
+  const normalizedSymbol = symbol.trim().toUpperCase().replace(/\//g, '');
+  if (/^[A-Z]{3}JPY(?:$|[._A-Z0-9])/.test(normalizedSymbol)) return 3;
+  if (/^(?:XAU|XAG|BTC|ETH)/.test(normalizedSymbol)) return 2;
+  const bidValue = toFiniteNumber(bid);
+  return bidValue !== undefined && bidValue >= 100 ? 2 : 5;
+};
+
 export const calculateQuoteSpreadPoints = (
   bid: unknown,
   ask: unknown,

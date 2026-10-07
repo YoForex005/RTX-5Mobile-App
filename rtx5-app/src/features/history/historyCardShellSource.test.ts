@@ -9,17 +9,22 @@ test('history summary and control cards use the accounts live card shell', () =>
   const source = readSource('src/features/history/HistoryScreen.tsx');
   const summaryStart = source.indexOf('summaryBlock: {');
   const summaryEnd = source.indexOf('summaryTop:', summaryStart);
+  const detailsStart = source.indexOf('summaryDetailsCard: {');
+  const detailsEnd = source.indexOf('gridRow:', detailsStart);
   const topBlockStart = source.indexOf('topBlock: {');
   const topBlockEnd = source.indexOf('topControlsRow:', topBlockStart);
   const summaryStyle = source.slice(summaryStart, summaryEnd);
+  const detailsStyle = source.slice(detailsStart, detailsEnd);
   const topBlockStyle = source.slice(topBlockStart, topBlockEnd);
 
   assert.notEqual(summaryStart, -1);
   assert.notEqual(summaryEnd, -1);
+  assert.notEqual(detailsStart, -1);
+  assert.notEqual(detailsEnd, -1);
   assert.notEqual(topBlockStart, -1);
   assert.notEqual(topBlockEnd, -1);
 
-  for (const styleSource of [summaryStyle, topBlockStyle]) {
+  for (const styleSource of [summaryStyle, detailsStyle, topBlockStyle]) {
     assert.match(styleSource, /borderRadius: 16/);
     assert.match(styleSource, /borderWidth: 1/);
     assert.match(styleSource, /borderColor: T\.border/);

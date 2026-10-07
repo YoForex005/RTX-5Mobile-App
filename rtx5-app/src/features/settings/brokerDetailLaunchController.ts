@@ -1,3 +1,4 @@
+import { scheduleAfterVisualFrames } from '../../utils/afterVisualFrame';
 /**
  * Controls the short handoff from a broker row to the full broker login route.
  * The preview contains only the live directory fields already shown to the user;
@@ -295,18 +296,7 @@ export function scheduleBrokerDetailLaunchNavigation(
     }
   };
 
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(runIfCurrent, 32);
-    return;
-  }
-
-  // The root shell is already mounted and actionable. Reserve two native
-  // paints so cached route evaluation cannot block the accepted touch frame.
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(runIfCurrent, 0);
-    });
-  });
+  return scheduleAfterVisualFrames(runIfCurrent);
 }
 
 /** Keeps the actionable detail shell above Brokers until the native detail route painted. */
@@ -315,14 +305,5 @@ export function scheduleBrokerDetailLaunchCoverRemoval(revision: number) {
     brokerDetailLaunchController.hide(revision);
   };
 
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(hideIfCurrent, 32);
-    return;
-  }
-
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(hideIfCurrent, 0);
-    });
-  });
+  return scheduleAfterVisualFrames(hideIfCurrent);
 }

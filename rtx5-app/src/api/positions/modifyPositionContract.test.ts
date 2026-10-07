@@ -97,3 +97,39 @@ test('modify position submit is docked outside the scroll view and activates on 
     /requestAnimationFrame\(\(\) => \{[\s\S]*setTimeout\(action, 0\)/,
   );
 });
+
+test('contract v3 modify acknowledgement echoes only sent fields plus state_version', async () => {
+  const { parseModifyPositionAck } = await import('./modifyPositionWire');
+  // Contract 6.2 example response for request {"price_sl":1.13,"price_tp":null}.
+  const ack = parseModifyPositionAck(
+    {
+      ticket: 2002,
+      symbol: 'EURUSD',
+      status: 'modified',
+      time: 1790241700,
+      state_version: '5',
+      sl: 1.13,
+      price_sl: 1.13,
+      tp: null,
+      price_tp: null,
+    },
+    { ticket: 2002, symbol: 'EURUSD', request: { price_sl: 1.13, price_tp: null } },
+  );
+  assert.equal(ack.price_sl, 1.13);
+  assert.equal(ack.price_tp, null);
+  assert.equal(ack.state_version, '5');
+
+  // Only SL sent: the response carries no tp/price_tp and must still parse.
+  const slOnly = parseModifyPositionAck(
+    { ticket: 2002, symbol: 'EURUSD', status: 'modified', time: 1790241700, state_version: '6', sl: 1.12, price_sl: 1.12 },
+    { ticket: 2002, symbol: 'EURUSD', request: { price_sl: 1.12 } },
+  );
+  assert.equal(slOnly.price_sl, 1.12);
+  assert.equal(Object.hasOwn(slOnly, 'price_tp'), false);
+
+  // A sent field must still match exactly.
+  assert.throws(() => parseModifyPositionAck(
+    { ticket: 2002, symbol: 'EURUSD', status: 'modified', time: 1790241700, sl: 1.11, price_sl: 1.11 },
+    { ticket: 2002, symbol: 'EURUSD', request: { price_sl: 1.12 } },
+  ));
+});

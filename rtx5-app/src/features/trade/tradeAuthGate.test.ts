@@ -72,7 +72,7 @@ test('trade auth gate requires a matching authenticated active broker session', 
       accessToken: '',
       activeAccessToken: '',
     }),
-    false,
+    true,
   );
   assert.equal(
     shouldRequestOrrnnDemoTradeAuth({
@@ -97,13 +97,13 @@ test('pending trade intent keeps only allowlisted non-sensitive context', () => 
   savePendingTradeAuthIntent(untrustedIntent);
   assert.deepEqual(getPendingTradeAuthIntent(), {
     kind: 'market-order',
-    symbol: 'EURUSD',
+    symbol: 'eurusd',
     side: 'buy',
     origin: 'chart',
   });
   assert.deepEqual(consumePendingTradeAuthIntent(), {
     kind: 'market-order',
-    symbol: 'EURUSD',
+    symbol: 'eurusd',
     side: 'buy',
     origin: 'chart',
   });

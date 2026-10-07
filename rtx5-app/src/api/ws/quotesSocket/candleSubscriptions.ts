@@ -15,9 +15,16 @@ export type CandleFeedSubscription = {
 
 export type CandleChannelSubscriptionMessageType = 'subscribe' | 'unsubscribe';
 
-export type CandleChannelSubscriptionMessage = {
-  action: CandleChannelSubscriptionMessageType;
-  channels: string[];
+/**
+ * `/ws/feed` live-candle request. One message per symbol/timeframe:
+ * `{"type":"subscribe_candles","symbol":"EURUSD","tf":"1m"}`. The server acks
+ * with `{"type":"subscribed_candles","symbols":["EURUSD"],"tf":"1m"}` and then
+ * streams `{"type":"candle",...}` frames on the same socket.
+ */
+export type FeedCandleSubscriptionMessage = {
+  type: 'subscribe_candles' | 'unsubscribe_candles';
+  symbol: string;
+  tf: BridgeCandleTimeframe;
 };
 
 export const createCandleFeedSubscriptionKey = (symbol: string, tf: string): string =>
@@ -42,22 +49,21 @@ export const createCandleFeedSubscription = (
   };
 };
 
-export const createCandleChannel = (subscription: CandleFeedSubscription): string =>
-  `candles.${subscription.symbol}.${subscription.bridgeTf}`;
-
-export const buildCandleChannelSubscriptionMessages = (
+export const buildFeedCandleSubscriptionMessages = (
   action: CandleChannelSubscriptionMessageType,
   subscriptions: Iterable<CandleFeedSubscription>,
-): CandleChannelSubscriptionMessage[] => {
-  const byTimeframe = new Map<BridgeCandleTimeframe, Set<string>>();
+): FeedCandleSubscriptionMessage[] => {
+  const seen = new Set<string>();
+  const messages: FeedCandleSubscriptionMessage[] = [];
   for (const subscription of subscriptions) {
-    const symbols = byTimeframe.get(subscription.bridgeTf) ?? new Set<string>();
-    symbols.add(createCandleChannel(subscription));
-    byTimeframe.set(subscription.bridgeTf, symbols);
+    const dedupeKey = `${subscription.symbol}::${subscription.bridgeTf}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    messages.push({
+      type: action === 'subscribe' ? 'subscribe_candles' : 'unsubscribe_candles',
+      symbol: subscription.symbol,
+      tf: subscription.bridgeTf,
+    });
   }
-
-  return Array.from(byTimeframe.values()).map((channels) => ({
-    action,
-    channels: Array.from(channels),
-  }));
+  return messages;
 };

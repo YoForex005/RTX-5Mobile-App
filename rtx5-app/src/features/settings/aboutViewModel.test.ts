@@ -21,7 +21,7 @@ test('about actions match the reference screen order and labels', () => {
     ['user-guide', 'User guide'],
     ['privacy-policy', 'Privacy Policy'],
     ['account-deletion', 'Request Account Deletion'],
-    ['contact-developer', 'Contact Developer'],
+    ['contact-developer', 'Report a Bug'],
   ]);
   assert.equal(new Set(ABOUT_ACTIONS.map((action) => action.id)).size, ABOUT_ACTIONS.length);
 });

@@ -25,7 +25,7 @@ import { redactDiagnosticValue } from '../utils/securityRedaction';
 import type { QuoteItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
-import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
+import { calculateQuoteSpreadPoints, resolveQuoteDisplayDigits } from '../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../utils/quoteVolume';
 import { buildRestQuoteTickEvent } from './restQuoteTick';
 import {
@@ -36,6 +36,8 @@ import { commitQuoteSnapshotIfSessionCurrent } from './quoteCommitProvenance';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../market/quotePolicy';
 import { isOrrnnDemoPublicMarketSelection } from '../api/orrnnDemoPublicMarket';
 import { resolveContextBoundLiveSymbolQuote } from './liveSymbolQuoteContext';
+import { SymbolQuoteBatch } from './symbolQuoteBatch';
+import { scheduleAfterVisualFrame } from '../utils/afterVisualFrame';
 
 const LIVE_QUOTE_STALE_MS = MARKET_QUOTE_STALE_AFTER_MS;
 const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16;
@@ -62,7 +64,7 @@ const deliverLiveSymbolTick = (listener: LiveSymbolQuoteListener, tick: QuoteTic
   try {
     listener(tick);
   } catch (error) {
-    console.warn('[Quotes] Symbol listener error', error);
+    console.error('[Quotes] Symbol listener error', error);
   }
 };
 
@@ -287,10 +289,13 @@ const fetchRestQuoteSnapshotForEntry = async (
     entry.listeners.forEach((listener) => listener(selectedTick));
     return 'resolved';
   } catch (error) {
-    console.warn(
-      '[Quotes REST] Bounded symbol snapshot repair failed',
-      redactDiagnosticValue(error),
-    );
+    // Expected when offline; the caller retries.
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(
+        '[Quotes REST] Bounded symbol snapshot repair failed',
+        redactDiagnosticValue(error),
+      );
+    }
     return 'retry';
   } finally {
     entry.inFlight = false;
@@ -600,18 +605,20 @@ const mergeQuoteTickIntoSnapshot = (
     typeof tick.digits === 'number' && Number.isFinite(tick.digits)
       ? tick.digits
       : undefined;
-  const digits =
-    backendDigits ??
-    (typeof currentSnapshot?.digits === 'number' && Number.isFinite(currentSnapshot.digits)
-      ? currentSnapshot.digits
-      : undefined);
+  const digits = resolveQuoteDisplayDigits(
+    normalizedSymbol,
+    tick.bid,
+    backendDigits ?? currentSnapshot?.digits,
+    tick.point ?? currentSnapshot?.point,
+  );
 
   return resolveMergedQuoteSnapshot(requestedSymbol, {
     ...(currentSnapshot || {}),
     symbol: normalizedSymbol,
     bid: tick.bid,
     ask: tick.ask,
-    ...(backendDigits !== undefined ? { digits: backendDigits, digitsSource: 'backend' as const } : {}),
+    digits,
+    ...(backendDigits !== undefined ? { digitsSource: 'backend' as const } : {}),
     ...(tick.point !== undefined ? { point: tick.point } : {}),
     ...(tick.tickSize !== undefined ? { tickSize: tick.tickSize } : {}),
     feedTickAt: feedTickAt ?? undefined,
@@ -629,10 +636,7 @@ const mergeQuoteTickIntoSnapshot = (
     tickId: tick.tickId,
     source: tick.source,
     authority: tick.authority,
-    spread:
-      digits !== undefined
-        ? calculateQuoteSpreadPoints(tick.bid, tick.ask, digits)
-        : currentSnapshot?.spread,
+    spread: calculateQuoteSpreadPoints(tick.bid, tick.ask, digits),
   });
 };
 
@@ -746,15 +750,13 @@ export function useLiveSymbolQuote(
   const [liveQuoteOwnerContextKey, setLiveQuoteOwnerContextKey] = React.useState(liveQuoteContextKey);
   const liveQuoteRef = React.useRef<Partial<QuoteItem> | undefined>(seedQuote);
   const directQuoteTickAtRef = React.useRef(0);
-  const quoteCommitAnimationFrameRef = React.useRef<number | null>(null);
+  const quoteCommitCancelRef = React.useRef<(() => void) | null>(null);
   const quoteCommitTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduledCommitProvenanceRef = React.useRef<ActiveBrokerSessionProvenance | null>(null);
 
   const cancelScheduledCommit = React.useCallback(() => {
-    if (quoteCommitAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(quoteCommitAnimationFrameRef.current);
-      quoteCommitAnimationFrameRef.current = null;
-    }
+    quoteCommitCancelRef.current?.();
+    quoteCommitCancelRef.current = null;
     if (quoteCommitTimerRef.current) {
       clearTimeout(quoteCommitTimerRef.current);
       quoteCommitTimerRef.current = null;
@@ -763,16 +765,13 @@ export function useLiveSymbolQuote(
   }, []);
 
   const scheduleQuoteCommit = React.useCallback((provenance: ActiveBrokerSessionProvenance) => {
-    if (quoteCommitAnimationFrameRef.current !== null || quoteCommitTimerRef.current) {
+    if (quoteCommitCancelRef.current !== null || quoteCommitTimerRef.current) {
       return;
     }
     scheduledCommitProvenanceRef.current = provenance;
 
     const commit = () => {
-      if (quoteCommitAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(quoteCommitAnimationFrameRef.current);
-        quoteCommitAnimationFrameRef.current = null;
-      }
+      quoteCommitCancelRef.current = null;
       if (quoteCommitTimerRef.current) {
         clearTimeout(quoteCommitTimerRef.current);
         quoteCommitTimerRef.current = null;
@@ -805,8 +804,8 @@ export function useLiveSymbolQuote(
       return;
     }
 
-    if (safeCommitIntervalMs <= 16 && typeof globalThis.requestAnimationFrame === 'function') {
-      quoteCommitAnimationFrameRef.current = globalThis.requestAnimationFrame(commit);
+    if (safeCommitIntervalMs <= 16) {
+      quoteCommitCancelRef.current = scheduleAfterVisualFrame(commit);
       return;
     }
 
@@ -948,40 +947,43 @@ export function useLiveSymbolQuotes(
   }, [credentialScopeKey, isActive, stableKey]);
 
   const liveQuotesRef = React.useRef<Record<string, Partial<QuoteItem>>>(EMPTY_LIVE_QUOTES);
+  const quoteBatchRef = React.useRef<SymbolQuoteBatch<Partial<QuoteItem>> | null>(null);
+  if (quoteBatchRef.current === null) quoteBatchRef.current = new SymbolQuoteBatch();
+  const quoteBatch = quoteBatchRef.current;
   const directQuoteTickAtBySymbolRef = React.useRef<Record<string, number>>({});
   const [liveQuotes, setLiveQuotes] = React.useState<Record<string, Partial<QuoteItem>>>(() => {
     const seed = buildSeed();
     liveQuotesRef.current = seed;
     return seed;
   });
-  const commitFrameRef = React.useRef<number | null>(null);
+  const commitCancelRef = React.useRef<(() => void) | null>(null);
   const commitTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduledCommitProvenanceRef = React.useRef<ActiveBrokerSessionProvenance | null>(null);
 
   const cancelScheduledCommit = React.useCallback(() => {
-    if (commitFrameRef.current !== null) {
-      cancelAnimationFrame(commitFrameRef.current);
-      commitFrameRef.current = null;
-    }
+    commitCancelRef.current?.();
+    commitCancelRef.current = null;
     if (commitTimerRef.current) {
       clearTimeout(commitTimerRef.current);
       commitTimerRef.current = null;
     }
     scheduledCommitProvenanceRef.current = null;
-  }, []);
+    quoteBatch.clear();
+  }, [quoteBatch]);
 
   const scheduleCommit = React.useCallback((provenance: ActiveBrokerSessionProvenance) => {
-    if (commitFrameRef.current !== null || commitTimerRef.current) {
+    if (commitCancelRef.current !== null || commitTimerRef.current) {
       return;
     }
     scheduledCommitProvenanceRef.current = provenance;
     const commit = () => {
-      commitFrameRef.current = null;
+      commitCancelRef.current = null;
       commitTimerRef.current = null;
       const scheduledProvenance = scheduledCommitProvenanceRef.current;
       scheduledCommitProvenanceRef.current = null;
       commitQuoteSnapshotIfSessionCurrent(scheduledProvenance, () => {
-        const nextSnapshots = liveQuotesRef.current;
+        const nextSnapshots = quoteBatch.commit(liveQuotesRef.current);
+        liveQuotesRef.current = nextSnapshots;
         setLiveQuotes((current) => {
           let guardedSnapshots = current;
           commitQuoteSnapshotIfSessionCurrent(scheduledProvenance, () => {
@@ -991,12 +993,12 @@ export function useLiveSymbolQuotes(
         });
       });
     };
-    if (safeCommitIntervalMs <= 16 && typeof globalThis.requestAnimationFrame === 'function') {
-      commitFrameRef.current = globalThis.requestAnimationFrame(commit);
+    if (safeCommitIntervalMs <= 16) {
+      commitCancelRef.current = scheduleAfterVisualFrame(commit);
       return;
     }
     commitTimerRef.current = setTimeout(commit, safeCommitIntervalMs);
-  }, [safeCommitIntervalMs]);
+  }, [quoteBatch, safeCommitIntervalMs]);
 
   useEffect(() => {
     if (!isActive || !activeSession || requestedSymbols.length === 0) {
@@ -1011,6 +1013,7 @@ export function useLiveSymbolQuotes(
       return;
     }
 
+    quoteBatch.clear();
     liveQuotesRef.current = buildSeed();
     directQuoteTickAtBySymbolRef.current = {};
     setLiveQuotes((current) => {
@@ -1028,11 +1031,12 @@ export function useLiveSymbolQuotes(
           return;
         }
         commitQuoteSnapshotIfSessionCurrent(effectProvenance, () => {
-          const merged = mergeQuoteTickIntoSnapshot(requestedSymbol, liveQuotesRef.current[requestedSymbol], tick);
-          if (!merged || areQuoteSnapshotsEqual(liveQuotesRef.current[requestedSymbol], merged)) {
+          const current = quoteBatch.get(requestedSymbol, liveQuotesRef.current);
+          const merged = mergeQuoteTickIntoSnapshot(requestedSymbol, current, tick);
+          if (!merged || areQuoteSnapshotsEqual(current, merged)) {
             return;
           }
-          liveQuotesRef.current = { ...liveQuotesRef.current, [requestedSymbol]: merged };
+          quoteBatch.set(requestedSymbol, merged);
           scheduleCommit(effectProvenance);
         });
       };
@@ -1070,6 +1074,7 @@ export function useLiveSymbolQuotes(
     cancelScheduledCommit,
     credentialScopeKey,
     isActive,
+    quoteBatch,
     scheduleCommit,
     stableKey,
   ]);

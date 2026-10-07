@@ -1,6 +1,13 @@
-import { InteractionManager } from 'react-native';
+import { persistBrokerSessionAuthority } from './persistBrokerSessionAuthority';
+import { createGuestSessionReadiness } from './guestSessionReadiness';
+import { resolveBrokerSessionRestoreWrites } from './brokerSessionRestorePlan';
+import { scheduleAfterFirstFrame } from '../utils/startupScheduler';
+import { scheduleAfterVisualFrame } from '../utils/afterVisualFrame';
 import { brokerApi } from '../api/brokerApi';
-import { resolveEffectiveFeedAuthForSession } from '../api/feedAuthContract';
+import { getBrokerDirectory, getBrokerDirectoryForBroker } from '../api/broker';
+import { createPublicBrokerContext, type PublicBrokerContext } from '../state/publicBrokerContext';
+import { validateLoginBrokerContext } from './validatedLoginBrokerContext';
+import { dismissAuthFlow } from '../features/trade/authFlowState';
 import { accountWsService } from '../api/ws/accountSocket';
 import { brokerRealtimeService } from '../api/ws/BrokerRealtimeService';
 import { quotesWsService } from '../api/ws/quotesSocket';
@@ -34,6 +41,7 @@ import {
 } from './brokerSessionCommitAuthorization';
 import {
   clearActiveBrokerSessionManifest,
+  clearLegacyActiveBrokerSessionManifest,
   createActiveBrokerSessionManifest,
   readActiveBrokerSessionManifest,
   writeActiveBrokerSessionManifest,
@@ -41,6 +49,7 @@ import {
 } from '../state/activeBrokerSessionStorage';
 import {
   clearAuthSessionTokens,
+  clearLegacyAuthSessionCredentials,
   clearLegacySelectedBrokerSession,
   getStoredAuthSessionCredentials,
   replaceAuthSessionCredentials,
@@ -78,6 +87,11 @@ export type BrokerSessionAccountProfile = Readonly<{
 }>;
 
 export type CommitBrokerSessionInput = Readonly<{
+  isCurrent?: () => boolean;
+  /** In-memory, directory-approved selection used for this authentication request. */
+  verifiedContext?: PublicBrokerContext;
+  /** Starts session-owned reads after secure activation, alongside preference persistence. */
+  onActivated?: (capture: ActiveBrokerSessionCapture) => void;
   session: ActivateBrokerSessionInput;
   credentials: ActiveBrokerCredentials;
   account: BrokerSessionAccountProfile;
@@ -89,6 +103,7 @@ export type BrokerSessionRestoreResult =
   | { status: 'invalidated'; reason: string };
 
 let mutationQueue: Promise<void> = Promise.resolve();
+const guestSessionReadiness = createGuestSessionReadiness();
 
 export type { BrokerSessionCommitAuthorization } from './brokerSessionCommitAuthorization';
 export { isStaleBrokerSessionCommitError } from './brokerSessionCommitAuthorization';
@@ -106,7 +121,8 @@ export const cancelBrokerSessionCommitAuthorization = (
 ): void => cancelCommitAuthorization(authorization);
 
 const enqueueMutation = <T>(operation: () => Promise<T>): Promise<T> => {
-  const next = mutationQueue.then(operation, operation);
+  const finishMutation = guestSessionReadiness.beginMutation();
+  const next = mutationQueue.then(operation, operation).finally(finishMutation);
   mutationQueue = next.then(
     () => undefined,
     () => undefined,
@@ -114,19 +130,27 @@ const enqueueMutation = <T>(operation: () => Promise<T>): Promise<T> => {
   return next;
 };
 
+/** Fast guest selection is permitted only after secure cleanup and all queued transitions finish. */
+export const tryPrepareGuestBrokerSelection = (): boolean => guestSessionReadiness.tryPrepare({
+  hasActiveSession: Boolean(captureActiveBrokerSession()),
+  hasAuthenticatedPreferences: useUserPreferences.getState().isLoggedIn || Boolean(useUserPreferences.getState().accountDetails),
+  invalidate: () => {
+    dismissAuthFlow();
+    beginActiveBrokerSessionTransition();
+  },
+});
+
 const cleanString = (value: unknown): string =>
   typeof value === 'string' || typeof value === 'number'
     ? String(value).trim()
     : '';
 
-const preserveNonBlankFeedToken = (value: unknown): string =>
-  typeof value === 'string' && value.trim() ? value : '';
-
 const validateCommitInput = (
   input: CommitBrokerSessionInput,
 ): CommitBrokerSessionInput => {
-  // Manifest validation covers identity and feed-auth metadata. Transport
+  // Manifest validation covers identity and endpoint provenance. Transport
   // normalization rejects cleartext, credentials in URLs, and malformed URLs.
+  // Contract v3: there is no feed token, so none is required or stored.
   const manifest = createActiveBrokerSessionManifest(input.session);
   const apiBase = normalizeBrokerHttpsUrl(manifest.apiBase);
   const feedWsBase = normalizeBrokerWssUrl(manifest.feedWsBase);
@@ -135,18 +159,13 @@ const validateCommitInput = (
     : '';
   const feedStatusUrl = normalizeBrokerHttpsUrl(manifest.feedStatusUrl);
   const accessToken = cleanString(input.credentials.accessToken);
-  const feedToken = preserveNonBlankFeedToken(input.credentials.feedToken);
-  const feedTokenRequired =
-    manifest.feedAuthContext.mode === 'query' &&
-    manifest.feedAuthContext.credential === 'feed_token';
 
   if (
     !apiBase ||
     !feedWsBase ||
     !feedStatusUrl ||
     (manifest.tradeWsBase && !tradeWsBase) ||
-    !accessToken ||
-    (feedTokenRequired && !feedToken)
+    !accessToken
   ) {
     throw new Error('Broker session handoff is missing a validated endpoint or access token.');
   }
@@ -160,16 +179,13 @@ const validateCommitInput = (
       ...(tradeWsBase ? { tradeWsBase } : {}),
       feedStatusUrl,
       servicesDomain: manifest.servicesDomain,
-      feedAuthContext: manifest.feedAuthContext,
       configVersion: manifest.configVersion,
+      investor: manifest.investor === true,
     }),
     credentials: Object.freeze({
       accessToken,
       refreshToken: cleanString(input.credentials.refreshToken),
       expiresAt: cleanString(input.credentials.expiresAt),
-      ...(feedTokenRequired && feedToken
-        ? { feedToken }
-        : {}),
     }),
     account: Object.freeze({
       name: cleanString(input.account.name) || 'Trader',
@@ -186,29 +202,13 @@ const validateCommitInput = (
 const bindCommittedFeedHealthSession = (
   capture: ActiveBrokerSessionCapture,
 ): void => {
-  const { session, credentials } = capture;
+  const { session } = capture;
   const identity = getActiveBrokerSessionIdentity(session);
-  const effectiveFeed = resolveEffectiveFeedAuthForSession({
-    brokerId: session.brokerId,
-    feedAuthContext: session.feedAuthContext,
-    feedToken: credentials.feedToken,
-  });
-  const feedAuth = effectiveFeed.feedAuthContext;
-  const credentialApproved = feedAuth.mode === 'none'
-    ? true
-    : feedAuth.mode === 'query' && feedAuth.credential === 'feed_token'
-      ? Boolean(effectiveFeed.feedToken)
-      : feedAuth.mode === 'query'
-        ? Boolean(credentials.accessToken)
-        : false;
   bindFeedHealthSession({
     identity,
-    transportConfigured: Boolean(
-      session.feedWsBase &&
-      session.feedStatusUrl &&
-      feedAuth.mode !== 'disabled_unconfigured'
-    ),
-    credentialApproved,
+    transportConfigured: Boolean(session.feedWsBase && session.feedStatusUrl),
+    // The quote feed takes no credential (contract v3), so it is always approved.
+    credentialApproved: true,
     // The bound session starts fail-closed. Its authenticated status probe
     // installs the broker-approved health_policy for this exact identity.
   });
@@ -262,15 +262,32 @@ const erasePersistedSession = async (): Promise<void> => {
   if (failure?.status === 'rejected') {
     throw failure.reason;
   }
+  guestSessionReadiness.markSecureAuthorityEmpty();
 };
 
 const pruneDisposableSessionStorage = async (): Promise<void> => {
   try {
-    await pruneObsoleteSessionCaches();
+    // Resolve ownership after asynchronous key enumeration. A login or switch
+    // may finish while cleanup is pending; never select its active namespace.
+    await pruneObsoleteSessionCaches(() => captureActiveBrokerSession()?.session.cacheNamespace);
   } catch (error) {
     // Cache cleanup is recovery/housekeeping. Secure session validation remains
     // authoritative even if the device temporarily refuses this deletion.
-    console.warn('[Session] Failed to prune obsolete session caches', error);
+    console.error('[Session] Failed to prune obsolete session caches', error);
+  }
+};
+
+const cleanupLegacySessionMetadata = async (includeLegacyAuth = false): Promise<void> => {
+  // These obsolete aliases are never accepted as session authority. Optional
+  // auth-alias cleanup never deletes or rewrites the current secure bundle.
+  const results = await Promise.allSettled([
+    ...(includeLegacyAuth ? [clearLegacyAuthSessionCredentials()] : []),
+    clearLegacySelectedBrokerSession(),
+    clearLegacyActiveBrokerSessionManifest(),
+    pruneDisposableSessionStorage(),
+  ]);
+  if (results.some(result => result.status === 'rejected')) {
+    console.error('[Session] Legacy metadata cleanup will retry on the next session transition');
   }
 };
 
@@ -281,7 +298,7 @@ const persistSessionPreferences = async (): Promise<void> => {
     // Preferences contain profile/UI metadata, never the secure session
     // authority. Keep the validated SecureStore session usable and retry on
     // later writes instead of forcing the user through another broker login.
-    console.warn('[Session] Secure session is active but preferences were not persisted', error);
+    console.error('[Session] Secure session is active but preferences were not persisted', error);
   }
 };
 
@@ -326,16 +343,16 @@ const resolveRestoredAccountProfile = (
 const failClosed = async (reason: string): Promise<BrokerSessionRestoreResult> => {
   beginActiveBrokerSessionTransition();
   await teardownBrokerSessionRuntime();
-  await pruneDisposableSessionStorage();
   useUserPreferences.getState().logout();
   // Storage can itself be the failure source. The epoch and memory state are
   // already invalidated; cleanup remains best-effort without re-enabling UI.
-  await Promise.allSettled([
+  const cleanup = await Promise.allSettled([
     clearAuthSessionTokens(),
     clearActiveBrokerSessionManifest(),
     clearLegacySelectedBrokerSession(),
   ]);
-  await persistSessionPreferences();
+  if (cleanup.every(result => result.status === 'fulfilled')) guestSessionReadiness.markSecureAuthorityEmpty();
+  scheduleAfterVisualFrame(() => { void cleanupLegacySessionMetadata(); void persistSessionPreferences(); });
   return { status: 'invalidated', reason };
 };
 
@@ -343,34 +360,51 @@ const commitBrokerSessionInternal = async (
   rawInput: CommitBrokerSessionInput,
 ): Promise<ActiveBrokerSessionCapture> => {
   const input = validateCommitInput(rawInput);
+  const commitStartedAt = Date.now();
+  const startingEpoch = getActiveBrokerSessionEpoch();
+  let verified: PublicBrokerContext;
+  if (rawInput.verifiedContext) {
+    verified = validateLoginBrokerContext(rawInput.verifiedContext, input.session);
+  } else {
+    const directory = await getBrokerDirectoryForBroker(input.session.brokerId);
+    const supported = directory.selectableServers.find(row => row.broker_id === input.session.brokerId && row.market_api_url === input.session.apiBase);
+    if (!supported) throw new Error('This trading session is not supported by the current broker directory.');
+    verified = createPublicBrokerContext(supported);
+  }
+  if (verified.configVersion !== input.session.configVersion) throw new Error('Broker configuration changed. Select the broker again before signing in.');
+  if (verified.apiBase !== input.session.apiBase || verified.feedWsBase !== input.session.feedWsBase || verified.feedStatusUrl !== input.session.feedStatusUrl || (verified.endpoints.tradeWsBase ?? '') !== (input.session.tradeWsBase ?? '')) throw new Error('Trading session endpoints do not match the broker directory.');
+  if (rawInput.isCurrent && !rawInput.isCurrent()) throw new Error('Authentication was cancelled.');
+  if (getActiveBrokerSessionEpoch() !== startingEpoch) throw new Error('Trading session changed during broker validation.');
+  const validatedAt = Date.now();
   const transition = beginActiveBrokerSessionTransition();
-  // Tear down previous runtime and clear prefs in parallel with credential
-  // persistence prep — sequential SecureStore + socket teardown was the bulk
-  // of post-auth wait before router.replace.
+  // Clear the old runtime before persisting the new secure session authority.
   await teardownBrokerSessionRuntime();
-  await pruneDisposableSessionStorage();
   useUserPreferences.getState().logout();
+  const runtimeClearedAt = Date.now();
 
   try {
-    const [credentials] = await Promise.all([
-      replaceAuthSessionCredentials({
+    // These touch separate keys. Wait for ALL writers even on failure so a
+    // late manifest write cannot recreate a session after rollback erased it.
+    guestSessionReadiness.markSecureAuthorityPresent();
+    const credentials = await persistBrokerSessionAuthority({
+      writeCredentials: () => replaceAuthSessionCredentials({
         brokerId: input.session.brokerId,
         accountLogin: input.session.accountLogin,
         accessToken: input.credentials.accessToken,
         refreshToken: input.credentials.refreshToken,
         expiresAt: input.credentials.expiresAt,
-        feedToken: input.credentials.feedToken,
-        feedAuthContext: input.session.feedAuthContext,
       }),
-      clearLegacySelectedBrokerSession(),
-    ]);
-    await writeActiveBrokerSessionManifest(input.session);
+      writeManifest: () => writeActiveBrokerSessionManifest(input.session),
+    });
+    const persistedAt = Date.now();
+
+    if (rawInput.isCurrent && !rawInput.isCurrent()) throw new Error('Authentication was cancelled before session activation.');
+    if (rawInput.verifiedContext) validateLoginBrokerContext(rawInput.verifiedContext, input.session);
 
     const capture = activateBrokerSession(transition, input.session, {
       accessToken: credentials.accessToken,
       refreshToken: credentials.refreshToken,
       expiresAt: credentials.expiresAt,
-      ...(credentials.feedToken ? { feedToken: credentials.feedToken } : {}),
     });
     bindCommittedFeedHealthSession(capture);
 
@@ -391,7 +425,16 @@ const commitBrokerSessionInternal = async (
         accountEnvironmentSource: input.account.accountEnvironmentSource,
       },
     );
-    await persistSessionPreferences();
+    rawInput.onActivated?.(capture);
+    // login() already schedules preference persistence after the next frame.
+    // Do not force serialization or cache/legacy cleanup ahead of that frame.
+    scheduleAfterFirstFrame(cleanupLegacySessionMetadata);
+    if (__DEV__) console.info('[AuthTiming] session commit', {
+      directoryMs: validatedAt - commitStartedAt,
+      teardownMs: runtimeClearedAt - validatedAt,
+      securePersistenceMs: persistedAt - runtimeClearedAt,
+      activationMs: Date.now() - persistedAt,
+    });
     return capture;
   } catch (error) {
     if (captureActiveBrokerSession()) {
@@ -414,8 +457,9 @@ const commitBrokerSessionInternal = async (
 export const commitBrokerSession = (
   input: CommitBrokerSessionInput,
   authorization: BrokerSessionCommitAuthorization,
-): Promise<ActiveBrokerSessionCapture> =>
-  enqueueMutation(() => {
+): Promise<ActiveBrokerSessionCapture> => {
+  const queuedAt = Date.now();
+  return enqueueMutation(() => {
     // This check deliberately runs inside the mutation queue. A logout,
     // completed switch, or newer login that wins while auth is in flight has
     // already changed either the epoch or the active attempt by this point.
@@ -423,8 +467,10 @@ export const commitBrokerSession = (
       authorization,
       getActiveBrokerSessionEpoch(),
     );
+    if (__DEV__) console.info('[AuthTiming] coordinator queue', Date.now() - queuedAt);
     return commitBrokerSessionInternal(input);
   });
+};
 
 export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
   enqueueMutation(async () => {
@@ -440,17 +486,19 @@ export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
       // session without the matching secure authority record.
       beginActiveBrokerSessionTransition();
       await teardownBrokerSessionRuntime();
-      await pruneDisposableSessionStorage();
       useUserPreferences.getState().logout();
-      await Promise.allSettled([
+      const cleanup = await Promise.allSettled([
         clearAuthSessionTokens(),
         clearLegacySelectedBrokerSession(),
       ]);
-      await persistSessionPreferences();
+      if (cleanup.every(result => result.status === 'fulfilled')) guestSessionReadiness.markSecureAuthorityEmpty();
+      scheduleAfterVisualFrame(() => { void cleanupLegacySessionMetadata(); void persistSessionPreferences(); });
       return { status: 'logged_out' };
     }
+    guestSessionReadiness.markSecureAuthorityPresent();
 
     let credentials;
+    let credentialsRewritten = false;
     try {
       credentials = await getStoredAuthSessionCredentials({
         brokerId: manifest.brokerId,
@@ -462,27 +510,48 @@ export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
     if (!credentials) {
       return failClosed('Stored broker credentials are missing or belong to another identity.');
     }
+    // Legacy versions lowercased IDs. Migrate only a unique directory identity
+    // whose endpoints still match; stored addresses cannot authorize routing.
+    try {
+      const directory = await getBrokerDirectory();
+      const matches = directory.selectableServers.filter(row => {
+        if (row.broker_id.toLowerCase() !== manifest!.brokerId.toLowerCase()) return false;
+        try { const verified = createPublicBrokerContext(row); return verified.apiBase === manifest!.apiBase && verified.feedWsBase === manifest!.feedWsBase && verified.feedStatusUrl === manifest!.feedStatusUrl; } catch { return false; }
+      });
+      if (matches.length !== 1) return failClosed('Stored broker is not uniquely supported by the directory.');
+      const verified = createPublicBrokerContext(matches[0]);
+      if (verified.apiBase !== manifest.apiBase || verified.feedWsBase !== manifest.feedWsBase || verified.feedStatusUrl !== manifest.feedStatusUrl || (verified.endpoints.tradeWsBase ?? '') !== (manifest.tradeWsBase ?? '')) return failClosed('Stored broker endpoints no longer match the directory.');
+      const nextManifest = createActiveBrokerSessionManifest({ ...manifest, brokerId: verified.brokerId, configVersion: verified.configVersion });
+      const { rewriteCredentials, rewriteManifest } = resolveBrokerSessionRestoreWrites(manifest, credentials, nextManifest);
+      credentialsRewritten = rewriteCredentials;
+      if (rewriteCredentials || rewriteManifest) {
+        const restoredCredentials = credentials;
+        // Only actual migrations write secure storage. Both independent writes
+        // settle before rollback, exactly as for an interactive login.
+        credentials = await persistBrokerSessionAuthority({
+          writeCredentials: () => rewriteCredentials
+            ? replaceAuthSessionCredentials({ ...restoredCredentials, brokerId: verified.brokerId })
+            : Promise.resolve(restoredCredentials),
+          writeManifest: () => rewriteManifest ? writeActiveBrokerSessionManifest(nextManifest) : Promise.resolve(nextManifest),
+        });
+      }
+      manifest = nextManifest;
+    } catch { return failClosed('Broker directory could not revalidate the stored session.'); }
 
     // Preferences and saved accounts supply display metadata only. A stale GTA
     // snapshot cannot reject a valid Achiever manifest/credential pair.
     const profile = resolveRestoredAccountProfile(manifest);
     const transition = beginActiveBrokerSessionTransition();
     await teardownBrokerSessionRuntime();
-    await pruneDisposableSessionStorage();
     useUserPreferences.getState().logout();
 
     try {
-      const restoredSession = Object.freeze({
-        ...manifest,
-        // The feed token and context are one secure atomic pair. The manifest
-        // remains endpoint provenance only during restore.
-        feedAuthContext: credentials.feedAuthContext,
-      });
-      const capture = activateBrokerSession(transition, restoredSession, {
+      // Pre-v3 bundles/manifests may still hold feed-token fields; the
+      // storage parsers already dropped them, so this restore needs no re-login.
+      const capture = activateBrokerSession(transition, manifest, {
         accessToken: credentials.accessToken,
         refreshToken: credentials.refreshToken,
         expiresAt: credentials.expiresAt,
-        ...(credentials.feedToken ? { feedToken: credentials.feedToken } : {}),
       });
       bindCommittedFeedHealthSession(capture);
       useUserPreferences.getState().login(
@@ -502,7 +571,7 @@ export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
           accountEnvironmentSource: profile.accountEnvironmentSource,
         },
       );
-      await persistSessionPreferences();
+      scheduleAfterVisualFrame(() => { void cleanupLegacySessionMetadata(!credentialsRewritten); void persistSessionPreferences(); });
       return { status: 'restored', capture };
     } catch {
       return failClosed('Stored broker session failed endpoint validation.');
@@ -522,24 +591,32 @@ export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
  * in case a commit was already past activation when the fast-path ran.
  */
 export const logoutBrokerSession = (): Promise<void> => {
+  dismissAuthFlow();
   beginActiveBrokerSessionTransition();
   useUserPreferences.getState().logout();
   return enqueueMutation(async () => {
     // Let the login screen commit its first frame before the teardown
     // competes for the JS thread (bounded so cleanup can never stall).
     await new Promise<void>((resolve) => {
-      const failsafe = setTimeout(resolve, 250);
-      InteractionManager.runAfterInteractions(() => {
+      const failsafe = setTimeout(resolve, 80);
+      scheduleAfterFirstFrame(() => {
         clearTimeout(failsafe);
         resolve();
       });
     });
-    beginActiveBrokerSessionTransition();
+    // The synchronous logout already invalidated the old epoch. Only a
+    // restore/commit that actually reactivated a session needs invalidating
+    // again; an unconditional bump would reject a new Login tapped while
+    // this queued storage cleanup was finishing.
+    if (captureActiveBrokerSession()) beginActiveBrokerSessionTransition();
     await teardownBrokerSessionRuntime();
-    await pruneDisposableSessionStorage();
-    useUserPreferences.getState().logout();
+    const preferences = useUserPreferences.getState();
+    if (preferences.isLoggedIn || preferences.accountDetails) preferences.logout();
     await erasePersistedSession();
     await persistSessionPreferences();
+    // Cache enumeration is housekeeping, so it must not keep the next login
+    // behind logout's serialized credential cleanup.
+    scheduleAfterFirstFrame(pruneDisposableSessionStorage);
   });
 };
 
@@ -553,6 +630,7 @@ export const invalidateBrokerSession = (
     if (!isActiveBrokerSessionCurrent({ brokerId, accountLogin, sessionEpoch })) {
       return;
     }
+    dismissAuthFlow();
     beginActiveBrokerSessionTransition();
     await teardownBrokerSessionRuntime();
     await pruneDisposableSessionStorage();

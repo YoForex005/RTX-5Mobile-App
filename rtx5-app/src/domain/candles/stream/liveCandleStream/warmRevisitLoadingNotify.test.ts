@@ -10,6 +10,7 @@ import {
 import { LiveCandleStreamManager } from './manager';
 import {
   HISTORY_REQUEST_TIMEOUT_ERROR_MESSAGE,
+  runLoadHistory,
   waitForHistoryPrefetchSettlement,
   type CandleHistoryFetcher,
 } from './historyFetching';
@@ -57,7 +58,7 @@ const activateHistoryTestSession = (): void => {
     feedWsBase: 'wss://services.history-test.example/ws/feed',
     feedStatusUrl: 'https://services.history-test.example/ws/feed/status',
     servicesDomain: 'services.history-test.example',
-    feedAuthContext: { mode: 'none' },
+    investor: false,
     configVersion: 'cfg-history-test',
   }, {
     accessToken: 'history-access',
@@ -382,4 +383,98 @@ test('commit() notifies when live connectivity is regained without changing the 
     settledNotifications + 1,
     'regained connectivity must reach React even when the series is unchanged',
   );
+});
+
+test('a cold join follows a deeper warm-up that superseded the joined one instead of issuing a third request', async (t) => {
+  activateHistoryTestSession();
+  candleMemoryCache.clear();
+  const observedSignals: AbortSignal[] = [];
+  const manager = new LiveCandleStreamManager({
+    fetchHistory: createNeverSettlingHistoryFetcher(observedSignals),
+  });
+  t.after(() => {
+    manager.dispose();
+    candleMemoryCache.clear();
+    __resetActiveBrokerSessionForTests();
+  });
+
+  const entry = createSeededEntry(manager, () => {}, 'GBPUSD');
+  entry.requestId = 0;
+  entry.historyCandles = [];
+  entry.historyLoading = false;
+  entry.loading = false;
+
+  let resolveShallow: (count: number) => void = () => {};
+  const shallowRecord = {
+    limit: 200,
+    promise: new Promise<number>((resolve) => {
+      resolveShallow = resolve;
+    }),
+  };
+  manager.historyPrefetches.set(entry.key, shallowRecord);
+
+  (manager as unknown as {
+    loadFreshHistory: (target: StreamEntry) => void;
+  }).loadFreshHistory(entry);
+  assert.equal(entry.loading, true, 'an empty chart waits on the warm-up behind the loader');
+
+  // The market-status reply asks for a deeper window: that warm-up replaces
+  // the shallow record, and the shallow one settles with 0 when it lands.
+  let resolveDeep: (count: number) => void = () => {};
+  const deepRecord = {
+    limit: 500,
+    promise: new Promise<number>((resolve) => {
+      resolveDeep = resolve;
+    }),
+  };
+  manager.historyPrefetches.set(entry.key, deepRecord);
+  resolveShallow(0);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(
+    observedSignals.length,
+    0,
+    'the join must follow the in-flight deeper warm-up, not start its own request',
+  );
+
+  // The deeper warm-up also yields nothing and relinquishes the key: only now
+  // does the chart issue its own request.
+  manager.historyPrefetches.delete(entry.key);
+  resolveDeep(0);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(observedSignals.length, 1, 'exactly one fallback request after both warm-ups fail');
+});
+
+test('a background self-heal retry keeps the failure visible instead of flashing the loader', async (t) => {
+  activateHistoryTestSession();
+  candleMemoryCache.clear();
+  const observedSignals: AbortSignal[] = [];
+  const manager = new LiveCandleStreamManager({
+    fetchHistory: createNeverSettlingHistoryFetcher(observedSignals),
+  });
+  t.after(() => {
+    manager.dispose();
+    candleMemoryCache.clear();
+    __resetActiveBrokerSessionForTests();
+  });
+
+  const entry = createSeededEntry(manager, () => {}, 'AUDUSD');
+  entry.requestId = 0;
+  entry.historyCandles = [];
+  entry.historyLoading = false;
+  entry.loading = false;
+  entry.error = 'API Error 503: CANDLE_HISTORY_UNAVAILABLE';
+
+  runLoadHistory(manager, entry, 200, { isRetry: true });
+
+  assert.equal(observedSignals.length, 1, 'the retry request is still issued');
+  assert.equal(entry.loading, false, 'a retry must not re-raise the loader over the error');
+  assert.equal(entry.historyLoading, false);
+  assert.equal(entry.error, 'API Error 503: CANDLE_HISTORY_UNAVAILABLE');
+
+  // A user-driven (non-retry) reload still shows the loader.
+  runLoadHistory(manager, entry, 200);
+  assert.equal(entry.loading, true);
+  assert.equal(entry.error, null);
 });

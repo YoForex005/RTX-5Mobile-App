@@ -68,7 +68,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     textAlign: 'center',
     color: T.text,
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   card: {
     margin: spacing.md,

@@ -94,7 +94,7 @@ async function persistUiPerformanceSnapshotNow() {
   const payload = getUiPerformancePersistencePayload();
   persistenceFlushInFlight = AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     .catch((error) => {
-      console.warn('[UI Perf] Failed to persist diagnostics snapshot', error);
+      console.log('[UI Perf] Failed to persist diagnostics snapshot', error);
     })
     .finally(() => {
       persistenceFlushInFlight = null;
@@ -152,7 +152,7 @@ async function hydrateUiPerformanceDiagnosticsFromStorage() {
         : state.samples,
     }));
   } catch (error) {
-    console.warn('[UI Perf] Failed to rehydrate persisted diagnostics', error);
+    console.log('[UI Perf] Failed to rehydrate persisted diagnostics', error);
   } finally {
     useUiPerformanceDiagnostics.getState().setHasHydrated(true);
   }

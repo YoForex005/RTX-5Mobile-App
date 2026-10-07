@@ -1,4 +1,6 @@
-import { type ComponentType, type ReactNode, useEffect, useState } from 'react';
+import { type ComponentType, type ReactNode, useContext, useEffect, useState } from 'react';
+import { RetainedRoutePrewarmContext } from './retainedRoutePrewarmContext';
+import { scheduleAfterVisualFrames } from '../../utils/afterVisualFrame';
 
 type DeferredRouteMountProps = {
   children: ReactNode;
@@ -49,60 +51,7 @@ export function preloadDeferredRouteModule(
 }
 
 function scheduleDeferredFrameWork(frameCount: number, action: () => void) {
-  let cancelled = false;
-  let frameId: number | null = null;
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-  const clearHandles = () => {
-    if (frameId !== null) {
-      globalThis.cancelAnimationFrame?.(frameId);
-      frameId = null;
-    }
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
-    }
-  };
-
-  const complete = () => {
-    timeoutId = setTimeout(() => {
-      timeoutId = null;
-      if (!cancelled) {
-        action();
-      }
-    }, 0);
-  };
-
-  const nextFrame = (remainingFrames: number) => {
-    if (cancelled) {
-      return;
-    }
-
-    if (remainingFrames <= 0) {
-      complete();
-      return;
-    }
-
-    if (typeof globalThis.requestAnimationFrame === 'function') {
-      frameId = globalThis.requestAnimationFrame(() => {
-        frameId = null;
-        nextFrame(remainingFrames - 1);
-      });
-      return;
-    }
-
-    timeoutId = setTimeout(() => {
-      timeoutId = null;
-      nextFrame(remainingFrames - 1);
-    }, 16);
-  };
-
-  nextFrame(frameCount);
-
-  return () => {
-    cancelled = true;
-    clearHandles();
-  };
+  return scheduleAfterVisualFrames(action, frameCount);
 }
 
 export function useDeferredRouteContentReady(
@@ -164,6 +113,13 @@ export function useDeferredRouteContentReady(
 
 export function DeferredRouteMount({ children }: DeferredRouteMountProps) {
   return children;
+}
+
+export function useRetainedRouteContentReady(focused: boolean, prewarmDelayMs = 0) {
+  const prewarmAllowed = useContext(RetainedRoutePrewarmContext);
+  // A real navigation request always wins over speculative startup work.
+  // Once built, the existing hook keeps the complete body retained.
+  return useDeferredRouteContentReady(focused ? 0 : prewarmDelayMs, focused || prewarmAllowed);
 }
 
 /**

@@ -1,3 +1,5 @@
+import { scheduleAfterVisualFrame } from './afterVisualFrame';
+
 type IdleDeadline = {
   didTimeout: boolean;
   timeRemaining: () => number;
@@ -21,49 +23,63 @@ const runWork = (work: ScheduledWork): void => {
     const maybePromise = result as Promise<void> | undefined;
     if (maybePromise && typeof maybePromise.catch === 'function') {
       void maybePromise.catch((error) => {
-        console.warn('[StartupScheduler] Scheduled work failed', error);
+        console.error('[StartupScheduler] Scheduled work failed', error);
       });
     }
   } catch (error) {
-    console.warn('[StartupScheduler] Scheduled work failed', error);
+    console.error('[StartupScheduler] Scheduled work failed', error);
   }
 };
 
 export function scheduleAfterFirstFrame(work: ScheduledWork): () => void {
-  let cancelled = false;
-  let frameHandle: number | null = null;
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  return scheduleAfterVisualFrame(() => runWork(work));
+}
 
-  const run = () => {
-    frameHandle = null;
-    timeoutHandle = null;
-    if (!cancelled) {
-      runWork(work);
-    }
-  };
+// Optional warmups share one queue so several mounted screens cannot start
+// their module loads/cache work in the same frame. Yield between each job.
+const readyIdleWork = new Map<symbol, { work: ScheduledWork; deadline: number }>();
+let cancelIdleTurn: (() => void) | null = null;
+let scheduledIdleDeadline = Infinity;
 
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    frameHandle = globalThis.requestAnimationFrame(() => {
-      if (cancelled) {
-        return;
-      }
-      timeoutHandle = setTimeout(run, 0);
-    });
-  } else {
-    timeoutHandle = setTimeout(run, 16);
+function scheduleIdleTurn(): void {
+  if (readyIdleWork.size === 0) return;
+  const idleGlobal = globalThis as IdleCapableGlobal;
+  if (typeof idleGlobal.requestIdleCallback !== 'function') {
+    if (cancelIdleTurn) return;
+    cancelIdleTurn = scheduleAfterFirstFrame(runIdleTurn);
+    return;
   }
+  let deadline = Infinity;
+  readyIdleWork.forEach(job => { deadline = Math.min(deadline, job.deadline); });
+  if (cancelIdleTurn && deadline >= scheduledIdleDeadline) return;
+  cancelIdleTurn?.();
+  scheduledIdleDeadline = deadline;
+  const timeoutMs = Math.max(1, deadline - Date.now());
+  let finished = false;
+  let idleHandle: IdleCallbackHandle | undefined;
+  const timer = setTimeout(run, timeoutMs);
+  function cancel() {
+    finished = true;
+    clearTimeout(timer);
+    if (idleHandle !== undefined) idleGlobal.cancelIdleCallback?.(idleHandle);
+  }
+  function run() {
+    if (finished) return;
+    cancel();
+    runIdleTurn();
+  }
+  cancelIdleTurn = cancel;
+  idleHandle = idleGlobal.requestIdleCallback(run, { timeout: timeoutMs });
+}
 
-  return () => {
-    cancelled = true;
-    if (frameHandle !== null && typeof globalThis.cancelAnimationFrame === 'function') {
-      globalThis.cancelAnimationFrame(frameHandle);
-      frameHandle = null;
-    }
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-      timeoutHandle = null;
-    }
-  };
+function runIdleTurn(): void {
+  cancelIdleTurn = null;
+  const entry = readyIdleWork.entries().next().value;
+  if (!entry) return;
+  const [key, job] = entry;
+  readyIdleWork.delete(key);
+  runWork(job.work);
+  scheduleIdleTurn();
 }
 
 export function scheduleIdleWork(
@@ -71,11 +87,9 @@ export function scheduleIdleWork(
   options: { delayMs?: number; timeoutMs?: number } = {},
 ): () => void {
   const { delayMs = 0, timeoutMs = 1500 } = options;
-  const idleGlobal = globalThis as IdleCapableGlobal;
+  const key = Symbol();
   let cancelled = false;
   let delayHandle: ReturnType<typeof setTimeout> | null = null;
-  let idleHandle: IdleCallbackHandle | null = null;
-  let frameCancel: (() => void) | null = null;
 
   const request = () => {
     delayHandle = null;
@@ -83,25 +97,8 @@ export function scheduleIdleWork(
       return;
     }
 
-    if (typeof idleGlobal.requestIdleCallback === 'function') {
-      idleHandle = idleGlobal.requestIdleCallback(
-        () => {
-          idleHandle = null;
-          if (!cancelled) {
-            runWork(work);
-          }
-        },
-        { timeout: timeoutMs },
-      );
-      return;
-    }
-
-    frameCancel = scheduleAfterFirstFrame(() => {
-      frameCancel = null;
-      if (!cancelled) {
-        runWork(work);
-      }
-    });
+    readyIdleWork.set(key, { work, deadline: Date.now() + Math.max(1, timeoutMs) });
+    scheduleIdleTurn();
   };
 
   if (delayMs > 0) {
@@ -116,13 +113,10 @@ export function scheduleIdleWork(
       clearTimeout(delayHandle);
       delayHandle = null;
     }
-    if (idleHandle !== null && typeof idleGlobal.cancelIdleCallback === 'function') {
-      idleGlobal.cancelIdleCallback(idleHandle);
-      idleHandle = null;
-    }
-    if (frameCancel) {
-      frameCancel();
-      frameCancel = null;
+    readyIdleWork.delete(key);
+    if (readyIdleWork.size === 0) {
+      cancelIdleTurn?.();
+      cancelIdleTurn = null;
     }
   };
 }

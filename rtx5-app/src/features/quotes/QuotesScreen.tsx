@@ -11,13 +11,14 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
+import { useAuthMarketDemandAllowed } from '../trade/useAuthMarketVisibility';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, {
   useCallback, useDeferredValue, useEffect, useRef, useMemo, useState, useSyncExternalStore,
 } from 'react';
 import {
-  AccessibilityInfo, Animated, Easing, FlatList, ScrollView, StyleSheet, Text, TextInput, View, Modal, Platform,
+  AccessibilityInfo, Animated, Easing, FlatList, ScrollView, StyleSheet, Text, TextInput, View, Modal, Platform, useWindowDimensions,
   type GestureResponderEvent,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -28,6 +29,7 @@ import { useUIState } from '../../state/uiState';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { orrnnDemoPublicMarketSocket } from '../../api/ws/orrnnDemoPublicMarketSocket';
 import { isOrrnnDemoPublicMarketSelection } from '../../api/orrnnDemoPublicMarket';
+import { getPublicMarketStatus, subscribePublicMarketStatus } from '../../state/publicMarketStatus';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useMarketSymbols } from '../../query/market';
@@ -39,6 +41,10 @@ import {
 } from '../../query/watchlist';
 import { fmt } from '../../utils/format';
 import { AppHeader } from '../../ui/components/AppHeader';
+import { Screen } from '../../ui/components/Screen';
+import { resolveQuoteCardLayout, type QuoteCardLayout } from './quoteCardLayout';
+import { formatQuoteUpdatedTime } from './quoteUpdatedTime';
+import { isQuoteRowLive, reconcileVisibleQuoteSymbols, QUOTE_INITIAL_LIVE_ROW_COUNT } from './quoteRowActivity';
 import { FastPressable, FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { useTranslation } from '../../i18n/useTranslation';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
@@ -84,7 +90,6 @@ import {
   getActiveBrokerSessionIdentity,
   isActiveBrokerSessionCurrent,
   subscribeActiveBrokerSession,
-  type FeedAuthContext,
 } from '../../state/activeBrokerSession';
 import { useActiveBrokerCredentialScopeKey } from '../../query/authenticatedQueryScope';
 import {
@@ -107,7 +112,6 @@ import {
   subscribeFeedHealth,
   unbindFeedHealthSession,
 } from '../../market/feedHealthRuntime';
-import { resolveEffectiveFeedAuthForSession } from '../../api/feedAuthContract';
 import {
   areLiveQuoteSnapshotNotificationsPaused,
   getCurrentLiveQuoteSnapshot,
@@ -142,6 +146,7 @@ const QUOTE_ROW_SPACING = 16;
 const QUOTE_INITIAL_SKELETON_ROWS = [0, 1, 2, 3, 4] as const;
 const QUOTE_SKELETON_PRICE_COLUMNS = [0, 1] as const;
 const EMPTY_QUOTE_SYMBOLS: string[] = [];
+const QUOTE_ROW_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 1 };
 const QUOTE_SHEET_OPEN_FEED_PAUSE_MS = 15_000;
 const QUOTE_SHEET_OPTION_FEED_PAUSE_MS = 900;
 const QUOTE_SHEET_ROUTE_FEED_PAUSE_MS = 2_500;
@@ -278,9 +283,6 @@ const prepareChartSymbol = (symbol: string) => {
   return preferences.chartTimeframe;
 };
 
-const gmtClock = (d: Date) =>
-  d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' });
-
 type QuotesRotationTheme = {
   fullscreenBackground: string;
   cardBackground: string;
@@ -363,7 +365,6 @@ function getQuotesPalette(T: ThemeColors, isDark: boolean): QuotesPalette {
 type FeedHealthBannerProps = Readonly<{
   state: FeedHealthState;
   brokerName: string;
-  feedAuthContext?: FeedAuthContext | null;
   T: ThemeColors;
   onRetry: () => void;
 }>;
@@ -371,14 +372,13 @@ type FeedHealthBannerProps = Readonly<{
 const FeedHealthBanner = React.memo(function FeedHealthBanner({
   state,
   brokerName,
-  feedAuthContext,
   T,
   onRetry,
 }: FeedHealthBannerProps) {
   const { t } = useTranslation();
   const model = useMemo(
-    () => buildFeedHealthBannerModel(state, brokerName, feedAuthContext),
-    [brokerName, feedAuthContext, state],
+    () => buildFeedHealthBannerModel(state, brokerName),
+    [brokerName, state],
   );
 
   if (!model.visible) return null;
@@ -517,11 +517,13 @@ const QuoteInitialSkeletonRows = React.memo(function QuoteInitialSkeletonRows({
   palette,
   cardBackground,
   viewMode,
+  layout,
 }: {
   isDark: boolean;
   palette: QuotesPalette;
   cardBackground: AnimatedColorValue | string;
   viewMode: 'list' | 'table' | 'edit';
+  layout: QuoteCardLayout;
 }) {
   const { t } = useTranslation();
   const pulse = useRef(new Animated.Value(0.55)).current;
@@ -604,6 +606,7 @@ const QuoteInitialSkeletonRows = React.memo(function QuoteInitialSkeletonRows({
           style={[
             sc.card,
             isSimpleMode && sc.cardSimple,
+            { paddingLeft: layout.horizontalPadding, paddingRight: layout.horizontalPadding },
             { borderColor: palette.cardBorder },
             !isDark && sc.cardShadowLight,
             isDark && sc.cardShadowDark,
@@ -619,9 +622,9 @@ const QuoteInitialSkeletonRows = React.memo(function QuoteInitialSkeletonRows({
           />
           <Animated.View
             pointerEvents="none"
-            style={[quoteSkeletonStyles.content, { opacity: pulse }]}
+            style={[quoteSkeletonStyles.content, layout.stacked && sc.cardInnerStacked, { opacity: pulse, gap: layout.columnGap }]}
           >
-            <View style={quoteSkeletonStyles.symbolColumn}>
+            <View style={[quoteSkeletonStyles.symbolColumn, layout.stacked && sc.symbolColStacked]}>
               <View
                 style={[
                   quoteSkeletonStyles.symbol,
@@ -642,6 +645,8 @@ const QuoteInitialSkeletonRows = React.memo(function QuoteInitialSkeletonRows({
               style={[
                 quoteSkeletonStyles.prices,
                 isSimpleMode && quoteSkeletonStyles.pricesSimple,
+                layout.stacked && sc.pricesRowStacked,
+                { gap: layout.priceGap },
               ]}
             >
               {QUOTE_SKELETON_PRICE_COLUMNS.map((column) => (
@@ -650,6 +655,7 @@ const QuoteInitialSkeletonRows = React.memo(function QuoteInitialSkeletonRows({
                   style={[
                     quoteSkeletonStyles.priceColumn,
                     isSimpleMode && quoteSkeletonStyles.priceColumnSimple,
+                    { width: layout.priceColumnWidth },
                   ]}
                 >
                   <View
@@ -700,6 +706,7 @@ const QuoteCard = React.memo(function QuoteCard({
   onTouchMove,
   onLongPress,
   suppressPressFeedback = false,
+  layout,
 }: {
   symbol: string;
   feedSymbol?: string;
@@ -711,15 +718,22 @@ const QuoteCard = React.memo(function QuoteCard({
   feedActionsAllowed: boolean;
   feedHealthReason: FeedHealthReasonCategory;
   feedHealthStatus: FeedHealthStatus;
-  onPress?: (event: GestureResponderEvent) => void;
-  onPressIn?: (event: GestureResponderEvent) => void;
-  onPressOut?: (event: GestureResponderEvent) => void;
+  onPress?: (symbol: string, event: GestureResponderEvent) => void;
+  onPressIn?: (symbol: string, event: GestureResponderEvent) => void;
+  onPressOut?: (symbol: string) => void;
   onTouchMove?: (event: GestureResponderEvent) => void;
-  onLongPress: () => void;
+  onLongPress: (symbol: string) => void;
   suppressPressFeedback?: boolean;
+  layout: QuoteCardLayout;
 }) {
   const { t } = useTranslation();
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
+  // Stable symbol-aware handlers let memoized cards skip unrelated list and
+  // viewability updates instead of receiving new closures for every row.
+  const handlePress = useCallback((event: GestureResponderEvent) => onPress?.(symbol, event), [onPress, symbol]);
+  const handlePressIn = useCallback((event: GestureResponderEvent) => onPressIn?.(symbol, event), [onPressIn, symbol]);
+  const handlePressOut = useCallback(() => onPressOut?.(symbol), [onPressOut, symbol]);
+  const handleLongPress = useCallback(() => onLongPress(symbol), [onLongPress, symbol]);
   const isSimpleMode = viewMode === 'table';
   const liveSymbol = feedSymbol ?? symbol;
   const observedLiveItem = useLiveQuoteSnapshot(liveSymbol, liveUpdatesActive);
@@ -769,7 +783,7 @@ const QuoteCard = React.memo(function QuoteCard({
     return () => clearTimeout(timer);
   }, [latencySessionKey, liveItem?.updateSeq, liveUpdatesActive]);
 
-  if (!isSimpleMode && noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
+  if (noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
     const cardBorder = isDark ? QUOTES_DARK_BORDER : T.border;
     const cardHighlight = isDark ? QUOTES_DARK_CARD_HIGHLIGHT : QUOTES_LIGHT_CARD_HIGHLIGHT;
     const primaryText = isDark ? QUOTES_DARK_PRIMARY_TEXT : T.text;
@@ -781,9 +795,10 @@ const QuoteCard = React.memo(function QuoteCard({
           sc.card,
           isSimpleMode && sc.cardSimple,
           {
-            height: isSimpleMode ? QUOTE_ROW_SIMPLE_HEIGHT : QUOTE_ROW_HEIGHT,
+            minHeight: isSimpleMode ? QUOTE_ROW_SIMPLE_HEIGHT : QUOTE_ROW_HEIGHT,
             paddingVertical: 0,
-            paddingLeft: 24,
+            paddingLeft: layout.horizontalPadding,
+            paddingRight: layout.horizontalPadding,
             justifyContent: 'center',
             borderColor: cardBorder,
           },
@@ -791,11 +806,11 @@ const QuoteCard = React.memo(function QuoteCard({
           pressed && suppressPressFeedback && sc.cardPressedNoShrink,
         ]}
         unstable_pressDelay={0}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
         onTouchMove={onTouchMove}
-        onPress={onPress}
-        onLongPress={onLongPress}
+        onPress={handlePress}
+        onLongPress={handleLongPress}
         delayLongPress={260}
       >
         <Animated.View
@@ -813,7 +828,7 @@ const QuoteCard = React.memo(function QuoteCard({
           end={{ x: 1, y: 1 }}
           style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
         />
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <View
             style={{
               width: 8,
@@ -922,6 +937,7 @@ const QuoteCard = React.memo(function QuoteCard({
       style={({ pressed }) => [
         sc.card,
         isSimpleMode && sc.cardSimple,
+        { paddingLeft: layout.horizontalPadding, paddingRight: layout.horizontalPadding },
         { borderColor: cardBorder },
         !isDark && sc.cardShadowLight,
         isDark && sc.cardShadowDark,
@@ -929,11 +945,11 @@ const QuoteCard = React.memo(function QuoteCard({
         pressed && suppressPressFeedback && sc.cardPressedNoShrink,
       ]}
       unstable_pressDelay={0}
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       onTouchMove={onTouchMove}
-      onPress={onPress}
-      onLongPress={onLongPress}
+      onPress={handlePress}
+      onLongPress={handleLongPress}
       delayLongPress={260}
     >
       <Animated.View
@@ -953,8 +969,8 @@ const QuoteCard = React.memo(function QuoteCard({
         style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
       />
 
-      <View style={[sc.cardInner, isSimpleMode && sc.cardInnerSimple]}>
-        <View style={sc.symbolCol}>
+      <View style={[sc.cardInner, isSimpleMode && sc.cardInnerSimple, layout.stacked && sc.cardInnerStacked, { gap: layout.columnGap }]}>
+        <View style={[sc.symbolCol, layout.stacked && sc.symbolColStacked]}>
           <View style={[sc.cardRow1, isSimpleMode && sc.cardRowSimple]}>
             <Text
               style={[sc.symbolText, { color: primaryText }]}
@@ -1003,8 +1019,8 @@ const QuoteCard = React.memo(function QuoteCard({
           )}
         </View>
 
-        <View style={[sc.pricesRow, isSimpleMode && sc.pricesRowSimple]}>
-          <View style={[sc.priceBlock, isSimpleMode && sc.priceBlockSimple]}>
+        <View style={[sc.pricesRow, isSimpleMode && sc.pricesRowSimple, layout.stacked && sc.pricesRowStacked, { gap: layout.priceGap }]}>
+          <View style={[sc.priceBlock, { width: layout.priceColumnWidth }]}>
             <View style={sc.labelWithTick}>
               <Text style={[sc.priceLabel, { color: mutedText }]}>{t('BID')}</Text>
               {showBidCaret && (
@@ -1020,18 +1036,18 @@ const QuoteCard = React.memo(function QuoteCard({
               style={[sc.priceValue, { color: bidColor }]}
               numberOfLines={1}
               adjustsFontSizeToFit
-              minimumFontScale={0.82}
+              minimumFontScale={0.7}
             >
               {noData ? '--' : fmt.price(item.bid, priceDigits)}
             </Text>
             {!isSimpleMode && !noData && item.low > 0 && (
-              <Text style={[sc.lowHighText, { color: mutedText }]}>
+              <Text style={[sc.lowHighText, { color: mutedText }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                 L: {fmt.price(item.low, priceDigits)}
               </Text>
             )}
           </View>
 
-          <View style={[sc.priceBlock, isSimpleMode && sc.priceBlockSimple]}>
+          <View style={[sc.priceBlock, { width: layout.priceColumnWidth }]}>
             <View style={sc.labelWithTick}>
               <Text style={[sc.priceLabel, { color: mutedText }]}>{t('ASK')}</Text>
               {showAskCaret && (
@@ -1047,12 +1063,12 @@ const QuoteCard = React.memo(function QuoteCard({
               style={[sc.priceValue, { color: askColor }]}
               numberOfLines={1}
               adjustsFontSizeToFit
-              minimumFontScale={0.82}
+              minimumFontScale={0.7}
             >
               {noData ? '--' : fmt.price(item.ask, priceDigits)}
             </Text>
             {!isSimpleMode && !noData && item.high > 0 && (
-              <Text style={[sc.lowHighText, { color: mutedText }]}>
+              <Text style={[sc.lowHighText, { color: mutedText }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                 H: {fmt.price(item.high, priceDigits)}
               </Text>
             )}
@@ -1121,14 +1137,14 @@ function EditQuoteRow({
         style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
       />
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 8 }}>
         <Pressable onPress={onRemove} style={{ padding: 4 }}>
           <Ionicons name="remove-circle" size={24} color={T.down} />
         </Pressable>
-        <Text style={[sc.symbolText, { color: primaryText }]}>{fmt.symbol(symbol)}</Text>
+        <Text style={[sc.symbolText, { flex: 1, color: primaryText }]}>{fmt.symbol(symbol)}</Text>
       </View>
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+      <View style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 16 }}>
         <Pressable
           onPress={onMoveUp}
           disabled={index === 0}
@@ -1670,7 +1686,7 @@ function getAddSymbolPalette(T: ThemeColors, isDark: boolean): AddSymbolPalette 
       mutedText: QUOTES_DARK_MUTED_TEXT,
       actionBg: 'rgba(30,41,59,0.86)',
       actionText: '#8AB4F8',
-      actionAddedBg: 'rgba(16,185,129,0.14)',
+      actionAddedBg: T.upGlow,
     };
   }
 
@@ -1689,7 +1705,7 @@ function getAddSymbolPalette(T: ThemeColors, isDark: boolean): AddSymbolPalette 
     mutedText: T.textMuted,
     actionBg: '#EAF1FB',
     actionText: '#1D4ED8',
-    actionAddedBg: '#EAF8F1',
+    actionAddedBg: T.upGlow,
   };
 }
 
@@ -1859,8 +1875,10 @@ function AddSymbolModal({
       style={[
         addSymbolStyles.root,
         {
-          paddingTop: Math.max(insets.top, Platform.OS === 'web' ? 16 : 28),
+          paddingTop: Math.max(insets.top, 0),
           paddingBottom: Math.max(insets.bottom, 12),
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
           backgroundColor: addPalette.screenBg,
         },
       ]}
@@ -2067,7 +2085,6 @@ function AddSymbolModal({
                 pressed && !alreadyAdded && { backgroundColor: addPalette.rowPressed },
               ]}
             >
-              <View style={[addSymbolStyles.symbolRail, { backgroundColor: kindMeta.accent }]} />
               <View style={addSymbolStyles.symbolTextCol}>
                 <View style={addSymbolStyles.symbolNameRow}>
                   <Text style={[addSymbolStyles.symbolName, { color: T.text }]}>{fmt.symbol(item)}</Text>
@@ -2141,6 +2158,18 @@ function AddSymbolModal({
 }
 
 const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
+  const [visibleQuoteSymbols, setVisibleQuoteSymbols] = useState<ReadonlySet<string>>(() => new Set());
+  const handleViewableQuoteRowsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item?: string }> }) => {
+    const symbols = viewableItems.flatMap(({ item }) => typeof item === 'string' ? [item] : []);
+    setVisibleQuoteSymbols((previous) => reconcileVisibleQuoteSymbols(previous, symbols));
+  }).current;
+  const { width: windowWidth, fontScale } = useWindowDimensions();
+  const safeInsets = useSafeAreaInsets();
+  const quoteCardLayout = useMemo(
+    () => resolveQuoteCardLayout(windowWidth - safeInsets.left - safeInsets.right, fontScale),
+    [windowWidth, safeInsets.left, safeInsets.right, fontScale],
+  );
+  const stackedQuoteLayout = quoteCardLayout.stacked;
   const router = useRouter();
   const T = useTheme();
   const { t } = useTranslation();
@@ -2178,8 +2207,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     () => isPublicDemoMarket || feedHealthAllowsPriceActions(scopedFeedHealth),
     [isPublicDemoMarket, scopedFeedHealth],
   );
+  const publicMarketStatus = useSyncExternalStore(subscribePublicMarketStatus, getPublicMarketStatus, getPublicMarketStatus);
   const quoteFeedHealthStatus: FeedHealthStatus = isPublicDemoMarket
-    ? 'connecting'
+    ? publicMarketStatus === 'live' ? 'healthy' : publicMarketStatus === 'reconnecting' ? 'reconnecting' : publicMarketStatus === 'offline' ? 'provider_down' : publicMarketStatus === 'configuration-error' ? 'disabled_unconfigured' : 'connecting'
     : scopedFeedHealth.status;
   const activeFeedBrokerName =
     activeFeedIdentity && accountDetails?.id === activeFeedIdentity.accountLogin
@@ -2200,28 +2230,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
       return;
     }
 
-    const { session, credentials } = activeBrokerCapture;
-    const effectiveFeed = resolveEffectiveFeedAuthForSession({
-      brokerId: session.brokerId,
-      feedAuthContext: session.feedAuthContext,
-      feedToken: credentials.feedToken,
-    });
-    const feedAuth = effectiveFeed.feedAuthContext;
-    const credentialApproved = feedAuth.mode === 'none'
-      ? true
-      : feedAuth.mode === 'query' && feedAuth.credential === 'feed_token'
-        ? Boolean(effectiveFeed.feedToken)
-        : feedAuth.mode === 'query'
-          ? Boolean(credentials.accessToken)
-          : false;
+    const { session } = activeBrokerCapture;
+    // Contract v3: /ws/feed needs no token, so the feed is usable whenever
+    // the session carries a validated feed WebSocket URL. The status URL is
+    // optional (diagnostics only).
     bindFeedHealthSession({
       identity: activeFeedIdentity,
-      transportConfigured: Boolean(
-        session.feedWsBase &&
-        session.feedStatusUrl &&
-        feedAuth.mode !== 'disabled_unconfigured'
-      ),
-      credentialApproved,
+      transportConfigured: Boolean(session.feedWsBase),
+      credentialApproved: true,
       // Undefined preserves a policy already confirmed for this exact session;
       // the status probe owns installing it and this screen invents no defaults.
     });
@@ -2366,13 +2382,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     // read-only demo watchlist immediately so symbol discovery and the WSS
     // handshake run in parallel on every logged-out cold launch. The catalog
     // still reconciles casing/availability when it arrives below.
-    if (isPublicDemoMarket && currentSymbols.length === 0) {
-      setQuoteSymbols([...DEFAULT_QUOTE_WATCHLIST]);
-      if (!hasSetInitialSymbols) {
-        setHasSetInitialSymbols(true);
-      }
-      return;
-    }
+    if (isPublicDemoMarket && currentSymbols.length === 0 && feedAwareSymbols.length === 0) return;
 
     const availableSymbolsSet = new Set(feedAwareSymbols);
     const resolveAvailableSymbols = (symbols: readonly string[]) => (
@@ -2393,10 +2403,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     }
 
     if (feedAwareSymbols.length === 0) {
-      if (!hasSetInitialSymbols && currentSymbols.length === 0) {
-        setQuoteSymbols([...DEFAULT_QUOTE_WATCHLIST]);
-        setHasSetInitialSymbols(true);
-      }
       return;
     }
 
@@ -2570,7 +2576,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     syncServerReplace(newQueue);
   }, [quoteSymbols, setQuoteSymbols, syncServerReplace]);
 
-  // Clock timer moved into isolated GmtClock component to prevent
+  // Server timestamp display stays isolated in BrokerQuoteUpdatedTime to prevent
   // the 1-second interval from re-rendering the entire QuotesScreen
   // (parent re-render forces all FlatList items to re-evaluate).
 
@@ -3089,7 +3095,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     setSearch(text);
   }, []);
 
-  const renderQuoteItem = useCallback(({ item: sym }: { item: string }) => {
+  const renderQuoteItem = useCallback(({ item: sym, index }: { item: string; index: number }) => {
     if (isEditing) {
       const globalIndex = quoteSymbols.indexOf(sym);
       return (
@@ -3115,16 +3121,17 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         isDark={isDark}
         cardBackground={animatedCardBackground}
         viewMode={quoteViewMode}
-        liveUpdatesActive={quoteStickyFeedActive}
+        liveUpdatesActive={isQuoteRowLive(quoteStickyFeedActive, sym, index, visibleQuoteSymbols)}
         feedActionsAllowed={scopedFeedActionsAllowed}
         feedHealthReason={scopedFeedHealth.reasonCategory}
         feedHealthStatus={quoteFeedHealthStatus}
-        onPressIn={(event) => handleSymbolPressIn(sym, event)}
-        onPressOut={() => handleSymbolPressOut(sym)}
+        onPressIn={handleSymbolPressIn}
+        onPressOut={handleSymbolPressOut}
         onTouchMove={handleSymbolPressMove}
-        onPress={(event) => handleSymbolTap(sym, event)}
+        onPress={handleSymbolTap}
         suppressPressFeedback
-        onLongPress={() => handleSymbolLongPress(sym)}
+        layout={quoteCardLayout}
+        onLongPress={handleSymbolLongPress}
       />
     );
   }, [
@@ -3142,19 +3149,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     quoteFeedSymbolByDisplay,
     quoteViewMode,
     quoteStickyFeedActive,
+    visibleQuoteSymbols,
     scopedFeedActionsAllowed,
     scopedFeedHealth.reasonCategory,
     quoteFeedHealthStatus,
     removeQuoteSymbol,
     syncServerRemove,
+    quoteCardLayout,
   ]);
-  const getQuoteItemLayout = useCallback((_: ArrayLike<string> | null | undefined, index: number) => {
-    const rowHeight = !isEditing && quoteViewMode === 'table'
-      ? QUOTE_ROW_SIMPLE_HEIGHT
-      : QUOTE_ROW_HEIGHT;
-    const length = rowHeight + QUOTE_ROW_SPACING;
-    return { length, offset: length * index, index };
-  }, [isEditing, quoteViewMode]);
 
   return (
     <View style={s.root}>
@@ -3166,7 +3168,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         ]}
       />
 
-      <View style={s.safe}>
+      <Screen noBottomInset style={{ backgroundColor: 'transparent' }}>
         <View style={[s.screen, { paddingTop: 0 }]}>
           <AppHeader
             title={t('Quotes')}
@@ -3209,9 +3211,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
           <View style={s.subheaderRow}>
             {/* Tick the 1s clock only while Quotes is the visible tab — an
                 always-on interval re-rendered this retained screen forever. */}
-            <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} active={isScreenFocused} />
+            <BrokerQuoteUpdatedTime
+              key={`${quoteLiveProofGenerationKey}:${selectedBrokerId}:${isPublicDemoMarket}`}
+              style={[s.subLeft, { color: palette.secondaryText }]}
+              active={isScreenFocused}
+              symbols={quoteFeedSymbols}
+            />
 
-            <View style={{ alignItems: 'flex-end' }}>
+            <View style={s.subheaderStatus}>
               <TickCounter
                 T={T}
                 palette={palette}
@@ -3227,7 +3234,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
             <FeedHealthBanner
               state={scopedFeedHealth}
               brokerName={activeFeedBrokerName}
-              feedAuthContext={activeBrokerCapture?.session.feedAuthContext ?? null}
               T={T}
               onRetry={retryActiveFeed}
             />
@@ -3261,9 +3267,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
           <FlatList
             data={showInitialQuotesSkeleton ? EMPTY_QUOTE_SYMBOLS : filtered}
             keyExtractor={(sym) => sym}
-            extraData={`${isEditing ? 'edit' : 'view'}:${quoteViewMode}:${scopedFeedHealth.status}:${scopedFeedHealth.reasonCategory}:${scopedFeedActionsAllowed ? 'live' : 'blocked'}:${showInitialQuotesSkeleton ? 'initial-loading' : 'ready'}`}
+            extraData={`${isEditing ? 'edit' : 'view'}:${quoteViewMode}:${stackedQuoteLayout ? 'stacked' : 'inline'}:${scopedFeedHealth.status}:${scopedFeedHealth.reasonCategory}:${scopedFeedActionsAllowed ? 'live' : 'blocked'}:${showInitialQuotesSkeleton ? 'initial-loading' : 'ready'}`}
             renderItem={renderQuoteItem}
-            getItemLayout={getQuoteItemLayout}
+            // Text and metadata can grow: let FlatList measure real row heights.
             style={s.list}
             contentContainerStyle={s.listPad}
             showsVerticalScrollIndicator={false}
@@ -3276,7 +3282,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
             onScrollBeginDrag={() => cancelSymbolSheetPreview()}
             onMomentumScrollBegin={() => cancelSymbolSheetPreview()}
             removeClippedSubviews
-            initialNumToRender={8}
+            initialNumToRender={QUOTE_INITIAL_LIVE_ROW_COUNT}
+            viewabilityConfig={QUOTE_ROW_VIEWABILITY_CONFIG}
+            onViewableItemsChanged={handleViewableQuoteRowsChanged}
             maxToRenderPerBatch={6}
             updateCellsBatchingPeriod={50}
             windowSize={7}
@@ -3287,6 +3295,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
                   palette={palette}
                   cardBackground={animatedCardBackground}
                   viewMode={quoteViewMode}
+                  layout={quoteCardLayout}
                 />
               ) : (
                 <View
@@ -3314,7 +3323,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
             }
           />
         </View>
-      </View>
+      </Screen>
 
       <AddSymbolModal
         visible={showAddModal}
@@ -3340,8 +3349,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
  */
 export function QuotesScreen() {
   const isScreenFocused = useIsFocused();
-  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
-  return <QuotesScreenInner isScreenFocused={deferredScreenFocused} />;
+  const marketDemandAllowed = useAuthMarketDemandAllowed();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused && marketDemandAllowed);
+  return <QuotesScreenInner isScreenFocused={marketDemandAllowed && deferredScreenFocused} />;
 }
 
 /* ───── Styles ───── */
@@ -3374,7 +3384,7 @@ const addSymbolStyles = StyleSheet.create({
   },
   title: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '500',
     letterSpacing: 0,
   },
   subtitle: {
@@ -3532,15 +3542,6 @@ const addSymbolStyles = StyleSheet.create({
     marginBottom: 10,
     overflow: 'hidden',
   },
-  symbolRail: {
-    position: 'absolute',
-    left: 0,
-    top: 14,
-    bottom: 14,
-    width: 3,
-    borderTopRightRadius: 3,
-    borderBottomRightRadius: 3,
-  },
   symbolTextCol: {
     flex: 1,
     paddingRight: 12,
@@ -3627,20 +3628,25 @@ const s = StyleSheet.create({
     marginTop: -4,
     marginBottom: 10,
     paddingHorizontal: 16,
+    flexWrap: 'nowrap',
+    columnGap: 6,
   },
 
-  subLeft: { fontSize: 13, fontWeight: '500' },
+  subLeft: { minWidth: 0, flexShrink: 1, maxWidth: '43%', fontSize: 13, lineHeight: 18, fontWeight: '500' },
+
+  subheaderStatus: { flex: 1, minWidth: 0, alignItems: 'flex-end' },
 
   subRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
+    width: '100%',
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'right',
     paddingVertical: 7,
-    gap: 6,
   },
 
-  subGrey: { fontSize: 12, fontWeight: '500', letterSpacing: 0 },
-  subLive: { fontSize: 12, fontWeight: '600', letterSpacing: 0 },
+  subGrey: { fontWeight: '500', letterSpacing: 0 },
+  subLive: { fontWeight: '600', letterSpacing: 0 },
 
   feedHealthBanner: {
     minHeight: 82,
@@ -3760,11 +3766,13 @@ const quoteSkeletonStyles = StyleSheet.create({
   },
   symbol: {
     width: 82,
+    maxWidth: '100%',
     height: 16,
     borderRadius: 8,
   },
   meta: {
     width: 126,
+    maxWidth: '100%',
     height: 10,
     borderRadius: 5,
     marginTop: 14,
@@ -3791,6 +3799,7 @@ const quoteSkeletonStyles = StyleSheet.create({
   },
   priceValue: {
     width: 64,
+    maxWidth: '100%',
     height: 16,
     borderRadius: 8,
     marginTop: 6,
@@ -3808,19 +3817,19 @@ const quoteSkeletonStyles = StyleSheet.create({
 
 const sc = StyleSheet.create({
   card: {
-    height: QUOTE_ROW_HEIGHT,
+    minHeight: QUOTE_ROW_HEIGHT,
     marginBottom: QUOTE_ROW_SPACING,
     borderRadius: 16,
     borderWidth: 1,
-    paddingVertical: 22,
+    paddingVertical: 12,
     paddingLeft: 24,
     paddingRight: 20,
     overflow: 'hidden',
   },
 
   cardSimple: {
-    height: QUOTE_ROW_SIMPLE_HEIGHT,
-    paddingVertical: 16,
+    minHeight: QUOTE_ROW_SIMPLE_HEIGHT,
+    paddingVertical: 10,
     paddingLeft: 20,
     paddingRight: 18,
   },
@@ -3855,13 +3864,17 @@ const sc = StyleSheet.create({
     minHeight: 40,
   },
 
-  symbolCol: { flex: 1 },
+  cardInnerStacked: { flexDirection: 'column', alignItems: 'stretch', gap: 10 },
+
+  symbolCol: { flex: 1, minWidth: 0 },
+  symbolColStacked: { flex: 0, flexBasis: 'auto', width: '100%' },
 
   cardRow1: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 8,
+    flexWrap: 'wrap',
   },
 
   cardRowSimple: {
@@ -3872,6 +3885,8 @@ const sc = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0,
+    flexShrink: 1,
+    minWidth: 0,
   },
 
   changePill: {
@@ -3888,6 +3903,7 @@ const sc = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexWrap: 'wrap',
   },
 
   volText: { fontSize: 13, fontWeight: '500' },
@@ -3904,13 +3920,12 @@ const sc = StyleSheet.create({
     gap: 10,
   },
 
+  pricesRowStacked: { width: '100%', justifyContent: 'space-between' },
+
   priceBlock: {
     alignItems: 'flex-end',
-    minWidth: 68,
-  },
-
-  priceBlockSimple: {
-    minWidth: 62,
+    minWidth: 0,
+    flexShrink: 0,
   },
 
   labelWithTick: {
@@ -3926,6 +3941,7 @@ const sc = StyleSheet.create({
   },
 
   priceValue: {
+    maxWidth: '100%',
     fontSize: 16,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
@@ -3940,25 +3956,28 @@ const sc = StyleSheet.create({
   },
 
   lowHighText: {
+    maxWidth: '100%',
     fontSize: 12,
     fontWeight: '500',
     fontVariant: ['tabular-nums'],
   },
 });
 
-/** Isolated 1-second clock so the timer doesn't re-render the parent QuotesScreen. */
-function GmtClock({ style, active }: { style: any; active: boolean }) {
+/** Reads broker-owned timestamps without subscribing the whole list to price ticks. */
+function BrokerQuoteUpdatedTime({ style, active, symbols }: { style: any; active: boolean; symbols: string[] }) {
   const { t } = useTranslation();
-  const [now, setNow] = useState(new Date());
+  const [updatedTime, setUpdatedTime] = useState('--');
+  const symbolsKey = symbols.join('|');
   useEffect(() => {
-    if (!active) {
-      return;
-    }
-    setNow(new Date());
-    const id = setInterval(() => setNow(new Date()), 1000);
+    if (!active) return;
+    const readServerTime = () => setUpdatedTime(formatQuoteUpdatedTime(
+      symbolsKey.split('|').filter(Boolean).map(getCurrentLiveQuoteSnapshot),
+    ));
+    readServerTime();
+    const id = setInterval(readServerTime, 1000);
     return () => clearInterval(id);
-  }, [active]);
-  return <Text style={style}>{t('Updated')}: {gmtClock(now)} GMT</Text>;
+  }, [active, symbolsKey]);
+  return <Text style={style} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{t('Updated')}: {updatedTime}</Text>;
 }
 
 /**
@@ -4077,13 +4096,16 @@ function TickCounter({
   const statusColor = statusLabel === 'LIVE' ? T.trading.profit : palette.secondaryText;
 
   return (
-    <View style={s.subRight}>
+    <Text style={s.subRight} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
       <Text style={[s.subGrey, { color: palette.secondaryText }]}>{t('Speed')}:</Text>
+      {' '}
       <Text style={[s.subLive, { color: statusColor }]}>{tps} tps</Text>
+      {'  '}
       <Text style={[s.subGrey, { color: palette.secondaryText }]}>{t('Status')}:</Text>
+      {' '}
       <Text style={[s.subLive, { color: statusColor }]}>
         {t(statusLabel)}
       </Text>
-    </View>
+    </Text>
   );
 }

@@ -1,3 +1,4 @@
+import { GDark, GLight } from '../../../../ui/theme/glass';
 import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
@@ -5,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { TradeJournalEntry } from '../types';
 
 export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJournalEntry, onClose: () => void, isDark: boolean }) {
+  const positiveColor = (isDark ? GDark : GLight).trading.profit;
   const cardBg = isDark ? '#1E1E1E' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const textColor = isDark ? '#F8FAFC' : '#0F172A';
@@ -34,11 +36,11 @@ export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJour
           <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
             <View style={styles.rowBetween}>
               <View>
-                <Text style={[styles.symbolText, { color: textColor }]}>{trade.symbol} • <Text style={{ color: trade.tradeType === 'Buy' ? '#10B981' : '#EF4444' }}>{trade.tradeType}</Text></Text>
+                <Text style={[styles.symbolText, { color: textColor }]}>{trade.symbol} • <Text style={{ color: trade.tradeType === 'Buy' ? positiveColor : '#EF4444' }}>{trade.tradeType}</Text></Text>
                 <Text style={{ color: subText, fontSize: 12, marginTop: 4 }}>{new Date(trade.date).toLocaleString()}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[styles.pnlText, { color: isWin ? '#10B981' : '#EF4444' }]}>{pnl > 0 ? '+' : ''}${pnl.toFixed(2)}</Text>
+                <Text style={[styles.pnlText, { color: isWin ? positiveColor : '#EF4444' }]}>{pnl > 0 ? '+' : ''}${pnl.toFixed(2)}</Text>
                 <Text style={{ color: subText, fontSize: 12, marginTop: 4 }}>{rMultiple}</Text>
               </View>
             </View>

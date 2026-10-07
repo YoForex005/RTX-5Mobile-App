@@ -2,6 +2,7 @@
  * Chart color presets, defaults, theme fallbacks, and the resolver that
  * applies theme-driven structural overrides on top of the user's saved colors.
  */
+import { GDark, GLight } from '../../ui/theme/glass';
 import type {
   ChartColorScheme,
   ChartColorsConfig,
@@ -58,7 +59,7 @@ export const DEFAULT_CHART_COLOR_SCHEME: Exclude<ChartColorScheme, 'custom'> = '
 export const DEFAULT_CHART_COLORS: ChartColorsConfig = {
   ...CHART_COLOR_SCHEME_PRESETS[DEFAULT_CHART_COLOR_SCHEME].colors,
   tradeOpen: '#2962FF',
-  tradeTpSl: '#089981',
+  tradeTpSl: GDark.trading.profit,
   tradeStopOut: '#DC2626',
 };
 
@@ -207,6 +208,14 @@ export function resolveChartColorsForTheme(
   };
 
   const resolvedColors = { ...mergedColors };
+  // Existing installations retain the former default in saved preferences.
+  // Default TP/SL accents follow the app theme; other custom picks stay intact.
+  const defaultTradeColors = ['#089981', GDark.trading.profit, GLight.trading.profit];
+  if (defaultTradeColors.some((color) => (
+    normalizeStructuralChartColor(color) === normalizeStructuralChartColor(mergedColors.tradeTpSl ?? '')
+  ))) {
+    resolvedColors.tradeTpSl = (isDark ? GDark : GLight).trading.profit;
+  }
   const themeStructuralColors = isDark ? DARK_THEME_CHART_FALLBACKS : LIGHT_THEME_CHART_FALLBACKS;
   const forceThemeStructure = Boolean(chartColorScheme && chartColorScheme !== 'custom');
   const canvasBrightnessMismatchesTheme = chartColorScheme === 'custom' && (

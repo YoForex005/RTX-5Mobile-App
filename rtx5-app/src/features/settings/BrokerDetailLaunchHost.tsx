@@ -14,6 +14,7 @@ import {
   showRegisterLaunch,
 } from './registerLaunchController';
 import { warmDemoAccountForm } from './registerScreenPreload';
+import { useBrokerSignUpGate } from './BrokerDetailScreenRegistrationGate';
 
 const BROKER_DETAIL_LAUNCH_HIDDEN_STYLE = {
   elevation: 0,
@@ -55,6 +56,9 @@ export function BrokerDetailLaunchHost() {
     brokerDetailLaunchController.isVisible,
   );
   pathnameRef.current = pathname;
+  // Contract v3: the launch panel follows the broker's public sign-up flags.
+  // Same query key as BrokerDetailScreen, so no extra request is made.
+  const signUpGate = useBrokerSignUpGate(renderVisible ? selection.brokerServerUrl : null);
 
   const armBackGuard = useCallback((delayMs: number) => {
     if (backGuardTimerRef.current) clearTimeout(backGuardTimerRef.current);
@@ -206,7 +210,9 @@ export function BrokerDetailLaunchHost() {
           <BrokerDetailLaunchShell
             selection={selection}
             onBack={closeLaunch}
-            onOpenDemo={openDemoAccount}
+            onOpenDemo={signUpGate.demo ? openDemoAccount : undefined}
+            showDemoSignUp={signUpGate.demo}
+            showRealSignUp={signUpGate.real}
             backLatencyLabel="brokerDetail.launch.back"
           />
         ) : null}

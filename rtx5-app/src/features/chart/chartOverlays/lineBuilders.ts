@@ -1,3 +1,4 @@
+import { resolveLiveChartPnlColor } from './livePnlColors';
 /**
  * Builders for the price-line layer of chart overlays — pending orders,
  * price alerts, and the potential stop-out warning line.
@@ -59,7 +60,7 @@ export const buildPendingOrderLines = (
       accumulator.push({
         id: `order-tp-${order.ticket}`,
         price: tpValue,
-        color: colors.tradeTpSl || '#089981',
+        color: colors.tradeTpSl || resolveLiveChartPnlColor(1, colors.background, '#4597FF'),
         lineWidth: 2,
         lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: false,
@@ -111,11 +112,19 @@ export const buildPriceAlertLines = (
     .map((alert) => ({
       id: `alert-${alert.id}`,
       price: alert.price,
-      color: alert.condition === 'above' ? '#10B981' : '#F59E0B',
+      color: alert.condition === 'above'
+        ? '#10B981'
+        : alert.condition === 'cross'
+          ? '#60A5FA'
+          : '#F59E0B',
       lineWidth: 1,
       lineStyle: CHART_LINE_STYLE.SparseDotted,
       axisLabelVisible: false,
-      title: alert.condition === 'above' ? 'ALERT ABOVE' : 'ALERT BELOW',
+      title: alert.condition === 'above'
+        ? 'ALERT ABOVE'
+        : alert.condition === 'cross'
+          ? 'ALERT CROSS'
+          : 'ALERT BELOW',
     }));
 };
 

@@ -12,7 +12,7 @@ test('initial snapshot never injects a mock/spec price', () => {
   assert.equal(buildInitialLiveQuoteSnapshot('EURUSD'), undefined);
   assert.deepEqual(
     buildInitialLiveQuoteSnapshot('EURUSD', { bid: 1.1, ask: 1.1002 }),
-    { symbol: 'EURUSD', bid: 1.1, ask: 1.1002, volume: undefined, volumeSource: undefined },
+    { symbol: 'EURUSD', bid: 1.1, ask: 1.1002, digits: 5, spread: 20, volume: undefined, volumeSource: undefined },
   );
 });
 

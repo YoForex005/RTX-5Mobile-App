@@ -40,7 +40,7 @@ export const makeUserGuideStyles = (isDark = false) => {
       color: palette.text,
       fontSize: 21,
       lineHeight: 27,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     scroll: {
@@ -53,7 +53,7 @@ export const makeUserGuideStyles = (isDark = false) => {
     },
     hero: {
       alignItems: 'center',
-      paddingTop: 26,
+      paddingTop: 16,
       paddingBottom: 28,
       borderBottomWidth: 1,
       borderBottomColor: palette.border,

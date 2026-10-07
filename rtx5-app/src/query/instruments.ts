@@ -6,7 +6,7 @@ import {
   useActiveBrokerQuerySession,
 } from './authenticatedQueryScope';
 
-export const INSTRUMENT_META_QUERY_VERSION = 'instrument-meta-v3';
+export const INSTRUMENT_META_QUERY_VERSION = 'instrument-meta-v4';
 
 export function useInstrumentMeta(symbol: string, enabled = true) {
   const session = useActiveBrokerQuerySession();

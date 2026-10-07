@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { calculateQuoteSpreadPoints } from './quoteSpread.ts';
+import { calculateQuoteSpreadPoints, resolveQuoteDisplayDigits } from './quoteSpread.ts';
+
+test('EURUSD feed without digits uses forex point precision', () => {
+  const digits = resolveQuoteDisplayDigits('EURUSD', 1.13736);
+  assert.equal(digits, 5);
+  assert.equal(calculateQuoteSpreadPoints(1.13736, 1.13751, digits), 15);
+  assert.equal(resolveQuoteDisplayDigits('USDJPY.c', 151.123), 3);
+  assert.equal(resolveQuoteDisplayDigits('EURUSD', 1.13736, undefined, 0.00001), 5);
+  assert.equal(resolveQuoteDisplayDigits('EURUSD', 1.13736, 4), 4);
+});
 
 test('calculateQuoteSpreadPoints uses displayed bid ask precision', () => {
   assert.equal(calculateQuoteSpreadPoints(1.16345, 1.16365, 5), 20);

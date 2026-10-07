@@ -1,3 +1,6 @@
+import { scheduleAfterVisualFrame } from './afterVisualFrame';
+import { registerInteractionLifecycleHandler } from './interactionLifecycle';
+
 type BackRouter = {
   canGoBack?: () => boolean;
   back: () => void;
@@ -19,16 +22,31 @@ export function safeRouterBack(router: BackRouter, fallbackHref: any = '/') {
   router.replace(fallbackHref);
 }
 
+let cancelPendingBackNavigation: (() => void) | null = null;
+registerInteractionLifecycleHandler(phase => {
+  if (phase === 'suspend') {
+    cancelPendingBackNavigation?.();
+    cancelPendingBackNavigation = null;
+  }
+});
+
 /**
  * Lets the touch-down frame paint before a potentially expensive Expo Router
  * stack pop. The native screen stays stable for that one frame, then Back runs
  * outside the press event instead of blocking its visual acknowledgement.
  */
-export function scheduleBackNavigationAfterVisualFrame(action: () => void) {
-  const runAfterFrame = () => setTimeout(action, 0);
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(runAfterFrame);
-    return;
-  }
-  setTimeout(action, 0);
+export function scheduleBackNavigationAfterVisualFrame(action: () => void): () => void {
+  // Multiple taps while the same screen is still visible represent one pop.
+  // Keep the latest request and recover if the native frame is interrupted.
+  cancelPendingBackNavigation?.();
+  const cancelFrame = scheduleAfterVisualFrame(() => {
+    cancelPendingBackNavigation = null;
+    action();
+  });
+  const cancel = () => {
+    cancelFrame();
+    if (cancelPendingBackNavigation === cancel) cancelPendingBackNavigation = null;
+  };
+  cancelPendingBackNavigation = cancel;
+  return cancel;
 }

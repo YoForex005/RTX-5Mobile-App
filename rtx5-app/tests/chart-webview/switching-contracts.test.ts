@@ -45,8 +45,8 @@ test('symbol switch cleanup preserves the latest intent across reselection and r
   );
   assertSourceContains(
     source,
-    /useFocusEffect\([\s\S]*isScreenFocusedRef\.current = true[\s\S]*return \(\) => \{[\s\S]*isScreenFocusedRef\.current = false[\s\S]*chartContextCommitScheduler\.cancelPending\(\);[\s\S]*cancelPendingSymbolUiReset\(\)/,
-    'an immediate focus cleanup must cancel symbol work before the retained Chart prop updates',
+    /useFocusEffect\([\s\S]*isScreenFocusedRef\.current = marketDemandAllowed[\s\S]*return \(\) => \{[\s\S]*isScreenFocusedRef\.current = false[\s\S]*chartContextCommitScheduler\.cancelPending\(\);[\s\S]*cancelPendingSymbolUiReset\(\)/,
+    'an immediate blur or authentication coverage must cancel symbol work before the retained Chart prop updates',
   );
   assertSourceOmits(
     source,

@@ -71,6 +71,15 @@ test('only documented broker identifiers canonicalize and the GTA alias is exact
   assert.equal(canonicalBrokerId(' GTA_BROKER '), 'gta_broker');
   assert.equal(canonicalBrokerId('grow-trading-academy'), 'gta_broker');
   assert.equal(canonicalBrokerId('MYPROP-TRADE'), 'myprop-trade');
+  assert.equal(canonicalBrokerId(' NEXA '), 'nexa');
+  assert.equal(canonicalBrokerId('Nexa'), 'nexa');
+  // Backend contract v3 broker ids (6.5), matched ignoring case.
+  assert.equal(canonicalBrokerId('trivanta-markets'), 'trivanta-markets');
+  assert.equal(canonicalBrokerId('TRIVANTA-MARKETS'), 'trivanta-markets');
+  assert.equal(canonicalBrokerId('Orrnn'), 'orrnn');
+  assert.equal(canonicalBrokerId('orrnn'), 'orrnn');
+  assert.equal(canonicalBrokerId(' ORRNN '), 'orrnn');
+  assert.notEqual(canonicalBrokerId('orrnn'), canonicalBrokerId('orrnn-demo'));
 
   for (const unsafe of [
     null,
@@ -85,6 +94,10 @@ test('only documented broker identifiers canonicalize and the GTA alias is exact
     'achiever-financials.example.com',
     'myprop-trade-copy',
     'https://myprop-trade.example',
+    'trivanta',
+    'trivanta-markets.example.com',
+    'orrnn-live',
+    'service.orrnn.com',
   ]) {
     assert.equal(canonicalBrokerId(unsafe), null, String(unsafe));
   }
@@ -140,6 +153,17 @@ test('known brokers unlock only market-order and existing-position SL/TP flows',
         `${brokerId} ${orderType} lock state`,
       );
     }
+  }
+});
+
+test('contract v3 brokers Trivanta and Orrnn enable market and position SL/TP only', () => {
+  for (const brokerId of ['trivanta-markets', 'Orrnn', 'orrnn', 'TRIVANTA-MARKETS']) {
+    const capabilities = resolveTradeBackendCapabilities({}, brokerId);
+    assert.deepEqual(capabilities.sltp, MARKET_AND_POSITION_SLTP_CAPABILITIES, brokerId);
+    assert.equal(isNewMarketOrderProtectionBackendLocked(capabilities), false, brokerId);
+    assert.equal(isExistingPositionModifyBackendLocked(capabilities), false, brokerId);
+    assert.equal(isPendingOrderProtectionBackendLocked(capabilities), true, brokerId);
+    assert.equal(isTrailingStopBackendLocked(capabilities), true, brokerId);
   }
 });
 
@@ -252,6 +276,22 @@ test('unavailable feedback is broker specific and fail closed for unknown identi
   assert.equal(
     getSltpUnavailableMessage('myprop-trade'),
     'SL/TP is unavailable for the requested MyProp trade flow. Only market-order and existing-position SL/TP are enabled.',
+  );
+  assert.equal(
+    getSltpUnavailableMessage('Nexa'),
+    'SL/TP is unavailable for the requested Nexa trade flow. Only market-order and existing-position SL/TP are enabled.',
+  );
+  assert.equal(
+    getSltpUnavailableMessage('trivanta-markets'),
+    'SL/TP is unavailable for the requested Trivanta Markets trade flow. Only market-order and existing-position SL/TP are enabled.',
+  );
+  assert.equal(
+    getSltpUnavailableMessage('Orrnn'),
+    'SL/TP is unavailable for the requested Orrnn trade flow. Only market-order and existing-position SL/TP are enabled.',
+  );
+  assert.equal(
+    getSltpUnavailableMessage('orrnn'),
+    getSltpUnavailableMessage('Orrnn'),
   );
   assert.equal(
     getSltpUnavailableMessage('unknown'),

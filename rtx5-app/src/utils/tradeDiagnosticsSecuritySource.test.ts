@@ -23,7 +23,11 @@ test('trade and account diagnostics are opt-in and centrally redacted', () => {
   for (const source of [chart, market, pending, positions, orderQueries]) {
     assert.match(source, /args\.map\(redactDiagnosticValue\)/);
   }
-  assert.match(accounts, /Accounts response received[\s\S]*accountCount: mapped\.length/);
+  // The accounts list endpoint is gone (contract v3); the detail fetch must not
+  // log backend payloads. Any future diagnostics there must be redacted.
+  if (/console\.(?:log|info|debug|warn)/.test(accounts)) {
+    assert.match(accounts, /args\.map\(redactDiagnosticValue\)/);
+  }
   assert.doesNotMatch(accounts, /console\.log\([\s\S]{0,120}(?:data|mapped)\)/);
   assert.doesNotMatch(accounts, /Raw backend response:|Mapped accounts:/);
 });

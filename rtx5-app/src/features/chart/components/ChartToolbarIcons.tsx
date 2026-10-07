@@ -8,10 +8,41 @@
 import React from 'react';
 import Svg, { Path, Circle, Rect, Line, Polyline, G } from 'react-native-svg';
 
-export const TvCrosshair = ({ color }: { color: string }) => (
-  <Svg width="26" height="26" viewBox="0 0 28 28" fill="none">
-    <Path d="M14 6v16M6 14h16" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
-    <Circle cx="14" cy="14" r="2" fill={color} />
+export const CHART_HEADER_ICON_SIZE = 22;
+// Pencil and menu-dot font glyphs need a smaller size to visually balance
+// with the crosshair and clock SVGs in the header.
+export const CHART_HEADER_GLYPH_SIZE = 18;
+
+export const TvTradeClock = ({ color, size = CHART_HEADER_ICON_SIZE }: { color: string; size?: number }) => (
+  <Svg width={size} height={size} viewBox="0 0 66 66" fill="none">
+    {/* MT5 has a wide outer capsule around a circular opening, rather than a stroked circle. */}
+    <Path d="M31.5 10H27a24 24 0 0 0 0 48h4.5v-6.063a18 18 0 0 1 0-35.874Z" fill="#DA5244" />
+    <Path d="M34.5 10H39a24 24 0 0 1 0 48h-4.5v-6.063a18 18 0 0 0 0-35.874Z" fill="#3687ED" />
+    <Path d="M30 22h6v13l8 8-4 4-10-10Z" fill={color} />
+  </Svg>
+);
+
+export const TvCrosshair = ({ color, size = 26, strokeWidth = 2, active = false }: { color: string; size?: number; strokeWidth?: number; active?: boolean }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    {active ? (
+      <Path
+        d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    ) : (
+      <>
+        <Path
+          d="M12 3v5.5M12 15.5V21M3 12h5.5M15.5 12H21"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+        <Circle cx="12" cy="12" r="1" fill={color} />
+      </>
+    )}
   </Svg>
 );
 

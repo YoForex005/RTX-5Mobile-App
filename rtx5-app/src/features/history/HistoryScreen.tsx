@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { AppHeader } from '../../ui/components/AppHeader';
 import { FastPressable } from '../../ui/components/FastPressable';
@@ -29,6 +29,7 @@ import { LoginOrder } from '../../api/orders';
 import { ClosedPosition } from '../../api/positions';
 import { filterClosedRecordsByDateRange, resolveEffectiveHistoryDateRange } from './historyDateRange';
 import { deriveClosedPositionsFromDeals, mergeClosedPositionSources } from './derivedClosedPositions';
+import { keyHistoryRows } from './historyRowKeys';
 import {
   calculateHistoryMoneySummary,
   resolveClosedPositionNetProfit,
@@ -44,6 +45,8 @@ import { useShallow } from 'zustand/shallow';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { calculateWinRatePercentFromPnl } from '../../utils/winRate';
 import { showHistoryFilterHost } from './historyFilterHostController';
+import { useResponsiveLayout } from '../../ui/layout/useResponsiveLayout';
+import { shouldScrollTradingSummary } from '../trade/summaryViewport';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
 type SortBy = 'Default' | 'Symbol' | 'Ticket' | 'Type' | 'Volume' | 'Open Time' | 'Close Time' | 'Profit';
@@ -71,6 +74,21 @@ type Tone = 'positive' | 'negative' | 'neutral';
 
 const TABS: Tab[] = ['Orders', 'Positions', 'Deals'];
 const SORT_OPTIONS: SortBy[] = ['Default', 'Symbol', 'Ticket', 'Type', 'Volume', 'Open Time', 'Close Time', 'Profit'];
+const EMPTY_CLOSED_POSITIONS: ClosedPosition[] = [];
+const EMPTY_DEALS: Deal[] = [];
+const EMPTY_ORDERS: LoginOrder[] = [];
+const historyRowKey = (item: { listKey: string }) => item.listKey;
+
+/**
+ * The summary details card is the first thing in the FlatList header, so its top
+ * edge sits exactly on the list's clip boundary — flush against the pinned balance
+ * card. Fractional scroll offsets during a fast fling, and top-edge overscroll
+ * (iOS bounce, Android stretch), momentarily pull it clear of that boundary and
+ * expose screen background as a hairline seam. The card is pulled up by this much
+ * and padded straight back down, so whatever peeks past the clip edge is card
+ * background and side borders instead of a gap. Net content height is unchanged.
+ */
+const SUMMARY_DETAILS_OVERSCROLL_BLEED = 96;
 
 function safeTimeStr(timestamp?: number | string | Date): string {
   if (timestamp === undefined || timestamp === null || timestamp === '') return '--';
@@ -388,6 +406,7 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
   const showHistoryActionSheet = useUIState((s) => s.showHistoryActionSheet);
 
   const T = useTheme();
+  const scrollSummary = shouldScrollTradingSummary(useResponsiveLayout());
   const { t } = useTranslation();
   const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -429,14 +448,25 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
   const historyDataActive = useDeferredActiveFlag(isScreenFocused);
   // Cached data shows instantly on tab focus; the focus-refetch effect below
   // refreshes in the background without blocking the transition.
-  const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin, {
+  // /positions/{login}/history is paged by from/to time windows (contract
+  // 6.4), so the selected range is passed down instead of loading everything.
+  const positionHistoryRange = useMemo(() => {
+    const range = resolveEffectiveHistoryDateRange(historyRange, historyFromMs, historyToMs);
+    return {
+      from: range.fromMs != null ? Math.floor(range.fromMs / 1000) : undefined,
+      to: range.toMs != null ? Math.floor(range.toMs / 1000) : undefined,
+    };
+  }, [historyRange, historyFromMs, historyToMs]);
+  const { data: rawPositionHistory = EMPTY_CLOSED_POSITIONS, refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin, {
     enabled: historyDataActive,
+    from: positionHistoryRange.from,
+    to: positionHistoryRange.to,
   });
-  const { data: rawDeals = [], refetch: refetchDeals } = useAccountDealsQuery({
+  const { data: rawDeals = EMPTY_DEALS, refetch: refetchDeals } = useAccountDealsQuery({
     login: accountLogin,
     enabled: historyDataActive,
   });
-  const { data: rawOrders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
+  const { data: rawOrders = EMPTY_ORDERS, refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
     enabled: historyDataActive,
   });
 
@@ -453,16 +483,6 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
     }
     wasFocusedRef.current = isScreenFocused;
   }, [historyDataActive, isScreenFocused, refetchPositionHistory, refetchDeals, refetchOrders]);
-
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await Promise.all([refetchPositionHistory(), refetchDeals(), refetchOrders()]);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refetchPositionHistory, refetchDeals, refetchOrders]);
 
   const accountLoginStr = String(accountDetails?.id ?? accountLogin ?? '—');
   const accountLoginString = accountLogin !== undefined ? String(accountLogin) : undefined;
@@ -517,7 +537,12 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
     return positionHistory.map(mapClosedPositionToRow);
   }, [tab, rawDeals, rawOrders, positionHistory]);
 
-  const data = useMemo(() => sortHistoryRows(baseData, sortBy), [baseData, sortBy]);
+  const keyedBaseData = useMemo(() => keyHistoryRows(baseData), [baseData]);
+  const data = useMemo(() => sortHistoryRows(keyedBaseData, sortBy), [keyedBaseData, sortBy]);
+  const renderHistoryRow = useCallback(
+    ({ item }: { item: HistoryRow }) => <HistoryItemRow item={item} T={T} isDark={isDark} currency={currency} />,
+    [T, isDark, currency],
+  );
   const profitRows = useMemo(
     () => data.filter((item) => typeof item.profit === 'number') as Array<HistoryRow & { profit: number }>,
     [data]
@@ -535,12 +560,10 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
     setHistorySummaryDetailsVisible(!historySummaryDetailsVisible);
   }, [historySummaryDetailsVisible, setHistorySummaryDetailsVisible]);
 
-  return (
-    <Screen noBottomInset style={isDark ? { backgroundColor: '#121212' } : undefined}>
-      <AppHeader title={t('History')} noBorder />
-      {/* ── Account Summary (fixed) ── */}
+  const historySummaryHeader = (
+    <>
       <Text style={styles.accountSummaryHeading}>{t('Account Summary')}</Text>
-      <View style={styles.summaryBlock}>
+      <View style={[styles.summaryBlock, historySummaryDetailsVisible && styles.summaryBlockFused]}>
         <FastPressable
           onPress={toggleHistorySummaryDetails}
           latencyLabel="history.summary.toggle"
@@ -561,98 +584,99 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
             <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}>{currency}</Text>
           </View>
         </FastPressable>
-        {historySummaryDetailsVisible ? (
-          <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle, backgroundColor: 'transparent' }]}>
-            <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-              <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Account ID')}:</Text>
-                </View>
-                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{accountLoginStr}</Text>
-              </View>
-              <View style={styles.gridCol}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Symbol')}:</Text>
-                </View>
-                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{historySymbolLabel}</Text>
-              </View>
-            </View>
-            <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-              <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Deposit')}:</Text>
-                </View>
-                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(deposit)}</Text>
-              </View>
-              <View style={styles.gridCol}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Closed P/L')}:</Text>
-                </View>
-                <Text style={[styles.gridValue, { color: totalClosedPnl >= 0 ? T.up : T.down, opacity: 0.9 }]}>{fmt.pnl(totalClosedPnl)}</Text>
-              </View>
-            </View>
-            <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-              <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Swap')}:</Text>
-                </View>
-                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedSwap)}</Text>
-              </View>
-              <View style={styles.gridCol}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Commission')}:</Text>
-                </View>
-                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedCommission)}</Text>
-              </View>
-            </View>
-            <View style={styles.gridRow}>
-              <FastPressable
-                style={styles.gridCol}
-                onPress={openHistoryFilter}
-                activateOnPressIn
-                latencyLabel="history.filter.open"
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Range')}:</Text>
-                </View>
-                <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRangeLabel}</Text>
-              </FastPressable>
-            </View>
-          </View>
-        ) : null}
       </View>
+    </>
+  );
+
+  return (
+    <Screen noBottomInset style={isDark ? { backgroundColor: '#121212' } : undefined}>
+      <AppHeader title={t('History')} noBorder />
+      {!scrollSummary ? historySummaryHeader : null}
 
       <FlatList
         keyboardShouldPersistTaps="always"
         style={styles.list}
         data={data}
-        keyExtractor={(item, index) => `${item.id}-${index}`}
+        keyExtractor={historyRowKey}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         initialNumToRender={15}
         maxToRenderPerBatch={10}
         windowSize={5}
         removeClippedSubviews={true}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={isDark ? '#D1D4DC' : '#131722'}
-            colors={[isDark ? '#D1D4DC' : '#131722']}
-            progressBackgroundColor={isDark ? T.glass2 : '#FFFFFF'}
-          />
-        }
         ListHeaderComponent={(
           <>
+            {scrollSummary ? historySummaryHeader : null}
+            {historySummaryDetailsVisible ? (
+              <View style={[styles.summaryDetailsCard, scrollSummary && styles.summaryDetailsCardScrolling]}>
+                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Account ID')}:</Text>
+                    </View>
+                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{accountLoginStr}</Text>
+                  </View>
+                  <View style={styles.gridCol}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Symbol')}:</Text>
+                    </View>
+                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{historySymbolLabel}</Text>
+                  </View>
+                </View>
+                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Deposit')}:</Text>
+                    </View>
+                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(deposit)}</Text>
+                  </View>
+                  <View style={styles.gridCol}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Closed P/L')}:</Text>
+                    </View>
+                    <Text style={[styles.gridValue, { color: totalClosedPnl >= 0 ? T.up : T.down, opacity: 0.9 }]}>{fmt.pnl(totalClosedPnl)}</Text>
+                  </View>
+                </View>
+                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Swap')}:</Text>
+                    </View>
+                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedSwap)}</Text>
+                  </View>
+                  <View style={styles.gridCol}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Commission')}:</Text>
+                    </View>
+                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedCommission)}</Text>
+                  </View>
+                </View>
+                <View style={styles.gridRow}>
+                  <FastPressable
+                    style={styles.gridCol}
+                    onPress={openHistoryFilter}
+                    activateOnPressIn
+                    latencyLabel="history.filter.open"
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Range')}:</Text>
+                    </View>
+                    <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRangeLabel}</Text>
+                  </FastPressable>
+                </View>
+              </View>
+            ) : null}
+
             {/* ── Controls Card ── */}
             <View style={styles.topBlock}>
               <View style={styles.topControlsRow}>
                 <FastPressable
                   style={styles.iconButton}
                   onPress={openHistorySortSheet}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Sort By')}
                   latencyLabel="history.sort.open"
                   activateOnPressIn
-                  activateOnTouchStart
                   unstable_pressDelay={0}
                 >
                   <Ionicons name='swap-vertical-outline' size={20} color={T.text} />
@@ -727,7 +751,7 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
             </View>
           </>
         )}
-        renderItem={({ item }) => <HistoryItemRow item={item} T={T} isDark={isDark} currency={currency} />}
+        renderItem={renderHistoryRow}
         ListEmptyComponent={<Text style={[styles.emptyText, { color: T.textMuted }]}>{t('No history records')}</Text>}
       />
     </Screen>
@@ -743,7 +767,7 @@ export function HistoryScreen() {
 /**
  * Renders a generic row for historical account operations such as deposits, withdrawals, or balance adjustments.
  */
-function HistoryItemRow({ item, T, isDark, currency }: { item: HistoryRow; T: ThemeColors; isDark: boolean; currency: string }) {
+const HistoryItemRow = memo(function HistoryItemRow({ item, T, isDark, currency }: { item: HistoryRow; T: ThemeColors; isDark: boolean; currency: string }) {
   const isClosedPosition = item.recordKind === 'closed-position';
 
   if (isClosedPosition) {
@@ -820,7 +844,7 @@ function HistoryItemRow({ item, T, isDark, currency }: { item: HistoryRow; T: Th
         </View>
         <View style={rStyles.priceRow}>
           {item.line2.includes('→') ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, maxWidth: '100%' }}>
               <Text style={[rStyles.priceTrack, { color: T.textSub }]}>{item.line2.split('→')[0].trim()}</Text>
               <Ionicons name="arrow-forward-outline" size={16} color={T.textSub} />
               <Text style={[rStyles.priceTrack, { color: T.text, fontWeight: '500' }]}>{item.line2.split('→')[1].trim()}</Text>
@@ -840,7 +864,7 @@ function HistoryItemRow({ item, T, isDark, currency }: { item: HistoryRow; T: Th
       </View>
     </View>
   );
-}
+});
 
 /**
  * Closed-position card — mirrors the open-position card on the Trade screen,
@@ -974,7 +998,6 @@ function MetricPill({
             tone === 'positive' && { color: T.trading.profit },
             tone === 'negative' && { color: T.down },
           ]}
-          numberOfLines={1}
         >
           {value}
         </Text>
@@ -1002,9 +1025,6 @@ function MetricPill({
           tone === 'positive' && { color: T.trading.profit },
           tone === 'negative' && { color: T.down },
         ]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.82}
       >
         {value}
       </Text>
@@ -1028,7 +1048,7 @@ function shortTime(input: string) {
   return parts[1] ?? input;
 }
 
-function sortHistoryRows(rows: HistoryRow[], sortBy: SortBy) {
+function sortHistoryRows<Row extends HistoryRow>(rows: Row[], sortBy: SortBy) {
   const sorted = [...rows];
   if (sortBy === 'Default') return sorted;
   sorted.sort((a, b) => {
@@ -1065,19 +1085,19 @@ const rStyles = StyleSheet.create({
   },
   cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'], letterSpacing: 0 },
   rowBody: { width: '100%' },
-  rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, flexWrap: 'wrap', minWidth: 0 },
+  rowTop: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'space-between', alignItems: 'flex-start' },
+  symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flexGrow: 1, flexShrink: 1, flexBasis: 140, flexWrap: 'wrap', minWidth: 0 },
   symbolText: { fontSize: 16, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0, flexShrink: 1 },
   sideBadge: { borderRadius: 3, paddingHorizontal: 6, paddingVertical: 2 },
   sideText: { fontSize: 11, fontWeight: '600', textTransform: 'lowercase', letterSpacing: 0 },
   volumeText: { fontSize: 13, fontWeight: '500' },
   statusBadge: { borderRadius: 3, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
   statusText: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0 },
-  rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
-  pnlText: { minWidth: 96, textAlign: 'right', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  priceRow: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  priceTrack: { fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
-  timeText: { fontSize: 12, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
+  rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start', marginLeft: 'auto', maxWidth: '100%', flexShrink: 1 },
+  pnlText: { maxWidth: '100%', textAlign: 'right', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  priceRow: { marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', justifyContent: 'space-between' },
+  priceTrack: { maxWidth: '100%', flexShrink: 1, fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  timeText: { maxWidth: '100%', marginLeft: 'auto', fontSize: 12, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
   timeOnly: { fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
   /** Deal comment row — only rendered when a non-empty comment exists on the deal */
   noteRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
@@ -1099,26 +1119,26 @@ const cpStyles = StyleSheet.create({
   shadowLight: { shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 1 },
   shadowDark: { shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
   body: { width: '100%' },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
-  symbol: { fontSize: 16, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0 },
+  headerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'space-between', alignItems: 'flex-start' },
+  symbolLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 0 },
+  symbol: { flexShrink: 1, maxWidth: '100%', fontSize: 16, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0 },
   sideBadge: { borderRadius: 3, paddingHorizontal: 6, paddingVertical: 2 },
   sideText: { fontSize: 11, fontWeight: '600', textTransform: 'lowercase', letterSpacing: 0 },
   volume: { fontSize: 13, fontWeight: '500' },
-  pnl: { minWidth: 126, textAlign: 'right', fontSize: 16, fontWeight: '600', letterSpacing: 0, fontVariant: ['tabular-nums'] },
-  priceRow: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  priceLeft: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  price: { fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  pnl: { maxWidth: '100%', textAlign: 'right', fontSize: 16, fontWeight: '600', letterSpacing: 0, fontVariant: ['tabular-nums'] },
+  priceRow: { marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', justifyContent: 'space-between' },
+  priceLeft: { flexDirection: 'row', flexWrap: 'wrap', maxWidth: '100%', alignItems: 'center', gap: 3 },
+  price: { flexShrink: 1, maxWidth: '100%', fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
   arrow: { marginHorizontal: 4 },
-  dateRight: { fontSize: 12, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
-  rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
+  dateRight: { maxWidth: '100%', marginLeft: 'auto', fontSize: 12, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
+  rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start', marginLeft: 'auto', maxWidth: '100%', flexShrink: 1 },
   cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'], letterSpacing: 0 },
   noteRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
   noteText: { fontSize: 11, fontWeight: '500', flex: 1 },
 });
 
 const mpS = StyleSheet.create({
-  metricPill: { flex: 1, minHeight: 52, borderRadius: 10, borderWidth: 1, paddingHorizontal: 4, paddingVertical: 6, marginRight: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  metricPill: { flexGrow: 1, flexShrink: 1, flexBasis: 130, minWidth: 0, minHeight: 52, borderRadius: 10, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
   metricTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 4, paddingHorizontal: 2 },
   metricLabel: { marginLeft: 6, flexShrink: 1, fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0 },
   metricValue: { fontSize: 14, fontWeight: '600', textAlign: 'center', fontVariant: ['tabular-nums'] },
@@ -1153,13 +1173,40 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'flex-end',
       gap: 4,
     },
-    summaryBalanceValue: { fontSize: 24, fontWeight: '700', letterSpacing: 0, lineHeight: 30, marginTop: 1, fontVariant: ['tabular-nums'] },
+    summaryBalanceValue: { minWidth: 0, flexShrink: 1, fontSize: 24, fontWeight: '700', letterSpacing: 0, lineHeight: 30, marginTop: 1, fontVariant: ['tabular-nums'] },
     balanceQuickCurrency: { fontSize: 13, fontWeight: '600', flexShrink: 0 },
-    metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: 'transparent', overflow: 'hidden' },
+    /** Applied to the pinned balance card only while the details grid is expanded.
+     *  It squares off the bottom edge and recolors it to the old in-card divider, so
+     *  the balance card and the scrolling grid below still read as the single card
+     *  they were before the grid moved into the FlatList header. */
+    summaryBlockFused: {
+      borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    },
+    /** Summary details card — same shell as `summaryBlock`, but it lives inside the
+     *  FlatList header so it scrolls away under the pinned balance header. It sits
+     *  flush with squared-off top corners and no top edge, so it visually continues
+     *  the balance card above it. The negative top margin plus matching top padding
+     *  hides a bleed of card background above the clip boundary — see
+     *  SUMMARY_DETAILS_OVERSCROLL_BLEED — which keeps a fast fling from opening a
+     *  hairline seam between the two halves. */
+    summaryDetailsCard: {
+      marginTop: -SUMMARY_DETAILS_OVERSCROLL_BLEED,
+      paddingTop: SUMMARY_DETAILS_OVERSCROLL_BLEED,
+      marginHorizontal: spacing.md, borderRadius: 16,
+      backgroundColor: accountSummaryCardBg, borderWidth: 1, borderColor: T.border,
+      borderTopWidth: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8, elevation: isDark ? 4 : 1,
+      overflow: 'hidden',
+    },
+    summaryDetailsCardScrolling: { marginTop: 0, paddingTop: 0 },
     gridRow: { flexDirection: 'row' },
-    gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    gridLabel: { fontSize: 12, fontWeight: '500' },
-    gridValue: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'], letterSpacing: 0 },
+    gridCol: { flex: 1, minWidth: 0, flexWrap: 'wrap', gap: 4, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    gridLabel: { maxWidth: '100%', flexShrink: 1, fontSize: 12, fontWeight: '500' },
+    gridValue: { maxWidth: '100%', flexShrink: 1, fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'], letterSpacing: 0 },
     topBlock: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 16,
       borderWidth: 1, borderColor: T.border,
@@ -1171,11 +1218,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     topControlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
     iconButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-    segment: { flexDirection: 'row', borderRadius: 8, overflow: 'hidden', borderWidth: 0.5, borderColor: T.border, backgroundColor: T.glass1 },
-    segmentButton: { paddingVertical: 5, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+    segment: { flex: 1, minWidth: 0, flexDirection: 'row', borderRadius: 8, overflow: 'hidden', borderWidth: 0.5, borderColor: T.border, backgroundColor: T.glass1 },
+    segmentButton: { flex: 1, minWidth: 0, paddingVertical: 8, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
     segmentButtonActive: { backgroundColor: isDark ? T.glass3 : T.glass2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 2, elevation: 1 },
     segmentText: { fontSize: 13, fontWeight: '600' },
-    metricsRow: { marginTop: 14, flexDirection: 'row', columnGap: 8 },
+    metricsRow: { marginTop: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     sectionHeader: { marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 8, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1 },
     sectionTitle: { fontSize: 19, fontWeight: '600', letterSpacing: 0 },
     sectionMeta: { marginTop: 2, fontSize: 13, fontWeight: '500' },

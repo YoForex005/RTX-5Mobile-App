@@ -1,9 +1,15 @@
 /**
  * Core module: transactions.ts
+ *
+ * GET /accounts/{login}/history (contract v3) for the session account.
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { getTransactions, type TransactionsResponse } from '../api/transactions';
+import {
+  DEFAULT_TRANSACTIONS_LIMIT,
+  getTransactions,
+  type TransactionsPage,
+} from '../api/transactions';
 import {
   getSessionQueryCacheNamespace,
   runSessionBoundQuery,
@@ -12,27 +18,41 @@ import {
 
 export const TRANSACTIONS_KEY = 'transactions';
 
+export type TransactionsFilter = Readonly<{
+  type?: string;
+  page?: number;
+  limit?: number;
+  /** Unix seconds. */
+  from?: number;
+  /** Unix seconds. */
+  to?: number;
+}>;
+
 export const getTransactionsQueryKey = (
   cacheNamespace: string,
   type: string | undefined,
   limit: number,
-) => [TRANSACTIONS_KEY, cacheNamespace, type, limit] as const;
+  page: number = 1,
+  from?: number,
+  to?: number,
+) => [TRANSACTIONS_KEY, cacheNamespace, type, limit, page, from, to] as const;
 
 /**
- * TanStack Query hook for fetching account transactions.
- *
- * @param type  - Optional filter: 'deposit' | 'withdrawal' | 'trade' | 'fee'
- * @param limit - Max results (default 50)
+ * TanStack Query hook for the session account's balance transactions.
  */
-export function useTransactions(type?: string, limit: number = 50) {
+export function useTransactions(filter: TransactionsFilter = {}) {
   const session = useActiveBrokerQuerySession();
   const cacheNamespace = getSessionQueryCacheNamespace(session);
-  const enabled = Boolean(session);
-  return useQuery<TransactionsResponse, Error>({
-    queryKey: getTransactionsQueryKey(cacheNamespace, type, limit),
+  const login = session?.accountLogin;
+  const enabled = Boolean(session) && Boolean(login);
+  const type = filter.type;
+  const limit = filter.limit ?? DEFAULT_TRANSACTIONS_LIMIT;
+  const page = filter.page ?? 1;
+  return useQuery<TransactionsPage, Error>({
+    queryKey: getTransactionsQueryKey(cacheNamespace, type, limit, page, filter.from, filter.to),
     queryFn: () => runSessionBoundQuery(
       cacheNamespace,
-      () => getTransactions(type, limit),
+      () => getTransactions({ login: login!, type, limit, page, from: filter.from, to: filter.to }),
     ),
     enabled,
     staleTime: 10000,     // 10 seconds before stale

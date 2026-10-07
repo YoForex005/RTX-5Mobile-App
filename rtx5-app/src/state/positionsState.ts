@@ -119,9 +119,9 @@ const logPositionsStateDiagnostic = (...args: Parameters<typeof console.log>) =>
   }
 };
 
-const warnPositionsStateDiagnostic = (...args: Parameters<typeof console.warn>) => {
+const warnPositionsStateDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (DEBUG_POSITIONS_STATE) {
-    console.warn(...args);
+    console.log(...args);
   }
 };
 
@@ -810,6 +810,8 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
         }
 
         const mutationBarrierSnapshot = capturePositionsMutationBarrier();
+        // Contract v3: GET /positions/{login} returns ALL open positions; no
+        // limit/offset paging (the old limit=50 default hid positions).
         const data = await positionsApi.getPositions(login);
         if (!isPositionsCacheScopeCurrent(cacheScope)) {
           return;

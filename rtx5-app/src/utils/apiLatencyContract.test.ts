@@ -49,7 +49,6 @@ test('trade and registration paths record backend response latency', () => {
   const orderSource = readSource('src/api/orders/placeMarketOrder.ts');
   const authSource = readSource('src/api/auth.ts');
   const publicDemoSource = readSource('src/api/publicDemo.ts');
-  const mt5AccountSource = readSource('src/api/mt5Account.ts');
   const apiClientSource = readSource('src/api/apiClient.ts');
   const brokerApiSource = readSource('src/api/brokerApi.ts');
   const apiLatencySource = readSource('src/utils/apiLatency.ts');
@@ -71,7 +70,6 @@ test('trade and registration paths record backend response latency', () => {
   assert.match(publicDemoSource, /label: 'publicDemo\.status'/);
   assert.match(publicDemoSource, /label: 'publicDemo\.groups'/);
   assert.match(publicDemoSource, /label: 'publicDemo\.createAccount'/);
-  assert.match(mt5AccountSource, /brokerApi\.getJsonResponse<CreateMT5AccountResponse>/);
   assert.match(brokerApiSource, /const response = await timedFetch|let response = await timedFetch/);
   assert.match(brokerApiSource, /label: `apiClient\.\$\{method\}`/);
   assert.match(candlesSource, /const pathSymbol = encodeURIComponent\(requestedSymbol\)/);
@@ -94,7 +92,8 @@ test('trade and registration paths record backend response latency', () => {
     /if \(!isHealthProbeTimeout\(firstError\)\) \{[\s\S]*?throw new BrokerConfigError\(0, 'Selected broker is unavailable'\);[\s\S]*?\}[\s\S]*?response = await requestBrokerHealthUrl\(healthUrl\);/,
   );
   assert.match(brokerSource, /const controller = new AbortController\(\)/);
-  assert.match(brokerSource, /timedFetch\(`\$\{PUBLIC_BROKER_DIRECTORY_BASE_URL\}\/broker\/servers`/);
+  assert.match(brokerSource, /timedFetch\(`\$\{baseUrl\}\/broker\/servers`/);
+  assert.match(brokerSource, /fetchBrokerDirectoryFromBase\(PUBLIC_BROKER_DIRECTORY_BASE_URL\)/);
   assert.match(brokerSource, /label: 'broker\.servers'/);
   assert.match(
     brokerSource,
@@ -118,7 +117,8 @@ test('expired broker sessions fail fast and do not keep stale secure tokens aliv
   const brokerApiSource = readSource('src/api/brokerApi.ts');
   const brokerRealtimeSource = readSource('src/api/ws/BrokerRealtimeService.ts');
 
-  assert.match(brokerApiSource, /const AUTH_REFRESH_TIMEOUT_MS = 2500/);
+  // Contract v3: refresh timeout raised from 2.5 s to 8 s.
+  assert.match(brokerApiSource, /export const AUTH_REFRESH_TIMEOUT_MS = 8000/);
   assert.match(brokerApiSource, /createUnauthenticatedResponse/);
   assert.match(brokerApiSource, /return createUnauthenticatedResponse\(AUTH_SESSION_EXPIRED_MESSAGE\)/);
   assert.match(brokerApiSource, /const capture = captureActiveBrokerSession\(\)/);
@@ -127,7 +127,8 @@ test('expired broker sessions fail fast and do not keep stale secure tokens aliv
   assert.match(brokerApiSource, /const namespace = capture\.session\.cacheNamespace/);
   assert.match(brokerApiSource, /const existing = this\.refreshPromises\.get\(namespace\)/);
   assert.match(brokerApiSource, /if \(isAuthFailureStatus\(response\.status\)\) \{[\s\S]*await this\.invalidateAuthSession\(identity\)/);
-  assert.match(brokerApiSource, /if \(normalized\.brokerId && normalized\.brokerId !== session\.brokerId\) \{[\s\S]*await this\.invalidateAuthSession\(identity\)/);
+  // Contract v3: broker_id is compared ignoring case, account_login as number or string.
+  assert.match(brokerApiSource, /const identityMismatch = resolveRefreshIdentityMismatch\(normalized, session\);[\s\S]*await this\.invalidateAuthSession\(identity\)/);
   assert.match(brokerApiSource, /private async invalidateAuthSession\(identity: ActiveBrokerSessionIdentity\)/);
   assert.match(brokerApiSource, /beginActiveBrokerSessionTransition\(\)/);
   assert.match(brokerApiSource, /const \{ clearAuthSessionTokens \} = await import\('\.\.\/state\/brokerSessionStorage'\)/);

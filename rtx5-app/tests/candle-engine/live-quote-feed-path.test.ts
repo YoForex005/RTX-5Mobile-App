@@ -198,21 +198,20 @@ test('backend live data can materialize a keyed candle stream even when REST his
   ]);
 });
 
-test('useLiveCandles defaults to quote-driven candles and gates backend candle sockets', () => {
+test('useLiveCandles appends /ws/feed candles and keeps quote-driven candle extension', () => {
   const source = readModuleSource('src/domain/candles/hooks/useLiveCandles');
   const quoteSocketSource = readModuleSource('src/api/ws/quotesSocket');
 
-  assert.match(source, /import \{ shouldUseServerCandleStream \} from '\.\.\/ws\/liveCandlesEnginePolicy'/);
-  assert.match(source, /import \{ candlesWsService \} from '\.\.\/ws\/candlesSocket'/);
-  assert.match(source, /const useServerCandleStream = shouldUseServerCandleStream\(\)/);
-  assert.match(source, /const unsubscribeCandleDemand = useServerCandleStream[\s\S]*candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)[\s\S]*candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);
-  assert.match(source, /unsubscribeCandleDemand\?\.\(\)/);
+  // Contract v3: REST history + /ws/feed subscribe_candles on the quote socket.
+  assert.doesNotMatch(source, /candlesWsService/);
+  assert.match(source, /quotesWsService\.subscribeToCandles\(\s*normalizedSymbol,\s*normalizedTimeframe,\s*\)/);
+  assert.match(source, /unsubscribeCandleDemand\(\)/);
   assert.match(source, /quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\s*\}\)/);
   assert.doesNotMatch(source, /quote_store_fallback_tick/);
   assert.doesNotMatch(source, /liveCandlesEngine\.ingestQuoteTick/);
   assert.doesNotMatch(source, /normalizeLiveTick/);
   assert.match(quoteSocketSource, /subscribeToCandles\(symbol: string, tf: string\)/);
-  assert.match(quoteSocketSource, /buildCandleChannelSubscriptionMessages\('subscribe', subscribeSubscriptions\)/);
+  assert.match(quoteSocketSource, /buildFeedCandleSubscriptionMessages\('subscribe', subscribeSubscriptions\)/);
   assert.match(quoteSocketSource, /toBridgeCandleTf/);
   assert.match(quoteSocketSource, /routeBackendCandleUpdates/);
   assert.match(quoteSocketSource, /shouldRouteBackendCandlePayloads\(\)/);

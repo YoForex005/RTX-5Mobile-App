@@ -445,7 +445,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       try {
         listener();
       } catch (error) {
-        console.warn('[CANDLE-STREAM] listener failed', error);
+        console.error('[CANDLE-STREAM] listener failed', error);
       }
     });
   }
@@ -654,51 +654,69 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       // Keep that seed visible and keep live ticks flowing while it settles.
       entry.loading = entry.historyCandles.length === 0;
       this.notify(entry);
-      const settlePendingPrefetch = (result: 'settled' | 'timed_out') => {
-        // A timed-out warm-up must stop owning this key. Otherwise every future
-        // A -> B -> A revisit joins the same never-settling promise and only a
-        // full JS-runtime/app restart can recover it.
-        if (
-          result === 'timed_out'
-          && this.historyPrefetches.get(entry.key) === pendingPrefetchRecord
-        ) {
-          this.historyPrefetches.delete(entry.key);
-        }
-        const live = this.entries.get(entry.key);
-        if (!live) {
-          return;
-        }
-        if (
-          live.historyCandles.length > 0 ||
-          live.historyLoading ||
-          live.historyPageLoading ||
-          live.abortController
-        ) {
-          // Either the warm-up already supplied renderable history, or a real
-          // load is in flight and owns the flag (settleIdleLoading leaves it
-          // raised in that case). The first branch is taken by construction on a
-          // revisit, because ensureEntry seeds historyCandles from
-          // candleMemoryCache before we get here — and since no load was issued,
-          // nothing else would ever recompute `loading`. Settle it here instead
-          // of leaving the spinner up until some unrelated live tick commits.
-          this.settleIdleLoading(live);
-          return;
-        }
-
-        const fallbackLoadLimit = Math.min(
-          PAGINATED_HISTORY_LIMIT,
-          Math.max(INITIAL_HISTORY_LIMIT, live.renderHistoryLimit || initialLoadLimit),
-        );
-        runLoadHistory(this, live, fallbackLoadLimit);
-      };
-      // Rejections and transport-level hangs both settle this join. The latter
-      // falls back after a bounded wait instead of gating this context forever.
-      void waitForHistoryPrefetchSettlement(pendingPrefetchRecord.promise)
-        .then(settlePendingPrefetch);
+      this.joinPendingHistoryPrefetch(entry, pendingPrefetchRecord, initialLoadLimit);
       return;
     }
 
     runLoadHistory(this, entry, initialLoadLimit);
+  }
+
+  private joinPendingHistoryPrefetch(
+    entry: StreamEntry,
+    pendingPrefetchRecord: HistoryPrefetchRecord,
+    initialLoadLimit: number,
+  ): void {
+    const settlePendingPrefetch = (result: 'settled' | 'timed_out') => {
+      // A timed-out warm-up must stop owning this key. Otherwise every future
+      // A -> B -> A revisit joins the same never-settling promise and only a
+      // full JS-runtime/app restart can recover it.
+      if (
+        result === 'timed_out'
+        && this.historyPrefetches.get(entry.key) === pendingPrefetchRecord
+      ) {
+        this.historyPrefetches.delete(entry.key);
+      }
+      const live = this.entries.get(entry.key);
+      if (!live) {
+        return;
+      }
+      if (
+        live.historyCandles.length > 0 ||
+        live.historyLoading ||
+        live.historyPageLoading ||
+        live.abortController
+      ) {
+        // Either the warm-up already supplied renderable history, or a real
+        // load is in flight and owns the flag (settleIdleLoading leaves it
+        // raised in that case). The first branch is taken by construction on a
+        // revisit, because ensureEntry seeds historyCandles from
+        // candleMemoryCache before we get here — and since no load was issued,
+        // nothing else would ever recompute `loading`. Settle it here instead
+        // of leaving the spinner up until some unrelated live tick commits.
+        this.settleIdleLoading(live);
+        return;
+      }
+
+      // A deeper warm-up (market-closed history depth) replaced the shallow
+      // one joined here; the replaced request settles with 0 while the deeper
+      // response is still in flight. Join that one instead of issuing a third
+      // request for the same history.
+      const supersedingPrefetchRecord = this.historyPrefetches.get(entry.key);
+      if (supersedingPrefetchRecord && supersedingPrefetchRecord !== pendingPrefetchRecord) {
+        this.joinPendingHistoryPrefetch(live, supersedingPrefetchRecord, initialLoadLimit);
+        return;
+      }
+
+      const fallbackLoadLimit = Math.min(
+        PAGINATED_HISTORY_LIMIT,
+        Math.max(INITIAL_HISTORY_LIMIT, live.renderHistoryLimit || initialLoadLimit),
+      );
+      runLoadHistory(this, live, fallbackLoadLimit);
+    };
+    // Rejections and transport-level hangs both settle this join. The latter
+    // falls back after a bounded wait instead of gating this context forever.
+    void waitForHistoryPrefetchSettlement(pendingPrefetchRecord.promise)
+      .then(settlePendingPrefetch);
   }
 
   /**

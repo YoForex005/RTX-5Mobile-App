@@ -47,6 +47,13 @@ const STABLE_CONNECTION_MS = 10_000;
 
 const redactCandleSocketUrl = (url: string): string => redactSensitiveString(url);
 
+/** Recoverable transport diagnostics: dev builds only, console.log (no LogBox toast). */
+const logCandlesSocketDiagnostic = (...args: unknown[]): void => {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log(...args.map(redactDiagnosticValue));
+  }
+};
+
 const sameIdentity = (
   left: ActiveBrokerSessionIdentity | null,
   right: ActiveBrokerSessionIdentity,
@@ -109,7 +116,7 @@ export class CandlesWebSocketService {
 
     const capture = captureActiveBrokerSession();
     if (!capture || !resolveCandlesWsUrl(capture.session.tradeWsBase)) {
-      console.warn('[Candles WS] Active broker has no validated trading WebSocket endpoint.');
+      logCandlesSocketDiagnostic('[Candles WS] Active broker has no validated trading WebSocket endpoint.');
       return;
     }
     const identity = getActiveBrokerSessionIdentity(capture.session);
@@ -119,10 +126,7 @@ export class CandlesWebSocketService {
       nextUrl = await brokerApi.getWebSocketUrl();
     } catch (error) {
       this.isResolvingSocketUrl = false;
-      console.warn(
-        '[Candles WS] Failed to resolve broker candle websocket URL.',
-        redactDiagnosticValue(error),
-      );
+      logCandlesSocketDiagnostic('[Candles WS] Failed to resolve broker candle websocket URL.', error);
       if (isActiveBrokerSessionCurrent(identity)) {
         this.scheduleReconnect(identity);
       }
@@ -204,7 +208,7 @@ export class CandlesWebSocketService {
             }
           }
         } catch (error) {
-          console.warn('[Candles WS] Parse error', redactDiagnosticValue(error));
+          logCandlesSocketDiagnostic('[Candles WS] Parse error', error);
         }
       };
       socket.onclose = (event) => {
@@ -222,7 +226,7 @@ export class CandlesWebSocketService {
           return;
         }
         if (!this.manualDisconnect && this.subscriptions.size > 0) {
-          console.warn('[Candles WS] closed', {
+          logCandlesSocketDiagnostic('[Candles WS] closed', {
             code: event?.code,
             reason: redactSensitiveString(String(event?.reason ?? '')),
             socketUrl: redactCandleSocketUrl(wsUrl),
@@ -234,13 +238,13 @@ export class CandlesWebSocketService {
       };
       socket.onerror = () => {
         if (this.ws !== socket || !isActiveBrokerSessionCurrent(identity)) return;
-        console.warn('[Candles WS] connection error', {
+        logCandlesSocketDiagnostic('[Candles WS] connection error', {
           readyState: socket.readyState,
           socketUrl: redactCandleSocketUrl(wsUrl),
         });
       };
     } catch (error) {
-      console.warn('[Candles WS] connection failed', redactDiagnosticValue(error));
+      logCandlesSocketDiagnostic('[Candles WS] connection failed', error);
       if (isActiveBrokerSessionCurrent(identity)) {
         this.scheduleReconnect(identity);
       }

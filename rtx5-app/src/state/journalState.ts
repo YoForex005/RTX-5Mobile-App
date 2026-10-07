@@ -46,7 +46,7 @@ export const useJournalState = create<JournalState>()(
             JSON.parse(value);
             return value;
           } catch (error) {
-            console.warn('[Journal] Ignoring unreadable persisted journal', error);
+            console.error('[Journal] Ignoring unreadable persisted journal', error);
             void AsyncStorage.removeItem(name).catch(() => {});
             return null;
           }

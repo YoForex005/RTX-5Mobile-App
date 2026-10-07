@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { resolve } from 'node:path';
@@ -83,17 +83,49 @@ test('market protection is capability-checked before request construction and tr
   assert.ok(guardIndex < transportIndex);
 });
 
-test('market idempotency keys are bound to the exact serialized wire payload', () => {
-  assert.match(marketOrderSource, /keysBySerializedBody = new Map<string, string>\(\)/);
-  assert.match(marketOrderSource, /keysBySerializedBody\.get\(serializedBody\)/);
-  assert.match(marketOrderSource, /keysBySerializedBody\.set\(serializedBody, created\)/);
+test('market client_order_id is sent in the body and bound to the exact wire payload', () => {
+  // Contract v3 6.0: idempotency is the BODY field client_order_id; one id
+  // per distinct body, reused for identical resends of the same action.
+  assert.match(marketOrderSource, /idsBySerializedBody = new Map<string, string>\(\)/);
+  assert.match(marketOrderSource, /idsBySerializedBody\.get\(serializedBody\)/);
+  assert.match(marketOrderSource, /idsBySerializedBody\.set\(serializedBody, created\)/);
+  assert.match(marketOrderSource, /const created = createMarketOrderClientOrderId\(\)/);
   assert.match(marketOrderSource, /const serializedBody = JSON\.stringify\(body\)/);
-  assert.match(marketOrderSource, /const idempotencyKey = resolveIdempotencyKey\(serializedBody\)/);
-  assert.match(marketOrderSource, /headers: \{ 'Idempotency-Key': idempotencyKey \}/);
-  assert.match(marketOrderSource, /body: serializedBody/);
-  assert.doesNotMatch(marketOrderSource, /const idempotencyKey = createTradeIdempotencyKey\('order'\)/);
-  assert.match(marketOrderSource, /const ok = response\.status === 200 && !graceful/);
+  assert.match(marketOrderSource, /const clientOrderId = resolveClientOrderId\(serializedBody\)/);
+  assert.match(
+    marketOrderSource,
+    /const wireBody = JSON\.stringify\(\{ client_order_id: clientOrderId, \.\.\.body \}\)/,
+  );
+  assert.match(marketOrderSource, /headers: \{ 'Idempotency-Key': clientOrderId \}/);
+  assert.match(marketOrderSource, /body: wireBody/);
+  assert.match(marketOrderSource, /IDEMPOTENCY_CONFLICT/);
+  assert.doesNotMatch(marketOrderSource, /createTradeIdempotencyKey\('order'\)/);
   assert.doesNotMatch(marketOrderSource, /response\.ok/);
+});
+
+test('market order uses a >= 30 s HTTP budget', () => {
+  const match = marketOrderSource.match(/MARKET_ORDER_HTTP_TIMEOUT_MS = ([\d_]+)/);
+  assert.ok(match);
+  assert.ok(Number(match[1].replace(/_/g, '')) >= 30_000);
+  assert.match(
+    marketOrderSource,
+    /apiClient\('\/orders', \{[\s\S]*timeoutMs: MARKET_ORDER_HTTP_TIMEOUT_MS,/,
+  );
+});
+
+test('a 200 is always a fill and never a rejection; 202 is confirmed by polling', () => {
+  assert.match(marketOrderSource, /const ok = response\.status === 200;/);
+  assert.doesNotMatch(marketOrderSource, /graceful/);
+  assert.doesNotMatch(marketOrderSource, /\['rejected', 'failed', 'error'\]\.includes/);
+  assert.match(marketOrderSource, /isOrderAcceptedResponse\(response\.status, raw\)/);
+  const confirmSource = marketOrderSource.slice(
+    marketOrderSource.indexOf('if (accepted.acceptedAsync) {'),
+    marketOrderSource.indexOf("logOrderDiagnostic('[TRADE-RESPONSE]'"),
+  );
+  assert.match(confirmSource, /pollOrderCommand\(\{[\s\S]*clientOrderId: accepted\.clientOrderId,[\s\S]*accountLogin: loginInt/);
+  assert.match(confirmSource, /outcome\.kind === 'rejected'[\s\S]*createOrderCommandRejectedError\(outcome\)/);
+  assert.match(confirmSource, /outcome\.kind === 'pending'[\s\S]*createOrderConfirmationPendingError\(accepted\.clientOrderId\)/);
+  assert.match(confirmSource, /finalData = unwrap\(outcome\.data\)/);
 });
 
 test('legacy zero protection is omitted while canonical zero remains invalid', () => {
@@ -110,19 +142,18 @@ test('legacy zero protection is omitted while canonical zero remains invalid', (
   assert.match(orderBodySource, /hasOwn\(restWithoutBroker, legacyKey\)/);
 });
 
-test('market fill mode and comment bytes are validated before transport', () => {
+test('market fill mode is never sent and comment bytes are validated before transport', () => {
   const orderBodySource = marketOrderSource.slice(
     marketOrderSource.indexOf('const orderBody:'),
     marketOrderSource.indexOf("logOrderDiagnostic('[RTX5 Order] active broker session:'"),
   );
-  assert.match(orderBodySource, /fill_mode !== 'return'/);
-  assert.match(orderBodySource, /fill_mode !== 'fok'/);
-  assert.match(orderBodySource, /orderBody\.fill_mode = restWithoutBroker\.fill_mode/);
+  // Contract v3 6.1: fill_mode is ignored by the server.
+  assert.doesNotMatch(orderBodySource, /orderBody\.fill_mode/);
   assert.match(orderBodySource, /utf8ByteLength\(restWithoutBroker\.comment\) > 1024/);
 });
 
-test('every market wire candidate is trim-uppercase, 20-byte bounded, and independently keyed', () => {
-  assert.match(marketOrderSource, /String\(value \?\? ''\)\.trim\(\)\.toUpperCase\(\)/);
+test('every market wire candidate is exact-cased, 20-byte bounded, and independently keyed', () => {
+  assert.match(marketOrderSource, /String\(value \?\? ''\)\.trim\(\)/);
   assert.match(marketOrderSource, /utf8ByteLength\(symbol\) > 20/);
   const sendSource = marketOrderSource.slice(
     marketOrderSource.indexOf('const sendOrder = async'),
@@ -131,7 +162,7 @@ test('every market wire candidate is trim-uppercase, 20-byte bounded, and indepe
   const canonicalIndex = sendSource.indexOf('normalizeMarketOrderSymbol(symbolToSend)');
   const bodyIndex = sendSource.indexOf('const body = { ...orderBody, symbol: canonicalSymbol }');
   const serializedIndex = sendSource.indexOf('const serializedBody = JSON.stringify(body)');
-  const keyIndex = sendSource.indexOf('resolveIdempotencyKey(serializedBody)');
+  const keyIndex = sendSource.indexOf('resolveClientOrderId(serializedBody)');
   assert.ok(canonicalIndex >= 0);
   assert.ok(canonicalIndex < bodyIndex);
   assert.ok(bodyIndex < serializedIndex);
@@ -196,3 +227,4 @@ test('market response safely adopts only a causal same-session credential refres
   );
   assert.doesNotMatch(marketOrderSource, /response\.json\(\)\.catch\(\(\) => \(\{\}\)\)/);
 });
+

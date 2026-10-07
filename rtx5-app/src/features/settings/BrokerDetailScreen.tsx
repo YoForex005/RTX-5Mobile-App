@@ -91,7 +91,15 @@ import {
   type BrokerSessionCommitAuthorization,
 } from '../../services/brokerSessionCoordinator';
 import { refreshActiveAccountEnvironment } from '../../services/accountEnvironmentSession';
-import { resolveSessionFeedAuth } from '../../api/feedAuthContract';
+import {
+  isSameBrokerId,
+  readLoginAccountLogin,
+  resolveLoginExpiresAtIso,
+  resolveLoginServerName,
+} from '../../api/authSession';
+import { enrichSignedInAccountProfile } from '../../api/authSessionProfile';
+import { isInvestorReadOnlySession } from '../../api/investorSession';
+import { useBrokerSignUpGate } from './BrokerDetailScreenRegistrationGate';
 import {
   getActiveBrokerSessionProvenance,
   isActiveBrokerSessionProvenanceCurrent,
@@ -257,6 +265,9 @@ export function BrokerDetailScreen() {
     });
   }, [router, selection]);
 
+  // Contract v3: no demo sign-up entry when the broker disables it.
+  const launchSignUpGate = useBrokerSignUpGate(selection.brokerServerUrl);
+
   useLayoutEffect(() => {
     if (!isScreenFocused || !contentReady) return;
 
@@ -300,7 +311,9 @@ export function BrokerDetailScreen() {
       <BrokerDetailLaunchShell
         selection={selection}
         onBack={handleBack}
-        onOpenDemo={handleOpenDemo}
+        onOpenDemo={launchSignUpGate.demo ? handleOpenDemo : undefined}
+        showDemoSignUp={launchSignUpGate.demo}
+        showRealSignUp={launchSignUpGate.real}
         backLatencyLabel="brokerDetail.initial.back"
       />
     );
@@ -434,6 +447,10 @@ function BrokerDetailInteractiveContent({
     return initials || 'BR';
   }, [selectedBrokerDisplayName]);
   const brokerServerLabel = selectedServer.label || apiBrokerId || t('Server');
+  // Contract v3: sign-up follows the broker's public /broker/config flags.
+  const signUpGate = useBrokerSignUpGate(selectedServer.serverUrl);
+  const showDemoSignUp = signUpGate.demo;
+  const showRealSignUp = signUpGate.real;
   const [isLoading, setIsLoading] = useState(false);
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -730,61 +747,41 @@ function BrokerDetailInteractiveContent({
           : {
               username: trimmedLogin,
               password: trimmedPassword,
-              broker_id: effectiveBrokerId,
+              // Exact directory broker_id: the server compares it case-sensitively.
+              broker_id: selectedEndpoints.brokerId,
             },
         { serverUrl: effectiveServerUrl, signal: loginAbortController.signal },
       );
 
       const accessToken = response.access_token ?? response.token;
       const refreshToken = response.refresh_token ?? response.refreshToken ?? '';
-      const accountLogin =
-        response.account_login ??
-        response.accountLogin ??
-        response.user?.account_login ??
-        response.user?.id ??
-        response.username ??
-        response.user?.username ??
-        trimmedLogin;
+      if (!accessToken) {
+        throw new Error(t('Login server did not return an access token.'));
+      }
+      // Contract v3: account_login null means no trading account; stop here.
+      const accountLogin = readLoginAccountLogin(response, trimmedLogin);
+      // Placeholder until /account/{login} `name` arrives (contract v3).
       const accountName =
         response.account_name ??
         response.accountName ??
         response.name ??
-        response.user?.account_name ??
-        response.user?.accountName ??
-        response.user?.name ??
         response.username ??
-        response.user?.username ??
         'Trader';
-      const serverNameFromApi =
-        response.server ?? response.broker_server ?? response.brokerServer;
+      const expiresAtIso = resolveLoginExpiresAtIso(response);
 
-      if (!accessToken || !accountLogin) {
-        throw new Error(
-          !accessToken
-            ? t('Login server did not return an access token.')
-            : t('Login server did not return an account login.'),
-        );
-      }
-
-      const expiresAtIso = (() => {
-        if (typeof response.expires_at === 'number' && response.expires_at > 0) {
-          const ms = response.expires_at > 1e12 ? response.expires_at : response.expires_at * 1000;
-          return new Date(ms).toISOString();
-        }
-        const expiresInSec =
-          typeof response.expires_in === 'number' ? response.expires_in : 86400;
-        return new Date(Date.now() + expiresInSec * 1000).toISOString();
-      })();
-
-      const canonicalBrokerId =
-        response.broker_id || response.brokerId || effectiveBrokerId;
-      if (
-        canonicalBrokerId.trim().toLowerCase()
-        !== selectedEndpoints.brokerId.trim().toLowerCase()
-      ) {
+      const responseBrokerId =
+        response.broker_id || response.brokerId || selectedEndpoints.brokerId;
+      if (!isSameBrokerId(responseBrokerId, selectedEndpoints.brokerId)) {
         throw new Error(t('Login response did not match the selected broker.'));
       }
-      const effectiveServerName = serverNameFromApi || selectedServer.label || canonicalBrokerId;
+      const canonicalBrokerId = selectedEndpoints.brokerId;
+      // /broker/config server_name replaces this after login; until then the
+      // directory broker name (server label) is shown.
+      const effectiveServerName = resolveLoginServerName({
+        brokerConfigServerName: response.server ?? response.broker_server ?? response.brokerServer,
+        directoryBrokerName: selectedBrokerName || selectedServer.label,
+        brokerId: canonicalBrokerId,
+      });
       const savedLogin = String(accountLogin);
       const accountEnvironmentEvidence = resolveAccountEnvironment(response, true);
       const resolvedAccountType = accountEnvironmentEvidence.accountType;
@@ -814,11 +811,6 @@ function BrokerDetailInteractiveContent({
       const accountType = initialAccountEnvironment.accountType;
       const accountEnvironmentSource = initialAccountEnvironment.accountEnvironmentSource;
       const responseAccountGroup = readRawAccountGroup(response);
-      const sessionFeed = resolveSessionFeedAuth({
-        response,
-        brokerId: selectedEndpoints.brokerId,
-        accountLogin: trimmedLogin,
-      });
 
       const committedSession = await commitBrokerSession({
         session: {
@@ -829,14 +821,13 @@ function BrokerDetailInteractiveContent({
           tradeWsBase: selectedEndpoints.tradeWsBase,
           feedStatusUrl: selectedEndpoints.feedStatusUrl,
           servicesDomain: selectedEndpoints.servicesDomain,
-          feedAuthContext: sessionFeed.feedAuthContext,
           configVersion: selectedEndpoints.configVersion,
+          investor: isInvestorReadOnlySession(response),
         },
         credentials: {
           accessToken,
           refreshToken,
           expiresAt: expiresAtIso,
-          ...(sessionFeed.feedToken ? { feedToken: sessionFeed.feedToken } : {}),
         },
         account: {
           name: accountName,
@@ -870,12 +861,18 @@ function BrokerDetailInteractiveContent({
         // Seed persistence before the refresh starts so even a synchronous
         // test/mock response has a matching row to update.
         void refreshActiveAccountEnvironment(committedProvenance).catch(() => undefined);
+        // Name from /account/{login}, server from /broker/config (contract v3).
+        void enrichSignedInAccountProfile({
+          provenance: committedProvenance,
+          brokerId: canonicalBrokerId,
+          accountLogin: savedLogin,
+        }).catch(() => undefined);
         setSavedAccountPassword(canonicalBrokerId, savedLogin, trimmedPassword).catch(() => undefined);
 
         void invalidateSessionQueryRoots(
           queryClient,
           committedSession.session.cacheNamespace,
-          ['accountsList', 'accountDetail', 'brokerConfig'],
+          ['accountDetail', 'brokerConfig'],
         );
 
         if (savePassword) {
@@ -914,9 +911,6 @@ function BrokerDetailInteractiveContent({
       ) {
         return;
       }
-      console.error('[Broker Detail] Login failed', {
-        errorName: error instanceof Error ? error.name : 'LoginError',
-      });
       const safeErrorMessage = redactSensitiveString(
         typeof error?.message === 'string' && error.message.trim()
           ? error.message
@@ -1024,7 +1018,9 @@ function BrokerDetailInteractiveContent({
               </View>
             </View>
 
-                <View style={styles.optionPanel}>
+                {(showDemoSignUp || showRealSignUp) && (
+                <View style={styles.optionPanel} testID="broker-detail-sign-up-options">
+                  {showDemoSignUp && (
                   <Pressable
                     style={({ pressed }) => [
                       styles.optionCommand,
@@ -1047,9 +1043,11 @@ function BrokerDetailInteractiveContent({
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={T.textSub} />
                   </Pressable>
+                  )}
 
-                  <View style={styles.optionDivider} />
+                  {showDemoSignUp && showRealSignUp && <View style={styles.optionDivider} />}
 
+                  {showRealSignUp && (
                   <Pressable
                     style={({ pressed }) => [
                       styles.optionCommand,
@@ -1091,7 +1089,9 @@ function BrokerDetailInteractiveContent({
                       <Ionicons name="chevron-forward" size={18} color={T.textSub} />
                     )}
                   </Pressable>
+                  )}
                 </View>
+                )}
 
                 <View style={styles.loginPanel}>
                   <View style={styles.panelHeader}>
@@ -1103,7 +1103,7 @@ function BrokerDetailInteractiveContent({
                         <Text style={styles.panelEyebrow}>{t('Existing account')}</Text>
                       </View>
                       <View style={styles.securePill}>
-                        <Ionicons name="shield-checkmark-outline" size={14} color="#10B981" />
+                        <Ionicons name="shield-checkmark-outline" size={14} color={T.trading.profit} />
                         <Text style={styles.secureText}>{t('Secure')}</Text>
                       </View>
                     </View>
@@ -1374,7 +1374,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       flex: 1,
       color: T.text,
       fontSize: 20,
-      fontWeight: '700',
+      fontWeight: '500',
     },
     scrollContent: {
       flexGrow: 1,
@@ -1477,16 +1477,16 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       paddingHorizontal: 9,
       minHeight: 26,
       borderRadius: 13,
-      backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.10)',
+      backgroundColor: isDark ? T.upGlow : T.upGlow,
     },
     readyDot: {
       width: 7,
       height: 7,
       borderRadius: 4,
-      backgroundColor: '#10B981',
+      backgroundColor: T.trading.profit,
     },
     readyText: {
-      color: '#059669',
+      color: T.trading.profit,
       fontSize: 12,
       fontWeight: '600',
     },
@@ -1631,10 +1631,10 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       paddingHorizontal: 9,
       minHeight: 28,
       borderRadius: 14,
-      backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.10)',
+      backgroundColor: isDark ? T.upGlow : T.upGlow,
     },
     secureText: {
-      color: '#059669',
+      color: T.trading.profit,
       fontSize: 12,
       fontWeight: '600',
     },

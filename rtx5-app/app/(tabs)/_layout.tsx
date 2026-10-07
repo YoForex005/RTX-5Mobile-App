@@ -3,8 +3,8 @@ import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import type { NavigationHelpers, ParamListBase } from '@react-navigation/native';
 import { PlatformPressable } from '@react-navigation/elements';
 import { usePathname } from 'expo-router';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
-import { View, StyleSheet, Text, useWindowDimensions, type GestureResponderEvent } from 'react-native';
+import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { Platform, View, StyleSheet, Text, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/ui/components/ActionSheet';
@@ -12,7 +12,7 @@ import { useThemeMode } from '../../src/state/themeMode';
 import { GDark, GLight } from '../../src/ui/theme/glass';
 import { useTranslation } from '../../src/i18n/useTranslation';
 import { warmActionRoutes } from '../../src/utils/actionRouteWarmup';
-import { resolveBottomTabBarHeight } from '../../src/ui/layout/bottomTabBar';
+import { BOTTOM_TAB_LABEL_MAX_FONT_MULTIPLIER, resolveBottomTabBarLayout } from '../../src/ui/layout/bottomTabBar';
 import {
   registerSidebarTabNavigationHandler,
   type SidebarMountedTabPath,
@@ -30,7 +30,7 @@ import {
   tradePositionActionHostController,
 } from '../../src/features/trade/tradePositionActionHostController';
 import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
-import { TradeTabFloatingPnl } from '../../src/features/trade/TradeTabFloatingPnl';
+import { TradeTabFloatingPnl, TradeTabFloatingPnlProvider } from '../../src/features/trade/TradeTabFloatingPnl';
 import { QuotesSymbolActionSheetHost } from '../../src/features/quotes/QuotesSymbolActionSheet';
 import { ChartSymbolPickerSheetHost } from '../../src/features/chart/components/ChartSymbolPickerSheet';
 import { hideChartSymbolPickerSheet } from '../../src/features/chart/chartSymbolPickerSheetController';
@@ -38,6 +38,8 @@ import { requestOrrnnDemoTradeAuth } from '../../src/features/trade/tradeAuthPro
 import { useUserPreferences } from '../../src/state/userPreferences';
 import { prefetchChartSelectionHistory } from '../../src/utils/navigationPrefetch';
 import { scheduleIdleWork } from '../../src/utils/startupScheduler';
+import { interactionLifecycle } from '../../src/utils/interactionLifecycle';
+import { isStartupBackgroundWorkAllowed, subscribeStartupBackgroundWork } from '../../src/utils/startupWorkGate';
 import {
   ChartTradeFeedbackPortalHost,
   ChartTradeSheetPortalHost,
@@ -45,8 +47,11 @@ import {
 } from '../../src/ui/navigation/ChartTradeSheetPortal';
 
 import { FastTabs as Tabs } from '../../src/ui/navigation/FastTabNavigator';
+import { createBottomTabPressGate } from '../../src/ui/navigation/bottomTabPressGate';
+import { commitFastTabPress, FastTabPressNavigationContext } from '../../src/ui/navigation/commitFastTabPress';
 import {
   registerFastTabSidebarChromeApplier,
+  fastTabVisualController,
   scheduleFastTabNavigation,
   showFastTabVisual,
   TAB_BAR_NAVIGATION_SETTLE_DELAY_MS,
@@ -68,25 +73,18 @@ const tabLabelKeys: Record<FastTabRouteName, string> = {
   settings: 'Settings',
 };
 
-const TAB_SWITCH_MAX_LATENCY_MS = 20;
-const STALE_TAB_SWITCH_SAMPLE_MS = 5000;
-// Wide enough to absorb a double-fired press event from one physical tap,
-// short enough that a deliberate return tap (A -> B -> A) is never swallowed.
-// 1500ms silently dropped rapid back-and-forth switches on the bottom menu.
-const TAB_PRESS_DEDUP_WINDOW_MS = 350;
 const PUBLIC_CHART_HISTORY_STARTUP_PREFETCH_DELAY_MS = 500;
 const PUBLIC_CHART_HISTORY_STARTUP_PREFETCH_TIMEOUT_MS = 1500;
-const recentTabPresses = new Map<string, number>();
 type TabPressEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPress']>>[0];
 type TabPressInEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPressIn']>>[0];
 type TabTouchEvent = GestureResponderEvent;
 type FastTabBarButtonProps = BottomTabBarButtonProps & {
-  latencyLabel?: string;
+  routeKey: string;
   routeName: FastTabRouteName;
   label: string;
   activeColor: string;
   inactiveColor: string;
-  isLandscape: boolean;
+  inlineLabels: boolean;
 };
 
 type FastTabVisualItemProps = {
@@ -94,7 +92,7 @@ type FastTabVisualItemProps = {
   label: string;
   activeColor: string;
   inactiveColor: string;
-  isLandscape: boolean;
+  inlineLabels: boolean;
   initiallyActive: boolean;
 };
 
@@ -118,33 +116,40 @@ const FastTabVisualItem = memo(function FastTabVisualItem({
   label,
   activeColor,
   inactiveColor,
-  isLandscape,
+  inlineLabels,
   initiallyActive,
 }: FastTabVisualItemProps) {
   const activeLayerRef = useRef<View>(null);
   const inactiveLayerRef = useRef<View>(null);
-  const applyVisualRoute = useCallback((visualRouteName: FastTabRouteName) => {
+  const appliedActiveRef = useRef<boolean | null>(null);
+  const applyVisualRoute = useCallback((visualRouteName: FastTabRouteName, force = false) => {
     const active = visualRouteName === routeName;
+    // A tab switch changes only the outgoing and incoming buttons. Avoid
+    // sending native style updates to every unchanged icon/label pair.
+    if (appliedActiveRef.current === active && !force) return;
+    appliedActiveRef.current = active;
     activeLayerRef.current?.setNativeProps({
       style: [
         styles.tabVisualItemLayer,
-        isLandscape && styles.tabVisualItemLayerLandscape,
+        inlineLabels && styles.tabVisualItemLayerLandscape,
         { opacity: active ? 1 : 0 },
       ],
     });
     inactiveLayerRef.current?.setNativeProps({
       style: [
         styles.tabVisualItemLayer,
-        isLandscape && styles.tabVisualItemLayerLandscape,
+        inlineLabels && styles.tabVisualItemLayerLandscape,
         { opacity: active ? 0 : 1 },
       ],
     });
-  }, [isLandscape, routeName]);
+  }, [inlineLabels, routeName]);
 
-  useLayoutEffect(
-    () => registerFastTabSidebarChromeApplier(applyVisualRoute),
-    [applyVisualRoute],
-  );
+  useLayoutEffect(() => {
+    // These are the opacity values React just committed. Only restore native
+    // selection if a newer optimistic tap differs from that real focus.
+    appliedActiveRef.current = initiallyActive;
+    return registerFastTabSidebarChromeApplier(applyVisualRoute);
+  }, [applyVisualRoute, initiallyActive, activeColor, inactiveColor]);
 
   const renderPresentation = (color: string) => (
     <>
@@ -159,16 +164,18 @@ const FastTabVisualItem = memo(function FastTabVisualItem({
           fallbackColor={color}
           labelStyle={[
             styles.tabLabel,
-            isLandscape && styles.tabLabelLandscape,
+            inlineLabels && styles.tabLabelLandscape,
           ]}
         />
       ) : (
         <Text
-          allowFontScaling={false}
+          maxFontSizeMultiplier={BOTTOM_TAB_LABEL_MAX_FONT_MULTIPLIER}
           numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
           style={[
             styles.tabLabel,
-            isLandscape && styles.tabLabelLandscape,
+            inlineLabels && styles.tabLabelLandscape,
             { color },
           ]}
         >
@@ -178,7 +185,7 @@ const FastTabVisualItem = memo(function FastTabVisualItem({
     </>
   );
 
-  return (
+  const presentation = (
     <View
       collapsable={false}
       pointerEvents="none"
@@ -190,7 +197,7 @@ const FastTabVisualItem = memo(function FastTabVisualItem({
         pointerEvents="none"
         style={[
           styles.tabVisualItemLayer,
-          isLandscape && styles.tabVisualItemLayerLandscape,
+          inlineLabels && styles.tabVisualItemLayerLandscape,
           { opacity: initiallyActive ? 0 : 1 },
         ]}
       >
@@ -202,7 +209,7 @@ const FastTabVisualItem = memo(function FastTabVisualItem({
         pointerEvents="none"
         style={[
           styles.tabVisualItemLayer,
-          isLandscape && styles.tabVisualItemLayerLandscape,
+          inlineLabels && styles.tabVisualItemLayerLandscape,
           { opacity: initiallyActive ? 1 : 0 },
         ]}
       >
@@ -210,125 +217,104 @@ const FastTabVisualItem = memo(function FastTabVisualItem({
       </View>
     </View>
   );
+
+  return routeName === 'trade'
+    ? <TradeTabFloatingPnlProvider>{presentation}</TradeTabFloatingPnlProvider>
+    : presentation;
 });
-
-const getNow = () =>
-  typeof globalThis.performance?.now === 'function'
-    ? globalThis.performance.now()
-    : Date.now();
-
-function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, navigationFinishedAtMs: number) {
-  if (typeof __DEV__ === 'undefined' || !__DEV__) {
-    return;
-  }
-
-  const runAfterFirstFrame: (callback: (time: number) => void) => number = typeof globalThis.requestAnimationFrame === 'function'
-    ? globalThis.requestAnimationFrame
-    : (callback) => {
-      setTimeout(() => callback(getNow()), 16);
-      return 0;
-    };
-
-  runAfterFirstFrame(() => {
-    const elapsedMs = getNow() - startedAtMs;
-    if (elapsedMs > STALE_TAB_SWITCH_SAMPLE_MS) {
-      return;
-    }
-    console.info(`[TabTiming] ${label} first frame ${Math.round(elapsedMs)}ms`);
-    if (elapsedMs > TAB_SWITCH_MAX_LATENCY_MS) {
-      const navigationMs = Math.max(0, navigationFinishedAtMs - startedAtMs);
-      console.warn(
-        `[Tabs] ${label} first frame took ${Math.round(elapsedMs)}ms; ` +
-        `sync navigation ${Math.round(navigationMs)}ms; budget is ${TAB_SWITCH_MAX_LATENCY_MS}ms.`,
-      );
-    }
-  });
-}
 
 /**
  * Handles a bottom-menu tap as soon as the finger goes down.
  * It shows the selected screen first, then updates the real navigation route.
  */
 const FastTabBarButton = memo(function FastTabBarButton({
-  latencyLabel = 'bottom tab',
   routeName,
+  routeKey,
   label,
   activeColor,
   inactiveColor,
-  isLandscape,
+  inlineLabels,
   children: _children,
   onPress,
   onPressIn,
   onPressOut,
   ...props
 }: FastTabBarButtonProps) {
-  const pressStartedAtRef = useRef<number | null>(null);
-  const handledOnPressInRef = useRef(false);
+  const navigation = useContext(FastTabPressNavigationContext);
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const pressGateRef = useRef(createBottomTabPressGate(interactionLifecycle.getEpoch));
+  const disabledRef = useRef(props.disabled);
+  disabledRef.current = props.disabled;
+  const pressCallbacksRef = useRef({ onPress, onPressIn, onPressOut });
+  pressCallbacksRef.current = { onPress, onPressIn, onPressOut };
 
   const runTabPress = useCallback((event: TabPressEvent) => {
-    const startedAtMs = pressStartedAtRef.current ?? getNow();
-    pressStartedAtRef.current = null;
-    const lastHandledAtMs = recentTabPresses.get(latencyLabel);
-    if (lastHandledAtMs !== undefined && startedAtMs - lastHandledAtMs < TAB_PRESS_DEDUP_WINDOW_MS) {
-      return;
-    }
-    recentTabPresses.set(latencyLabel, startedAtMs);
+    if (disabledRef.current || !interactionLifecycle.isForeground()) return;
     if (
       routeName === 'trade'
       && requestOrrnnDemoTradeAuth({ kind: 'trade-tab' })
     ) {
       return;
     }
-    if (routeName === 'chart') {
-      const preferences = useUserPreferences.getState();
-      // Dispatch before the retained Chart route is revealed. This joins the
-      // idle startup request when present and covers a very early first tap.
-      void prefetchChartSelectionHistory(
-        preferences.chartSymbol,
-        preferences.chartTimeframe,
-      );
-    }
-    useUIState.getState().hideActionSheet();
     // Step 1: show the already-mounted screen immediately.
-    const visualRevision = showFastTabVisual(latencyLabel);
+    const visualRevision = showFastTabVisual(routeName);
+    useUIState.getState().hideActionSheet();
     (event as TabPressEvent & { persist?: () => void }).persist?.();
+    const commitNavigation = () => {
+      // A render between touch-down and this commit may change navigation
+      // ownership. Read the latest callbacks and live focus at execution time.
+      const callbacks = pressCallbacksRef.current;
+      if (navigationRef.current) {
+        if (!commitFastTabPress(navigationRef.current, { name: routeName, key: routeKey }, visualRevision)) return;
+      } else {
+        callbacks.onPress?.(event);
+      }
+      if (routeName === 'chart') {
+        // Route/focus adoption gets the next frame before optional cache or
+        // network work. A superseding tap must not start hidden Chart work.
+        scheduleIdleWork(() => {
+          if (visualRevision !== null && fastTabVisualController.getSnapshot().revision !== visualRevision) return;
+          const preferences = useUserPreferences.getState();
+          void prefetchChartSelectionHistory(
+            preferences.chartSymbol,
+            preferences.chartTimeframe,
+          );
+        }, { timeoutMs: 500 });
+      }
+    };
     if (visualRevision !== null) {
       // A bottom-menu tap has no drawer animation to wait for.
       // Step 2: after that screen paints, make the real route match it.
-      scheduleFastTabNavigation(visualRevision, () => onPress?.(event), TAB_BAR_NAVIGATION_SETTLE_DELAY_MS);
+      scheduleFastTabNavigation(visualRevision, commitNavigation, TAB_BAR_NAVIGATION_SETTLE_DELAY_MS);
     } else {
-      onPress?.(event);
+      commitNavigation();
     }
-    scheduleTabSwitchBudgetCheck(latencyLabel, startedAtMs, getNow());
-  }, [latencyLabel, onPress, routeName]);
+  }, [routeKey, routeName]);
 
-  const handleTouchStart = useCallback((_event: TabTouchEvent) => {
-    handledOnPressInRef.current = false;
-    pressStartedAtRef.current = getNow();
-  }, []);
-
-  const handlePressIn = useCallback((event: TabPressInEvent) => {
-    pressStartedAtRef.current = pressStartedAtRef.current ?? getNow();
-    onPressIn?.(event);
-    // Start the tab change on touch-down instead of waiting for finger release.
-    if (onPress && !handledOnPressInRef.current) {
-      handledOnPressInRef.current = true;
+  const handleTouchStart = useCallback((event: TabTouchEvent) => {
+    pressGateRef.current.beginGesture();
+    // Native tab-bar buttons cannot scroll. Reveal on the raw touch event,
+    // before Pressability/responder negotiation or finger release.
+    if (Platform.OS !== 'web' && pressCallbacksRef.current.onPress && pressGateRef.current.claimPressIn()) {
       runTabPress(event as TabPressEvent);
     }
-  }, [onPress, onPressIn, runTabPress]);
+  }, [runTabPress]);
+
+  const handlePressIn = useCallback((event: TabPressInEvent) => {
+    pressCallbacksRef.current.onPressIn?.(event);
+    // Native responder grant can deliver press-in before touch-start. Let the
+    // raw touch handler own activation so that order cannot dispatch twice.
+    // Web clicks stay with PlatformPressable's link/modifier-key handling.
+  }, []);
 
   const handlePress: NonNullable<BottomTabBarButtonProps['onPress']> = useCallback((event) => {
-    if (handledOnPressInRef.current) {
-      handledOnPressInRef.current = false;
-      return;
-    }
-    runTabPress(event);
+    if (pressGateRef.current.claimPress(event)) runTabPress(event);
   }, [runTabPress]);
 
   const handlePressOut: NonNullable<BottomTabBarButtonProps['onPressOut']> = useCallback((event) => {
-    onPressOut?.(event);
-    pressStartedAtRef.current = null;
-  }, [onPressOut]);
+    pressCallbacksRef.current.onPressOut?.(event);
+  }, []);
 
   return (
     <PlatformPressable
@@ -345,7 +331,7 @@ const FastTabBarButton = memo(function FastTabBarButton({
         label={label}
         activeColor={activeColor}
         inactiveColor={inactiveColor}
-        isLandscape={isLandscape}
+        inlineLabels={inlineLabels}
         initiallyActive={props['aria-selected'] === true}
       />
     </PlatformPressable>
@@ -415,6 +401,7 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
  * deduplication, so a very early Chart press safely joins this same request.
  */
 const AnonymousChartHistoryStartupPrefetch = memo(function AnonymousChartHistoryStartupPrefetch() {
+  const backgroundWorkAllowed = useSyncExternalStore(subscribeStartupBackgroundWork, isStartupBackgroundWorkAllowed, isStartupBackgroundWorkAllowed);
   const hasHydrated = useUserPreferences((state) => state.hasHydrated);
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
   const chartSymbol = useUserPreferences((state) => state.chartSymbol);
@@ -422,6 +409,7 @@ const AnonymousChartHistoryStartupPrefetch = memo(function AnonymousChartHistory
   const dispatchedKeyRef = useRef('');
 
   useEffect(() => {
+    if (!backgroundWorkAllowed) return;
     const normalizedSymbol = chartSymbol.trim().toUpperCase();
     const normalizedTimeframe = chartTimeframe.trim().toUpperCase();
     if (isLoggedIn || !hasHydrated || !normalizedSymbol || !normalizedTimeframe) {
@@ -445,7 +433,7 @@ const AnonymousChartHistoryStartupPrefetch = memo(function AnonymousChartHistory
         timeoutMs: PUBLIC_CHART_HISTORY_STARTUP_PREFETCH_TIMEOUT_MS,
       },
     );
-  }, [chartSymbol, chartTimeframe, hasHydrated, isLoggedIn]);
+  }, [backgroundWorkAllowed, chartSymbol, chartTimeframe, hasHydrated, isLoggedIn]);
 
   return null;
 });
@@ -544,7 +532,7 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
   const T = themeMode === 'light' ? GLight : GDark;
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
   const renderTabsLayout = useCallback(({
     children,
     navigation,
@@ -568,11 +556,15 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
     !shouldHideMenu &&
     chartTabBarKeyboardLift > 0;
 
-  const tabBarHeight = resolveBottomTabBarHeight({
+  const tabBarLayout = resolveBottomTabBarLayout({
+    availableWidth: Math.max(0, width - insets.left - insets.right),
     safeAreaBottom: insets.bottom,
-    isChartTab,
     isLandscape,
+    viewportHeight: height,
+    fontScale,
   });
+  const tabBarHeight = tabBarLayout.height;
+  const { paddingTop, paddingBottom, useInlineLabels } = tabBarLayout;
 
   const tabBarStyle = useMemo(
     () => ({
@@ -580,10 +572,12 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
       borderTopColor: isDark ? T.borderSubtle : 'rgba(0,0,0,0.05)',
       borderTopWidth: 1,
       height: tabBarHeight,
-      paddingTop: isLandscape ? 4 : 8,
-      paddingBottom: Math.max(insets.bottom, isLandscape ? 4 : 8),
+      paddingTop,
+      paddingBottom,
+      paddingLeft: Math.max(insets.left, 0),
+      paddingRight: Math.max(insets.right, 0),
     }),
-    [T.bg, T.borderSubtle, insets.bottom, isDark, isLandscape, tabBarHeight],
+    [T.bg, T.borderSubtle, insets.left, insets.right, isDark, paddingBottom, paddingTop, tabBarHeight],
   );
   const inactiveTabColor = isDark ? T.textMuted : T.textDimmed;
   const bottomTabActiveColor = T.trading.buy.primary;
@@ -595,6 +589,7 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
       layout={renderTabsLayout}
       backBehavior='firstRoute'
       detachInactiveScreens={false}
+      safeAreaInsets={{ left: insets.left, right: insets.right, top: insets.top, bottom: insets.bottom }}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: shouldHideMenu
@@ -622,12 +617,12 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
         tabBarButton: (props) => (
           <FastTabBarButton
             {...props}
-            latencyLabel={route.name}
             routeName={route.name as FastTabRouteName}
+            routeKey={route.key}
             label={t(tabLabelKeys[route.name as FastTabRouteName])}
             activeColor={bottomTabActiveColor}
             inactiveColor={inactiveTabColor}
-            isLandscape={isLandscape}
+            inlineLabels={useInlineLabels}
           />
         ),
         lazy: false,
@@ -676,10 +671,12 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
 });
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, minHeight: 0, minWidth: 0 },
   tabVisualItemRoot: {
     alignSelf: 'stretch',
     flex: 1,
+    minHeight: 44,
+    minWidth: 0,
   },
   tabVisualItemLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -690,6 +687,8 @@ const styles = StyleSheet.create({
   tabVisualItemLayerLandscape: {
     flexDirection: 'row',
     justifyContent: 'center',
+    paddingHorizontal: 4,
+    gap: 4,
   },
   tabIconSlot: {
     alignItems: 'center',
@@ -698,12 +697,19 @@ const styles = StyleSheet.create({
     width: 31,
   },
   tabLabel: {
+    alignSelf: 'stretch',
     fontSize: 12,
+    lineHeight: 16,
     marginBottom: 4,
+    minWidth: 0,
+    paddingHorizontal: 2,
     fontWeight: '500',
     textAlign: 'center',
   },
   tabLabelLandscape: {
+    alignSelf: 'center',
+    flex: 1,
+    flexShrink: 1,
     marginBottom: 0,
   },
 });

@@ -204,10 +204,13 @@ export function resolveAccountEnvironment(
   const contestBoolean = readFirstContestBoolean(records);
   if (contestBoolean) return result(contestBoolean, 'backend-explicit');
 
-  const group = readFirstTextMatch(records, ENVIRONMENT_GROUP_ALIASES, resolveEnvironmentText);
-  return group
-    ? result(group, 'backend-group')
-    : result('unknown', 'unknown');
+  // A group must identify an environment. Lot-only or custom group names
+  // (for example "standard" or "VIP") do not prove that an account is Real.
+  const group = readRawAccountGroup(payload);
+  if (group) {
+    return result(resolveEnvironmentText(group) ?? 'unknown', 'backend-group');
+  }
+  return result('unknown', 'unknown');
 }
 
 /**

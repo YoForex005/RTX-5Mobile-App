@@ -5,6 +5,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { AppMenuIcon } from '../../ui/components/AppMenuIcon';
 import { useIsFocused } from '@react-navigation/native';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { Platform, ScrollView, Text, TextInput, View } from 'react-native';
@@ -12,13 +13,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { FastPressable } from '../../ui/components/FastPressable';
-import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
+import { useRetainedRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { Screen } from '../../ui/components/Screen';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { useTranslation } from '../../i18n/useTranslation';
 import { makeHelpStyles, type HelpStyles } from './HelpScreen.styles';
+import { HelpQuestionForm } from './HelpQuestionForm';
 import {
   HELP_CATEGORY_FILTERS,
   HELP_HEADER,
@@ -45,8 +47,9 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
   const [selectedCategory, setSelectedCategory] = useState<HelpFaqCategory>('All');
   const [faqQuery, setFaqQuery] = useState('');
   const [expandedFaqId, setExpandedFaqId] = useState<string>('connect-account');
-  const routeBodyReady = useDeferredRouteContentReady(
-    isScreenFocused ? 0 : HELP_BODY_PREWARM_DELAY_MS,
+  const [questionFormOpen, setQuestionFormOpen] = useState(false);
+  const routeBodyReady = useRetainedRouteContentReady(
+    isScreenFocused, HELP_BODY_PREWARM_DELAY_MS,
   );
   const categoryCounts = useMemo(() => getHelpCategoryCounts(), []);
   const visibleFaqItems = useMemo(
@@ -95,7 +98,7 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
 
   return (
     <Screen noBottomInset style={styles.screen}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 14 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <FastPressable
           onPress={handleOpenMenu}
           activateOnTouchStart
@@ -105,7 +108,7 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
           accessibilityRole="button"
           accessibilityLabel="Open menu"
         >
-          <Ionicons name="menu" size={32} color={menuIconColor} />
+          <AppMenuIcon color={menuIconColor} />
         </FastPressable>
         <Text style={styles.headerTitle} numberOfLines={1}>{t('Help')}</Text>
       </View>
@@ -154,6 +157,23 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
             ) : null}
           </View>
         </View>
+
+        <FastPressable
+          style={styles.questionOption}
+          onPress={() => setQuestionFormOpen(true)}
+          latencyLabel="help.question.open"
+          accessibilityRole="button"
+          accessibilityLabel={t('Ask a question')}
+        >
+          <View style={styles.summaryIcon}>
+            <Ionicons name="chatbubble-ellipses-outline" size={20} color={accentColor} />
+          </View>
+          <View style={styles.summaryTitleWrap}>
+            <Text style={styles.questionOptionTitle}>{t('Ask a question')}</Text>
+            <Text style={styles.questionOptionBody}>{t("Can't find an answer in the FAQ?")}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={accentColor} />
+        </FastPressable>
 
         <ScrollView
           horizontal
@@ -220,6 +240,11 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
           )}
         </View>
       </ScrollView> : <View style={styles.scroll} />}
+
+      <HelpQuestionForm
+        visible={questionFormOpen && isScreenFocused}
+        onClose={() => setQuestionFormOpen(false)}
+      />
 
     </Screen>
   );

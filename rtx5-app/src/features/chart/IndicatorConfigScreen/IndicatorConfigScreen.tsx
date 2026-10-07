@@ -45,7 +45,7 @@ export function IndicatorConfigScreen() {
   if (!meta) {
     return (
       <Screen style={styles.screen}>
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
           <Pressable
             onPress={() => safeRouterBack(router, '/chart/indicators')}
             activateOnPressIn

@@ -267,10 +267,21 @@ export const runLoadHistory = (
   const controller = new AbortController();
   entry.abortController = controller;
   const hasRenderableHistorySeed = !isPaginationRequest && entry.historyCandles.length > 0;
+  // A self-heal retry after a visible failure runs in the background: the
+  // failure stays on screen (and live ticks keep applying) until a retry
+  // succeeds. Re-raising the loader on every attempt made a broker answering
+  // 503 CANDLE_HISTORY_UNAVAILABLE flip between spinner and error forever.
+  const isQuietRetry =
+    !isPaginationRequest &&
+    !hasRenderableHistorySeed &&
+    Boolean(options?.isRetry) &&
+    entry.error !== null;
   // Cached candles already make this chart renderable. Refresh them in the
   // background without showing the loader again or buffering live ticks.
-  entry.loading = !hasRenderableHistorySeed;
-  entry.error = null;
+  entry.loading = !hasRenderableHistorySeed && !isQuietRetry;
+  if (!isQuietRetry) {
+    entry.error = null;
+  }
   if (isPaginationRequest) {
     entry.historyPageLoading = true;
   } else {
@@ -282,9 +293,9 @@ export const runLoadHistory = (
       Math.max(INITIAL_HISTORY_LIMIT, limit),
     );
     entry.historyPaginationCursorTime = null;
-    entry.historyLoading = !hasRenderableHistorySeed;
+    entry.historyLoading = !hasRenderableHistorySeed && !isQuietRetry;
     entry.historyPageLoading = false;
-    if (!hasRenderableHistorySeed) {
+    if (!hasRenderableHistorySeed && !isQuietRetry) {
       entry.bufferedEvents = [];
     }
   }
@@ -524,11 +535,27 @@ export const runPrefetchHistory = (
   )
     .then((history) => {
       if (!isActiveBrokerSessionProvenanceCurrent(history.provenance)) return 0;
-      // A deeper request can supersede an earlier shallow warm-up. Never let
-      // the late shallow response replace the deeper exact history.
-      if (manager.historyPrefetches.get(key) !== prefetchRecord) return 0;
       const seed = getHistorySeedSnapshot(history);
       const candles = seed.candles;
+      // A deeper request can supersede an earlier shallow warm-up. Never let
+      // the late shallow response replace the deeper exact history — but while
+      // the deeper response is still in flight, the shallow one may seed an
+      // empty chart so it paints now instead of after a second round trip.
+      if (manager.historyPrefetches.get(key) !== prefetchRecord) {
+        const deeperLanded =
+          candleMemoryCache.get(normalizedSymbol, normalizedTimeframe).length >= candles.length;
+        const supersededLiveEntry = manager.entries.get(key);
+        if (
+          deeperLanded ||
+          candles.length === 0 ||
+          !supersededLiveEntry ||
+          supersededLiveEntry.requestId !== 0 ||
+          supersededLiveEntry.historyLoading ||
+          supersededLiveEntry.historyCandles.length > 0
+        ) {
+          return 0;
+        }
+      }
       candleMemoryCache.set(normalizedSymbol, normalizedTimeframe, candles);
       syncMergedCandleCache(normalizedSymbol, normalizedTimeframe, history.closedCandles, {
         canonical: true,

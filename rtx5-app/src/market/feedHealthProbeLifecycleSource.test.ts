@@ -8,11 +8,14 @@ const source = readFileSync(
   'utf8',
 );
 
-test('server health refresh is demand-driven, policy-derived, and suspended in background', () => {
-  assert.match(source, /private scheduleHealthProbe\(owner: ActiveBrokerSessionOwnerStamp\)/);
-  assert.match(source, /!health\.thresholds/);
-  assert.match(source, /health\.thresholds\.serverStatusStaleAfterMs \/ 2/);
-  assert.match(source, /if \(!this\.isAppActive\) \{[\s\S]*this\.clearHealthProbeTimer\(\)/);
+test('feed status is probed on demand only (60 s silence), never polled, and suspended in background', () => {
+  // Contract v3: no periodic health polling and no socket stop from the status endpoint.
+  assert.doesNotMatch(source, /scheduleHealthProbe|healthProbeTimer/);
+  assert.doesNotMatch(source, /await probeActiveFeedHealth/);
+  assert.match(
+    source,
+    /private checkMarketThenReconnectAfterSilence\(now: number\): void \{[\s\S]*void probeActiveFeedHealth\(owner\)/,
+  );
+  assert.match(source, /if \(!this\.isAppActive\) \{[\s\S]*cancelActiveFeedHealthProbe\(\)/);
   assert.match(source, /!this\.hasActiveDemand\(\)/);
-  assert.match(source, /probeActiveFeedHealth\(owner\)/);
 });

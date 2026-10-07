@@ -3738,6 +3738,11 @@ export const CH_HTML = `
         enableRightPriceAutoScale();
       }
 
+      function isCrosshairInteractionActive() {
+        var manager = window._drawingManager;
+        return !!manager && typeof manager.getActiveTool === 'function' && manager.getActiveTool() === 'crosshair';
+      }
+
       function isDrawingToolInteractionActive() {
         // While a drawing tool is armed (or an existing drawing is being
         // drag-edited), the finger owns the drawing point — the chart body
@@ -3746,6 +3751,7 @@ export const CH_HTML = `
         try {
           var manager = window._drawingManager;
           if (!manager) return false;
+          if (isCrosshairInteractionActive()) return true;
           if (manager._lineEditState) return true;
           return (
             typeof manager._isDrawingToolActive === 'function' &&
@@ -4226,7 +4232,7 @@ export const CH_HTML = `
           {}
         );
 
-        if (!enabled) {
+        if (!enabled || isDrawingToolInteractionActive()) {
           handleScroll.mouseWheel = false;
           handleScroll.pressedMouseMove = false;
           handleScroll.horzTouchDrag = false;
@@ -5213,6 +5219,7 @@ export const CH_HTML = `
         };
 
         var settlePinchPriceScale = function() {
+          if (isCrosshairInteractionActive()) return;
           // Pinch owns the time scale, not an already user-owned vertical
           // window. Reassert that window after the library's pinch handler;
           // only an explicit reset/double-tap or Auto-scale may clear it.
@@ -5446,6 +5453,12 @@ export const CH_HTML = `
           if (rightPriceScaleGestureActive) {
             finishRightPriceScaleGesture(true);
           }
+          if (isCrosshairInteractionActive()) {
+            pendingPointerTap = null;
+            vertPanPending = null;
+            clearCompletedChartTap();
+            return;
+          }
           if (isScaleGestureEvent(event)) {
             horizontalScrollMotionActive = false;
             chartScaleGestureActive = true;
@@ -5487,6 +5500,7 @@ export const CH_HTML = `
         };
 
         var onPointerMove = function(event) {
+          if (isCrosshairInteractionActive()) return;
           if (isScaleGestureEvent(event)) {
             horizontalScrollMotionActive = false;
             chartScaleGestureActive = true;
@@ -5569,6 +5583,17 @@ export const CH_HTML = `
         };
 
         var onPointerUp = function(event) {
+          if (isCrosshairInteractionActive()) {
+            releasePointer(event);
+            pendingPointerTap = null;
+            vertPanPending = null;
+            if (activePointerCount <= 0) {
+              gestureHadMultitouch = false;
+              chartScaleGestureActive = false;
+              postChartTouchState(false);
+            }
+            return;
+          }
           var isActualScaleGesture = isScaleGestureEvent(event) || gestureHadMultitouch || chartScaleGestureActive;
           var wasScaleGesture = isActualScaleGesture || Date.now() <= suppressChartTapUntil;
           if (isActualScaleGesture) {
@@ -9099,7 +9124,7 @@ export const CH_HTML = `
       }
 
       function scheduleNextCandleCountdownTick() {
-        if (!candleCountdownActive || !candleCountdownTimeframe || candleCountdownTimer !== null) return;
+        if (!chartRuntimeActive || document.hidden || !candleCountdownActive || !candleCountdownTimeframe || candleCountdownTimer !== null) return;
         var delay = Math.max(50, 1000 - (Date.now() % 1000) + 16);
         candleCountdownTimer = setTimeout(function() {
           candleCountdownTimer = null;
@@ -9328,6 +9353,9 @@ export const CH_HTML = `
       function setDrawingTool(tool, options) {
         if (window._drawingManager && typeof window._drawingManager.setActiveTool === 'function') {
           window._drawingManager.setActiveTool(tool, false, options);
+          if (isCrosshairInteractionActive() && stopVerticalPanGlideHook) {
+            stopVerticalPanGlideHook();
+          }
         }
       }
       function clearDrawings() {
@@ -9445,7 +9473,9 @@ export const CH_HTML = `
       var _overlayPayload = { priceLines: [], markers: [], tradeHistorySegments: [] };
       var _appliedOverlayPayload = { priceLines: [], markers: [], tradeHistorySegments: [] };
       var _overlayResyncTimer = null;
+      var chartRuntimeActive = false;
       var _overlayLabelLayer = null;
+      var _tradeHistoryPlotLayer = null;
       // Stable DOM nodes for trade labels/lines/boxes. Never wipe the whole
       // overlay layer on quote ticks — that was the visible horizontal blink
       // (open-trade lines are DOM-only with native lineVisible:false).
@@ -9553,6 +9583,98 @@ export const CH_HTML = `
         });
       }
 
+      function isTradeHistoryArrowMarker(marker) {
+        return Boolean(
+          marker &&
+          typeof marker.id === 'string' &&
+          marker.id.indexOf('trade-history-') === 0 &&
+          (marker.shape === 'arrowUp' || marker.shape === 'arrowDown')
+        );
+      }
+
+      // Trade-history arrows are drawn as thin DOM arrows (see
+      // renderTradeHistoryArrowNode); every other marker stays a native
+      // Lightweight Charts series marker.
+      function selectNativeOverlayMarkers(markers) {
+        if (!Array.isArray(markers) || markers.length === 0) return [];
+        var nativeMarkers = [];
+        for (var i = 0; i < markers.length; i++) {
+          if (!isTradeHistoryArrowMarker(markers[i])) nativeMarkers.push(markers[i]);
+        }
+        return nativeMarkers;
+      }
+
+      function hasTradeHistoryArrowMarkers(payload) {
+        var markers = payload && Array.isArray(payload.markers) ? payload.markers : [];
+        for (var i = 0; i < markers.length; i++) {
+          if (isTradeHistoryArrowMarker(markers[i])) return true;
+        }
+        return false;
+      }
+
+      var TRADE_HISTORY_ARROW_SVG_NS = 'http://www.w3.org/2000/svg';
+
+      // A thin single arrow (stem + open head), not the filled library marker.
+      // Its size follows candle width within a narrow band so it reads as a
+      // pointer to the exact deal price at every zoom level.
+      function resolveTradeHistoryArrowSize(timeScale) {
+        var barSpacing = ${CHART_DEFAULT_TIME_SCALE_BAR_SPACING};
+        try {
+          var options = timeScale && typeof timeScale.options === 'function'
+            ? timeScale.options()
+            : null;
+          if (
+            options &&
+            typeof options.barSpacing === 'number' &&
+            isFinite(options.barSpacing) &&
+            options.barSpacing > 0
+          ) {
+            barSpacing = options.barSpacing;
+          }
+        } catch (_tradeArrowSpacingErr) {}
+        var height = Math.max(14, Math.min(24, Math.round(barSpacing + 8)));
+        var width = Math.max(9, Math.round(height * 0.62));
+        return { width: width, height: height, stroke: height >= 20 ? 2 : 1.6 };
+      }
+
+      // Draws the arrow once per direction/color/size; repositioning during
+      // pan and zoom only moves the node.
+      function renderTradeHistoryArrowNode(node, up, color, size) {
+        var signature =
+          (up ? 'up' : 'down') + '|' + color + '|' + size.width + 'x' + size.height + '|' + size.stroke;
+        if (node.getAttribute('data-rtx5-arrow') === signature) return;
+        node.setAttribute('data-rtx5-arrow', signature);
+        while (node.firstChild) node.removeChild(node.firstChild);
+        var w = size.width;
+        var h = size.height;
+        var inset = size.stroke / 2;
+        var mid = w / 2;
+        var headDepth = Math.min(h * 0.45, w * 0.6);
+        var svg = document.createElementNS(TRADE_HISTORY_ARROW_SVG_NS, 'svg');
+        svg.setAttribute('width', String(w));
+        svg.setAttribute('height', String(h));
+        svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+        svg.style.display = 'block';
+        svg.style.overflow = 'visible';
+        // Sell arrows are the same shape pointing down.
+        if (!up) svg.style.transform = 'scaleY(-1)';
+        var path = document.createElementNS(TRADE_HISTORY_ARROW_SVG_NS, 'path');
+        // Stem from the base to the tip, then the open head through the tip.
+        path.setAttribute(
+          'd',
+          'M' + mid + ' ' + (h - inset) + 'L' + mid + ' ' + inset +
+            'M' + inset + ' ' + (inset + headDepth) + 'L' + mid + ' ' + inset +
+            'L' + (w - inset) + ' ' + (inset + headDepth)
+        );
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', color);
+        path.setAttribute('stroke-width', String(size.stroke));
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(path);
+        node.appendChild(svg);
+      }
+
       function refreshTradeHistoryMarkerScale(force) {
         if (
           !_overlayMarkers ||
@@ -9646,6 +9768,7 @@ export const CH_HTML = `
             key.indexOf('line:') !== 0 &&
             key.indexOf('box:') !== 0 &&
             key.indexOf('history-segment:') !== 0 &&
+            key.indexOf('history-arrow:') !== 0 &&
             key !== 'move-badge'
           ) {
             continue;
@@ -9711,13 +9834,61 @@ export const CH_HTML = `
         var keys = Object.keys(_overlayDomNodesByKey);
         for (var k = 0; k < keys.length; k++) {
           var key = keys[k];
-          if (key.indexOf('history-segment:') !== 0 || live[key]) continue;
+          if (
+            (key.indexOf('history-segment:') !== 0 && key.indexOf('history-arrow:') !== 0) ||
+            live[key]
+          ) continue;
           var node = _overlayDomNodesByKey[key];
           if (node && node.parentNode) {
             try { node.parentNode.removeChild(node); } catch (_e) {}
           }
           delete _overlayDomNodesByKey[key];
         }
+      }
+
+      // Trade-history arrows and connectors belong to the candle plot, so they
+      // live in their own child layer clipped to the plot area. A trade whose
+      // candle scrolls past the right edge is cut at the price scale, like the
+      // candles themselves, instead of being drawn over the price labels. (The
+      // parent overlay layer must span the price axis for the right-axis trade
+      // boxes, so it cannot be clipped horizontally itself.)
+      function ensureTradeHistoryPlotLayer(parentLayer) {
+        if (!parentLayer) return null;
+        var plotLayer = _tradeHistoryPlotLayer;
+        if (!plotLayer || plotLayer.parentNode !== parentLayer) {
+          // Drop history nodes attached anywhere else; the caller's render
+          // pass recreates every live one inside the new plot layer.
+          pruneTradeHistorySegmentDomNodes([]);
+          plotLayer = document.createElement('div');
+          plotLayer.className = 'rtx5-trade-history-plot-layer';
+          plotLayer.setAttribute('aria-hidden', 'true');
+          plotLayer.style.position = 'absolute';
+          plotLayer.style.top = '0';
+          plotLayer.style.bottom = '0';
+          plotLayer.style.overflow = 'hidden';
+          plotLayer.style.pointerEvents = 'none';
+          plotLayer.style.zIndex = '7';
+          parentLayer.insertBefore(plotLayer, parentLayer.firstChild);
+          _tradeHistoryPlotLayer = plotLayer;
+        }
+        var metrics = resolvePrimaryPaneMetrics();
+        var plotLeft = Math.max(0, Math.round(metrics.leftAxisWidth || 0));
+        var axisMetrics = resolveMarketPriceScaleAxisMetrics(parentLayer);
+        var plotRight = axisMetrics
+          ? Math.round(axisMetrics.axisLeft)
+          : plotLeft + Math.max(0, Math.round(metrics.paneWidth || 0));
+        var plotWidth = Math.max(0, plotRight - plotLeft);
+        if (plotWidth > 4) {
+          plotLayer.style.left = plotLeft + 'px';
+          plotLayer.style.right = 'auto';
+          plotLayer.style.width = plotWidth + 'px';
+        } else {
+          // Metrics still settling: fail open to the parent layer.
+          plotLayer.style.left = '0';
+          plotLayer.style.right = '0';
+          plotLayer.style.width = 'auto';
+        }
+        return plotLayer;
       }
 
       // Closed-trade connectors are DOM lines because Lightweight Charts
@@ -9740,6 +9911,8 @@ export const CH_HTML = `
             return;
           }
           syncOverlayLabelLayerPaneClip(layer);
+          // Arrows and connectors render into the plot-clipped child layer.
+          layer = ensureTradeHistoryPlotLayer(layer) || layer;
           var timeScale = chart.timeScale();
           if (!timeScale || typeof timeScale.timeToCoordinate !== 'function') {
             if (pruneHistoryOnly === true) {
@@ -9812,6 +9985,53 @@ export const CH_HTML = `
             line.style.zIndex = '7';
             line.style.visibility = 'visible';
           }
+
+          // Deal arrows: the tip sits exactly on the deal price at its candle
+          // (buy points up from below, sell points down from above).
+          var arrowMarkers = payload && Array.isArray(payload.markers) ? payload.markers : [];
+          var arrowSize = null;
+          for (var m = 0; m < arrowMarkers.length; m++) {
+            var arrowMarker = arrowMarkers[m];
+            if (!isTradeHistoryArrowMarker(arrowMarker)) continue;
+            if (
+              typeof arrowMarker.time !== 'number' || !isFinite(arrowMarker.time) ||
+              typeof arrowMarker.price !== 'number' || !isFinite(arrowMarker.price)
+            ) {
+              continue;
+            }
+            var arrowX = timeScale.timeToCoordinate(arrowMarker.time);
+            var arrowY = series.priceToCoordinate(arrowMarker.price);
+            if (
+              typeof arrowX !== 'number' || !isFinite(arrowX) ||
+              typeof arrowY !== 'number' || !isFinite(arrowY)
+            ) {
+              continue;
+            }
+            if (!arrowSize) arrowSize = resolveTradeHistoryArrowSize(timeScale);
+            var arrowKey = 'history-arrow:' + arrowMarker.id;
+            var arrowNode = upsertOverlayDomNode(layer, arrowKey, 'rtx5-trade-history-arrow');
+            if (!arrowNode) continue;
+            liveHistoryKeys.push(arrowKey);
+            if (Array.isArray(liveOverlayKeys)) liveOverlayKeys.push(arrowKey);
+            var arrowUp = arrowMarker.shape === 'arrowUp';
+            var arrowColor = typeof arrowMarker.color === 'string' && arrowMarker.color
+              ? arrowMarker.color
+              : '#2962FF';
+            renderTradeHistoryArrowNode(arrowNode, arrowUp, arrowColor, arrowSize);
+            var arrowInset = arrowSize.stroke / 2;
+            arrowNode.setAttribute('data-rtx5-role', 'trade-history-arrow');
+            arrowNode.setAttribute('aria-hidden', 'true');
+            arrowNode.style.position = 'absolute';
+            arrowNode.style.left = (arrowX - arrowSize.width / 2) + 'px';
+            arrowNode.style.top = (arrowUp
+              ? arrowY - arrowInset
+              : arrowY - arrowSize.height + arrowInset) + 'px';
+            arrowNode.style.width = arrowSize.width + 'px';
+            arrowNode.style.height = arrowSize.height + 'px';
+            arrowNode.style.pointerEvents = 'none';
+            arrowNode.style.zIndex = '8';
+            arrowNode.style.visibility = 'visible';
+          }
         } catch (_tradeHistorySegmentRenderError) {}
         if (pruneHistoryOnly === true) {
           pruneTradeHistorySegmentDomNodes(liveHistoryKeys);
@@ -9835,7 +10055,8 @@ export const CH_HTML = `
               (Array.isArray(_appliedOverlayPayload.priceLines) &&
                 _appliedOverlayPayload.priceLines.length > 0) ||
               (Array.isArray(_appliedOverlayPayload.tradeHistorySegments) &&
-                _appliedOverlayPayload.tradeHistorySegments.length > 0)
+                _appliedOverlayPayload.tradeHistorySegments.length > 0) ||
+              hasTradeHistoryArrowMarkers(_appliedOverlayPayload)
             );
           var payload =
             appliedHasDomGeometry
@@ -10589,6 +10810,9 @@ export const CH_HTML = `
           : 'hidden';
         line.style.width = paneWidth + 'px';
         line.style.height = '0px';
+        // Keep the dot spacing while rendering the open-trade stroke as a hairline.
+        line.style.transformOrigin = 'top left';
+        line.style.transform = isOpenPositionOverlayLine(item) ? 'scaleY(0.5)' : 'none';
         line.style.borderTop =
           Math.max(1, Math.round(item.lineWidth || 1)) + 'px ' +
           resolveOverlayDomLineBorderStyle(item.lineStyle) + ' ' +
@@ -11031,11 +11255,40 @@ export const CH_HTML = `
                 label.appendChild(valueSpan);
               }
               sideSpan.textContent = item.labelSideText;
-              sideSpan.style.color = item.labelSideColor || item.color;
+              sideSpan.style.color = isOpenPositionTradeLabel
+                ? (item.labelValueColor || item.color)
+                : (item.labelSideColor || item.color);
               separatorSpan.textContent = ', ';
-              separatorSpan.style.color = item.labelSideColor || item.color;
+              separatorSpan.style.color = sideSpan.style.color;
               valueSpan.textContent = item.labelValueText;
               valueSpan.style.color = item.labelValueColor || item.color;
+              // Keep the text anchored to one starting point, but back only
+              // its content: expanding P/L would paint a blank chart strip.
+              sideSpan.style.backgroundColor = separatorSpan.style.backgroundColor = isOpenPositionTradeLabel
+                ? (lastChartBackgroundColor || '#FFFFFF')
+                : 'transparent';
+              sideSpan.style.padding = isOpenPositionTradeLabel ? '0 2px' : '0';
+              sideSpan.style.borderRadius = isOpenPositionTradeLabel ? '2px' : '0';
+              sideSpan.style.fontVariantNumeric = 'tabular-nums';
+              valueSpan.style.backgroundColor = isOpenPositionTradeLabel
+                ? (lastChartBackgroundColor || '#FFFFFF')
+                : 'transparent';
+              valueSpan.style.padding = isOpenPositionTradeLabel ? '0 2px' : '0';
+              valueSpan.style.borderRadius = isOpenPositionTradeLabel ? '2px' : '0';
+              valueSpan.style.fontVariantNumeric = 'tabular-nums';
+              var tradeSpans = [sideSpan, separatorSpan, valueSpan];
+              for (var tradeSpanIndex = 0; tradeSpanIndex < tradeSpans.length; tradeSpanIndex++) {
+                tradeSpans[tradeSpanIndex].style.display = isOpenPositionTradeLabel ? 'block' : 'inline';
+                tradeSpans[tradeSpanIndex].style.height = isOpenPositionTradeLabel ? '100%' : 'auto';
+                tradeSpans[tradeSpanIndex].style.boxSizing = 'border-box';
+              }
+              sideSpan.style.flex = separatorSpan.style.flex = '0 0 auto';
+              sideSpan.style.textAlign = isOpenPositionTradeLabel ? 'left' : 'inherit';
+              valueSpan.style.flex = '0 1 auto';
+              valueSpan.style.minWidth = '0';
+              valueSpan.style.textAlign = isOpenPositionTradeLabel ? 'left' : 'inherit';
+              valueSpan.style.overflow = isOpenPositionTradeLabel ? 'hidden' : 'visible';
+              valueSpan.style.textOverflow = 'ellipsis';
             } else {
               if (label.childNodes.length !== 1 || label.firstChild.nodeType !== 3) {
                 label.textContent = item.text;
@@ -11044,6 +11297,9 @@ export const CH_HTML = `
               }
             }
             label.style.position = 'absolute';
+            label.style.display = isOpenPositionTradeLabel && hasSplitTradeLabel ? 'flex' : 'block';
+            label.style.alignItems = 'stretch';
+            label.style.justifyContent = 'flex-start';
             if (isAnchoredTradeLabel) {
               applyAnchoredOverlayLabelLane(
                 label,
@@ -11288,7 +11544,7 @@ export const CH_HTML = `
           }
 
           var nextNativeSignature = buildOverlayNativeLineSignature(payload);
-          var expectedMarkers = Array.isArray(payload.markers) ? payload.markers : [];
+          var expectedMarkers = selectNativeOverlayMarkers(payload.markers);
           var markersAttachedToCurrentSeries = expectedMarkers.length === 0
             ? _overlayMarkers === null
             : Boolean(
@@ -11353,13 +11609,17 @@ export const CH_HTML = `
           if (lines.length === 0 && markers.length === 0 && tradeHistorySegments.length === 0) {
             postWebViewOverlayLog('emptyPayloadClearConfirmed: empty payload cleared stale price lines, markers, and trade history');
           }
+          // Trade-history deal arrows render as thin DOM arrows with the
+          // connectors (renderTradeHistorySegmentDom); only other markers use
+          // the library's series markers.
+          var nativeMarkers = selectNativeOverlayMarkers(markers);
           if (
-            markers.length > 0 &&
+            nativeMarkers.length > 0 &&
             typeof LightweightCharts !== 'undefined' &&
             typeof LightweightCharts.createSeriesMarkers === 'function'
           ) {
             try {
-              _overlayMarkerSource = markers.slice();
+              _overlayMarkerSource = nativeMarkers.slice();
               var markerScale = resolveTradeHistoryMarkerScale();
               _overlayMarkers = LightweightCharts.createSeriesMarkers(
                 series,
@@ -11463,8 +11723,8 @@ export const CH_HTML = `
         return nextPayload;
       }
 
-      // Tick-fast open-position P/L patch. This updates only the third span of
-      // an existing split label plus both cached payloads. It never measures,
+      // Tick-fast open-position P/L patch. This updates the value and outcome
+      // colour of an existing split label plus both cached payloads. It never measures,
       // sorts, repositions, removes, or recreates any overlay geometry.
       function updateOverlayTradeLabelValues(patches) {
         try {
@@ -11495,6 +11755,14 @@ export const CH_HTML = `
             if (!valueSpan || valueSpan.nodeName !== 'SPAN') continue;
             valueSpan.textContent = nextPatch.labelValueText;
             valueSpan.style.color = nextPatch.labelValueColor;
+            var sideSpan = label.childNodes[0];
+            var separatorSpan = label.childNodes[1];
+            if (sideSpan && sideSpan.nodeName === 'SPAN') {
+              sideSpan.style.color = nextPatch.labelValueColor;
+            }
+            if (separatorSpan && separatorSpan.nodeName === 'SPAN') {
+              separatorSpan.style.color = nextPatch.labelValueColor;
+            }
           }
         } catch (e) {
           postError('updateOverlayTradeLabelValues', e);
@@ -11559,8 +11827,13 @@ export const CH_HTML = `
       // guarantees that even if a setChartOverlays call races with
       // initChart's requestAnimationFrame (series=null at call time),
       // the lines self-heal within a few seconds.
+      function stopOverlayResync() {
+        if (_overlayResyncTimer !== null) clearInterval(_overlayResyncTimer);
+        _overlayResyncTimer = null;
+      }
+
       function startOverlayResync() {
-        if (_overlayResyncTimer) clearInterval(_overlayResyncTimer);
+        if (!chartRuntimeActive || document.hidden || _overlayResyncTimer !== null) return;
         _overlayResyncTimer = setInterval(function() {
           // Stranded-gesture watchdog. A dropped pointerup/pointercancel
           // (Android WebView can tear down a touch stream mid-gesture) leaves
@@ -11615,9 +11888,24 @@ export const CH_HTML = `
           }
         }, 4000);
       }
-      startOverlayResync();
+      function syncChartRuntimeTimers() {
+        stopOverlayResync();
+        stopCandleCountdownTicker();
+        if (!chartRuntimeActive || document.hidden) return;
+        startOverlayResync();
+        scheduleNextCandleCountdownTick();
+      }
+
+      function setChartRuntimeActive(active) {
+        var nextActive = active === true;
+        if (chartRuntimeActive === nextActive) return;
+        chartRuntimeActive = nextActive;
+        syncChartRuntimeTimers();
+      }
+      document.addEventListener('visibilitychange', syncChartRuntimeTimers);
 
       window.initChart = initChart;
+      window.setChartRuntimeActive = setChartRuntimeActive;
       window.applyChartVisualTheme = applyChartVisualTheme;
       window.__rtx5SetAreaDirectionOverride = setAreaDirectionOverride;
       window.refreshAreaSeriesDirection = refreshAreaSeriesDirection;

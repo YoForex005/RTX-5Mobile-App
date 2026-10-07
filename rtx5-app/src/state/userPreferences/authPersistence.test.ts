@@ -40,7 +40,6 @@ test('preference sanitizer extracts legacy credentials but persists identity onl
     accessToken: 'legacy-access',
     refreshToken: 'legacy-refresh',
     expiresAt: '2030-01-01T00:00:00.000Z',
-    feedToken: 'legacy-feed',
   });
   assert.equal(result.containedAuthSecrets, true);
   assert.doesNotMatch(serialized, /legacy-access|legacy-refresh|legacy-feed|credentials/);
@@ -61,10 +60,6 @@ test('secure credentials are injected into runtime only and fail-closed state dr
       accessToken: 'secure-access',
       refreshToken: 'secure-refresh',
       expiresAt: '2031-01-01T00:00:00.000Z',
-      feedAuthContext: {
-        mode: 'disabled_unconfigured',
-        reason: 'missing_contract',
-      },
     },
     sanitized.accountIdentity!,
   );

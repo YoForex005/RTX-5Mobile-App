@@ -126,7 +126,8 @@ test('order ticket symbol picker updates the same screen instead of routing', ()
 
   const pickerHandler = source.slice(pickerStart, pickerEnd);
   assert.match(source, /const \[symbol, setSymbol\] = useState\(routeInitialSymbol\)/);
-  assert.match(source, /DEFAULT_CHART_SYMBOLS\.forEach\(addSymbol\)/);
+  assert.doesNotMatch(source, /DEFAULT_CHART_SYMBOLS\.forEach\(addSymbol\)/);
+  assert.match(source, /marketSymbols[\s\S]*\.forEach\(addSymbol\)/);
   assert.match(source, /const close = useCallback\(\(\) => setSymbolPickerOpen\(false\), \[\]\)/);
   assert.match(source, /onClose=\{close\}/);
   assert.match(pickerHandler, /setSymbol\(normalizedNextSymbol\)/);
@@ -277,4 +278,24 @@ test('order ticket buy and sell buttons use blue and red trading colors', () => 
   assert.match(actionConfig, /displayLabel:\s*'BUY'[\s\S]*color:\s*BUY_C[\s\S]*backgroundColor:\s*BUY_BG/);
   assert.match(execStyles, /execSell:\s*\{\s*backgroundColor:\s*SELL_C,\s*shadowColor:\s*SELL_C\s*\}/);
   assert.match(execStyles, /execBuy:\s*\{\s*backgroundColor:\s*BUY_C,\s*shadowColor:\s*BUY_C\s*\}/);
+});
+
+test('order ticket SL/TP steppers explain a missing price seed instead of dying silently', () => {
+  const source = readOrderTicketSource();
+  const slStart = source.indexOf('const adjustStopLoss = useCallback');
+  const tpEnd = source.indexOf('const handleStopLevelAdjustment = useCallback');
+  assert.notEqual(slStart, -1, 'adjustStopLoss must exist');
+  assert.notEqual(tpEnd, -1, 'adjustStopLoss boundary must exist');
+  const adjustSource = source.slice(slStart, tpEnd);
+  // Without a live seed the stepper used to `return` with no feedback, which
+  // read as a dead button.
+  assert.match(
+    adjustSource,
+    /if \(seed <= 0\) \{\s*\/\/ A silent return here read as a dead stepper button\.[\s\S]*showModal\(\{[\s\S]*Market Data Unavailable[\s\S]*return;\s*\}/,
+  );
+  assert.equal(
+    adjustSource.match(/if \(seed <= 0\) \{/g)?.length,
+    2,
+    'both SL and TP steppers must surface the missing-seed case',
+  );
 });

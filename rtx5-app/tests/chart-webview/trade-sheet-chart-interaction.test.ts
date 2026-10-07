@@ -850,7 +850,7 @@ test('toolbar SL/TP toggles the compact Market Execution panel without activatin
   );
   assertSourceContains(
     source,
-    /accessibilityLabel=\{chartSlTpBackendLocked \? 'SL\/TP locked' : 'SL\/TP'\}[\s\S]*disabled: chartSlTpBackendLocked[\s\S]*selected: chartDirectProtectionActive[\s\S]*disabled=\{chartSlTpBackendLocked\}[\s\S]*styles\.toolbarTradeButtonLocked[\s\S]*onPressIn=\{\(\) => routeChartWindowToolbarAction\('sltp'\)\}[\s\S]*<Ionicons name="lock-closed" size=\{10\}/,
+    /accessibilityLabel=\{chartSlTpBackendLocked \? 'SL\/TP locked' : 'SL\/TP'\}[\s\S]*disabled: chartSlTpBackendLocked[\s\S]*selected: chartDirectProtectionActive[\s\S]*disabled=\{chartSlTpBackendLocked\}[\s\S]*styles\.toolbarTradeButtonLocked[\s\S]*onPress=\{\(\) => routeChartWindowToolbarAction\('sltp'\)\}[\s\S]*<Ionicons name="lock-closed" size=\{10\}/,
     'SL/TP toolbar must visibly lock and disable interaction while the backend is unavailable',
   );
   assertSourceContains(

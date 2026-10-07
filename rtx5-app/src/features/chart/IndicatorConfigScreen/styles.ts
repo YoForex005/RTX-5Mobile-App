@@ -19,7 +19,7 @@ export function makeIndicatorConfigStyles(
     },
     headerBackBtn: { width: 40, height: 32, alignItems: 'center', justifyContent: 'center' },
     headerTitleWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-    headerTitle: { color: T.text, fontSize: 16, fontWeight: '700', letterSpacing: 0.2 },
+    headerTitle: { color: T.text, fontSize: 16, fontWeight: '500', letterSpacing: 0.2 },
     headerDoneBtn: { minWidth: 56, height: 32, alignItems: 'flex-end', justifyContent: 'center' },
     headerDoneText: { color: T.trading.buy.primary, fontSize: 16, fontWeight: '700' },
     content: { paddingBottom: 40 },

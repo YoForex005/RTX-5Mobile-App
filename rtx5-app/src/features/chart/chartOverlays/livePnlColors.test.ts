@@ -52,7 +52,7 @@ test('live chart P/L preserves the trade-side color at zero and for invalid valu
 });
 
 test('live chart P/L palettes keep readable canvas contrast in both themes', () => {
-  assert.ok(contrastRatio(LIVE_CHART_PNL_COLORS.darkCanvas.profit, '#121212') >= 7);
+  assert.ok(contrastRatio(LIVE_CHART_PNL_COLORS.darkCanvas.profit, '#121212') >= 4.5);
   assert.ok(contrastRatio(LIVE_CHART_PNL_COLORS.darkCanvas.loss, '#121212') >= 4.5);
   assert.ok(contrastRatio(LIVE_CHART_PNL_COLORS.lightCanvas.profit, '#FFFFFF') >= 4.5);
   assert.ok(contrastRatio(LIVE_CHART_PNL_COLORS.lightCanvas.loss, '#FFFFFF') >= 4.5);

@@ -8,7 +8,7 @@ import { FastPressable as Pressable } from '../FastPressable';
  * trade list to re-render on every market tick.
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager, PanResponder } from 'react-native';
+import { Alert, StyleSheet, Text, View, LayoutAnimation, Platform, PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -39,10 +39,8 @@ import {
 } from '../../../features/trade/tradeBackendCapabilities';
 import { OverlayActions } from './OverlayActions';
 import { tradePositionRowStyles as styles } from './styles';
+import { formatPointSize, resolveTradePositionPointValue } from '../../../utils/pricePoint';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 function resolveFiniteTradeDetailNumber(...values: Array<number | null | undefined>): number | undefined {
   return values.find((value): value is number => (
@@ -50,96 +48,6 @@ function resolveFiniteTradeDetailNumber(...values: Array<number | null | undefin
     Number.isFinite(value) &&
     value > 0
   ));
-}
-
-function resolvePointFromDigits(value: number | null | undefined): number | undefined {
-  if (
-    typeof value !== 'number' ||
-    !Number.isFinite(value) ||
-    !Number.isInteger(value) ||
-    value < 0 ||
-    value > 10
-  ) {
-    return undefined;
-  }
-
-  return Math.pow(10, -value);
-}
-
-const FIAT_SYMBOL_CODES = new Set([
-  'AUD',
-  'BRL',
-  'CAD',
-  'CHF',
-  'CNH',
-  'CZK',
-  'DKK',
-  'EUR',
-  'GBP',
-  'HKD',
-  'HUF',
-  'ILS',
-  'INR',
-  'JPY',
-  'MXN',
-  'NOK',
-  'NZD',
-  'PLN',
-  'RUB',
-  'SEK',
-  'SGD',
-  'TRY',
-  'USD',
-  'ZAR',
-]);
-
-function resolveSymbolPointFallback(symbol: string): number {
-  const cleanedSymbol = symbol.toUpperCase().replace(/[^A-Z]/g, '');
-  const base = cleanedSymbol.slice(0, 3);
-  const quote = cleanedSymbol.slice(3, 6);
-
-  if (
-    cleanedSymbol.includes('BTC') ||
-    cleanedSymbol.includes('ETH') ||
-    cleanedSymbol.includes('XAU') ||
-    cleanedSymbol.includes('XAG')
-  ) {
-    return 0.01;
-  }
-
-  if (FIAT_SYMBOL_CODES.has(base) && FIAT_SYMBOL_CODES.has(quote)) {
-    return quote === 'JPY' ? 0.001 : 0.00001;
-  }
-
-  return 0.01;
-}
-
-function resolveTradePositionPointValue({
-  symbol,
-  instrumentMeta,
-  liveQuote,
-}: {
-  symbol: string;
-  instrumentMeta?: {
-    point?: number;
-    tickSize?: number;
-    digits?: number;
-  };
-  liveQuote?: {
-    point?: number;
-    tickSize?: number;
-    digits?: number;
-  };
-}): number | undefined {
-  return resolveFiniteTradeDetailNumber(
-    instrumentMeta?.point,
-    liveQuote?.point,
-    instrumentMeta?.tickSize,
-    liveQuote?.tickSize,
-    resolvePointFromDigits(instrumentMeta?.digits),
-    resolvePointFromDigits(liveQuote?.digits),
-    resolveSymbolPointFallback(symbol),
-  );
 }
 
 function formatTradeDetailNumber(value: number | null | undefined): string {
@@ -191,6 +99,7 @@ function TradePositionRowComponent({
   onPress,
   onLongPress,
   onBulkPress,
+  onCloseSellPress,
   pnlCurrency = 'USD',
   selected = false,
   active = true,
@@ -200,6 +109,7 @@ function TradePositionRowComponent({
   onPress: (item: PositionItem) => void;
   onLongPress: (item: PositionItem) => void;
   onBulkPress?: () => void;
+  onCloseSellPress?: () => void;
   pnlCurrency?: string;
   selected?: boolean;
   active?: boolean;
@@ -333,8 +243,8 @@ function TradePositionRowComponent({
   const { data: instrumentMeta } = useInstrumentMeta(item.symbol, active);
 
   const livePrice = resolveLivePositionPrice(item, liveQuote);
-  const pointValue = resolveTradePositionPointValue({ symbol: item.symbol, instrumentMeta, liveQuote });
-  const pointText = formatTradeDetailNumber(pointValue);
+  const pointValue = resolveTradePositionPointValue({ instrumentMeta, liveQuote });
+  const pointText = formatPointSize(pointValue);
   const leverageText = formatTradeLeverage(accountLeverage);
   const limitsText = formatTradeLimits(item);
 
@@ -515,7 +425,7 @@ function TradePositionRowComponent({
                 </Text>
               </View>
               <View style={styles.detailCell}>
-                <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Point</Text>
+                <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Point size</Text>
                 <Text style={[styles.detailValue, { color: detailColor }]}>
                   {pointText}
                 </Text>
@@ -549,6 +459,7 @@ function TradePositionRowComponent({
               router.push('/(tabs)/chart');
             })}
             onBulk={onBulkPress ? () => runOverlayAction(onBulkPress) : undefined}
+            onCloseSell={onCloseSellPress ? () => runOverlayAction(onCloseSellPress) : undefined}
           />
         </View>
       </Animated.View>
@@ -564,5 +475,6 @@ export const TradePositionRow = memo(TradePositionRowComponent, (prev, next) => 
   prev.accountLeverage === next.accountLeverage &&
   prev.onPress === next.onPress &&
   prev.onLongPress === next.onLongPress &&
-  prev.onBulkPress === next.onBulkPress
+  prev.onBulkPress === next.onBulkPress &&
+  prev.onCloseSellPress === next.onCloseSellPress
 ));

@@ -1,3 +1,4 @@
+import { useTheme } from '../../../ui/theme/useTheme';
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import {
@@ -14,6 +15,7 @@ import { useTranslation } from '../../../i18n/useTranslation';
 
 
 export const LivePriceHeader = React.memo(({ styles, displayDecimals, priceSource, bid, ask, changePct = 0 }: any) => {
+  const T = useTheme();
   const { t } = useTranslation();
   const priceLabel = t('Price');
 
@@ -44,7 +46,7 @@ export const LivePriceHeader = React.memo(({ styles, displayDecimals, priceSourc
         {currentPrice.toFixed(displayDecimals)}
       </Text>
       <Text
-        style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]}
+        style={[styles.priceChangeText, { color: isUp ? T.trading.profit : '#F23645' }]}
         numberOfLines={1}
         adjustsFontSizeToFit
       >
@@ -57,7 +59,8 @@ export const LivePriceHeader = React.memo(({ styles, displayDecimals, priceSourc
 });
 
 export const LiveQuotePairHeader = React.memo(({ bid, ask, changePct, styles, displayDecimals }: any) => {
-  const tone = typeof changePct === 'number' && changePct >= 0 ? '#089981' : '#F23645';
+  const T = useTheme();
+  const tone = typeof changePct === 'number' && changePct >= 0 ? T.trading.profit : '#F23645';
   const hasBid = Number.isFinite(bid) && bid > 0;
   const hasAsk = Number.isFinite(ask) && ask > 0;
 

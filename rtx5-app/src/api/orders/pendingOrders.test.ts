@@ -6,6 +6,8 @@ import test from 'node:test';
 import {
   buildModifyPendingOrderRequestBody,
   normalizePendingOrderDto,
+  parseCancelPendingOrderResponse,
+  parseModifyPendingOrderResponse,
 } from './pendingOrders.ts';
 
 const baseDto = {
@@ -43,12 +45,75 @@ test('pending-list normalization has deterministic exact-field precedence', () =
     timeSetup: 1_784_800_000,
     volume: '0.1',
     price: '1.08',
+    priceLimit: null,
     sl: '1.07',
     tp: '1.09',
     expiry: 1_800_000_000,
     timeDone: null,
     comment: null,
+    stateVersion: null,
+    triggerPhase: null,
   });
+});
+
+test('v3 pending list rows expose state_version, price_limit, trigger_phase and stop-limit types', () => {
+  // Contract 6.3 place/list row shape.
+  const row = normalizePendingOrderDto({
+    ticket: 3003,
+    account_login: 200074,
+    symbol: 'EURUSD',
+    type: 'buy_limit',
+    volume: 0.01,
+    price: 1.13,
+    price_limit: null,
+    status: 'pending',
+    time_setup: 1790241800,
+    time_expiry: 1790328000,
+    state_version: '1',
+    trigger_phase: 'armed',
+    price_sl: 1.125,
+    price_tp: 1.14,
+  });
+  assert.equal(row.stateVersion, '1');
+  assert.equal(row.triggerPhase, 'armed');
+  assert.equal(row.priceLimit, null);
+  assert.equal(row.sl, '1.125');
+  assert.equal(row.tp, '1.14');
+  assert.equal(row.expiry, 1790328000);
+
+  const stopLimit = normalizePendingOrderDto({
+    ticket: 3004,
+    account_login: 200074,
+    symbol: 'EURUSD',
+    type: 'sell_stop_limit',
+    volume: 0.01,
+    price: 1.12,
+    price_limit: 1.121,
+    status: 'pending',
+    time_setup: 1790241800,
+    state_version: 7,
+  });
+  assert.equal(stopLimit.type, 'sell_stop_limit');
+  assert.equal(stopLimit.priceLimit, '1.121');
+  assert.equal(stopLimit.stateVersion, '7');
+});
+
+test('v3 pending modify/cancel acknowledgements are partial and allow state_version', () => {
+  assert.doesNotThrow(() => parseModifyPendingOrderResponse(
+    { ticket: 3003, status: 'modified', state_version: '2', price_limit: null, price: 1.131 },
+    3003,
+  ));
+  assert.throws(() => parseModifyPendingOrderResponse({ ticket: 3004, status: 'modified' }, 3003));
+  assert.throws(() => parseModifyPendingOrderResponse({ ticket: 3003, status: 'pending' }, 3003));
+
+  assert.doesNotThrow(() => parseCancelPendingOrderResponse(
+    { ticket: 3003, status: 'cancelled', time: 1790241900, state_version: '2' },
+    3003,
+  ));
+  assert.throws(() => parseCancelPendingOrderResponse(
+    { ticket: 3003, status: 'modified', time: 1790241900 },
+    3003,
+  ));
 });
 
 test('omitted pending stop and expiry families normalize to null', () => {
@@ -93,8 +158,30 @@ test('pending modify preserves omission, null clear, and partial fields', () => 
   });
   assert.throws(() => buildModifyPendingOrderRequestBody({}));
   assert.throws(() => buildModifyPendingOrderRequestBody({ price: undefined }));
-  assert.throws(() => buildModifyPendingOrderRequestBody({ sl: 0 }));
-  assert.throws(() => buildModifyPendingOrderRequestBody({ tp: 0 }));
+  // Contract 6.3: "no SL/TP" is null, never 0.
+  assert.deepEqual(buildModifyPendingOrderRequestBody({ sl: 0 }), { sl: null });
+  assert.deepEqual(buildModifyPendingOrderRequestBody({ tp: 0 }), { tp: null });
+  assert.deepEqual(
+    buildModifyPendingOrderRequestBody({ price_limit: '1.1210' }),
+    { price_limit: '1.121' },
+  );
+  assert.throws(() => buildModifyPendingOrderRequestBody({ sl: -1 }));
+});
+
+test('pending mutations always re-fetch the list and never auto-retry', () => {
+  const source = readFileSync(
+    resolve(process.cwd(), 'src/api/orders/pendingOrders.ts'),
+    'utf8',
+  );
+  const modifySource = source.slice(
+    source.indexOf('export const modifyPendingOrder'),
+    source.indexOf('const responseTicketMatches'),
+  );
+  // One transport call, then an unconditional captured-owner list read.
+  assert.equal(modifySource.match(/await apiClient\(/g)?.length, 1);
+  assert.match(modifySource, /parseModifyPendingOrderResponse\(await response\.json\(\), ticket\.numeric\)/);
+  assert.doesNotMatch(modifySource, /normalizePendingOrderDto\(await response\.json\(\)\)/);
+  assert.match(modifySource, /reconciliation = await reconcilePendingMutation\(owner, ticket\.numeric\)/);
 });
 
 test('pending cancel is zero-byte, stable-keyed, and always reaches reconciliation', () => {

@@ -34,9 +34,9 @@ const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   }
 };
 
-const warnOrderDiagnostic = (...args: Parameters<typeof console.warn>) => {
+const warnOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (ORDER_DIAGNOSTICS_ENABLED) {
-    console.warn(...args.map(redactDiagnosticValue));
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 

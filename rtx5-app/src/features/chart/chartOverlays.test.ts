@@ -123,6 +123,7 @@ test('buildChartOverlayPayload maps open positions for the chart symbol with the
     ['sl-1', 'open-1', 'tp-1'].sort(),
   );
   const openLine = payload.priceLines.find((line: any) => line.id === 'open-1');
+  assert.equal(openLine?.lineWidth, 1);
   assert.equal(openLine?.lineStyle, CHART_LINE_STYLE.Dotted);
   assert.equal(openLine?.title, 'BUY 0.20, +42.000 USD');
   assert.equal(openLine?.color, TEST_CHART_COLORS.tradeOpen);
@@ -494,6 +495,12 @@ test('per-tick open-position patches update only label values and preserve line 
   assert.equal(firstPayload.priceLines.find((line) => line.id === 'open-sell-tick')?.labelValueText, '+0.20000 USD');
   assert.equal(secondPayload.priceLines.find((line) => line.id === 'open-buy-tick')?.labelValueText, '-0.10000 USD');
   assert.equal(secondPayload.priceLines.find((line) => line.id === 'open-sell-tick')?.labelValueText, '-0.20000 USD');
+  for (const line of firstPayload.priceLines) {
+    assert.equal(line.labelValueColor, LIVE_CHART_PNL_COLORS.darkCanvas.profit);
+  }
+  for (const line of secondPayload.priceLines) {
+    assert.equal(line.labelValueColor, LIVE_CHART_PNL_COLORS.darkCanvas.loss);
+  }
   assert.deepEqual(
     secondPayload.priceLines.map((line) => ({
       id: line.id,

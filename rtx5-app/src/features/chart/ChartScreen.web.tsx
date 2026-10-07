@@ -1,4 +1,5 @@
 import { FastPressable as Pressable } from '../../ui/components/FastPressable';
+import { markTradeIntent } from '../../utils/tradeIntent';
 /**
  * Core Charting Interface for Web
  * 
@@ -15,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ActivityIndicator, Alert, LayoutChangeEvent, ScrollView, StyleSheet, Text, TextInput, View, Dimensions, Image, Platform } from 'react-native';
+import { ActivityIndicator, Alert, LayoutChangeEvent, ScrollView, StyleSheet, Text, TextInput, View, Image, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { runCriticalTradeAction, runImmediateAction } from '../../utils/actionLatency';
@@ -45,13 +46,14 @@ import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
-import { ThemeColors } from '../../ui/theme/glass';
+import { GDark, GLight, ThemeColors } from '../../ui/theme/glass';
 import { useLiveCandles, useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
 import { liveCandleStream as liveCandlesEngine } from '../../domain/candles/stream/liveCandleStream';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
 import { useLatestDailyCandle } from '../../domain/candles/query/candles';
 import { useMarketSymbols } from '../../query/market';
+import { buildAvailableChartSymbols, resolveBrokerChartSymbol } from './chartBrokerSymbols';
 import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useActiveBrokerQuerySession } from '../../query/authenticatedQueryScope';
@@ -131,7 +133,6 @@ import type { TradeSide } from '../../domain/tradeSide';
 import { buildChartMarketOrderPayload, getChartTradeAction } from './chartTradeActions';
 import { resolveChartTradeButtonQuote } from './components/ChartTradeButtonsFeature/quoteFallback';
 import {
-  DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
   SYMBOL_LOGOS,
   resolveChartSymbolCategory,
@@ -155,7 +156,7 @@ import { useAreaChartHistoryExpansion } from './useAreaChartHistoryExpansion';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 const CHART_OHLC_NEUTRAL_DARK_COLOR = '#FFFFFF';
 const CHART_OHLC_NEUTRAL_LIGHT_COLOR = '#0F172A';
-const CHART_OHLC_HIGH_COLOR = '#089981';
+const CHART_OHLC_HIGH_COLOR = GDark.trading.profit;
 const CHART_OHLC_LOW_COLOR = '#F23645';
 
 const applyWebAreaRecentViewport = (
@@ -205,29 +206,7 @@ const shouldExpandUntouchedWebAreaViewport = (input: Readonly<{
   return nextDefaultBars > priorDefaultBars && Math.abs(span - priorDefaultBars) <= tolerance;
 };
 
-const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
-  const ordered: string[] = [];
-  const indexByKey = new Map<string, number>();
-  const push = (symbol: string | null | undefined) => {
-    const trimmed = symbol?.trim();
-    if (!trimmed) return;
-    const key = trimmed.toUpperCase();
-    const existingIndex = indexByKey.get(key);
-    if (existingIndex !== undefined) {
-      if (trimmed === key && ordered[existingIndex] !== key) {
-        ordered[existingIndex] = trimmed;
-      }
-      return;
-    }
-    indexByKey.set(key, ordered.length);
-    ordered.push(trimmed);
-  };
 
-  push(chartSymbol);
-  apiSymbols.forEach(push);
-  DEFAULT_CHART_SYMBOLS.forEach(push);
-  return ordered;
-};
 
 type VolumeSourceCandle = {
   time: number;
@@ -303,6 +282,7 @@ const buildVolumeDatum = (
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource, active = true }: any) => {
+  const T = useTheme({ active });
   const liveQuotes = useMarketData([symbol], active);
   const q = liveQuotes[symbol] || {};
   const selectedQuote =
@@ -324,7 +304,7 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSour
         const change = q.change !== undefined ? q.change : (currentPrice - openPrice);
         const isUp = change >= 0;
         return (
-          <Text style={[styles.priceChangePct, { color: isUp ? '#089981' : '#F23645' }]}>
+          <Text style={[styles.priceChangePct, { color: isUp ? T.trading.profit : '#F23645' }]}>
             {change > 0 ? '+' : ''}{(change || 0).toFixed(displayDecimals)} ({changePct > 0 ? '+' : ''}{(changePct || 0).toFixed(2)}%)
           </Text>
         );
@@ -361,6 +341,8 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
     typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
 
   const handleTrade = (side: TradeSide) => {
+    // Tap time for the Journal's order latency telemetry.
+    markTradeIntent();
     if (requestOrrnnDemoTradeAuth({
       kind: oneClickAccepted ? 'market-order' : 'order-ticket',
       symbol,
@@ -513,6 +495,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles, active = true }: any) => {
+  const T = useTheme({ active });
   const latestTick = useLiveTick(symbol, undefined, active);
   if (!latestTick || candles.length < 2) return null;
 
@@ -528,7 +511,7 @@ const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles, act
     <View style={styles.tvLegendContainer} pointerEvents="box-none">
       <View>
         <View style={styles.tvLegendRow}>
-          <Text style={[styles.tvLegendPriceChange, { fontWeight: '500', color: isUp ? '#089981' : '#F23645' }]}>
+          <Text style={[styles.tvLegendPriceChange, { fontWeight: '500', color: isUp ? T.trading.profit : '#F23645' }]}>
             {(latestBid || 0).toFixed(displayDecimals)} {change > 0 ? '+' : ''}{change.toFixed(displayDecimals)} ({changePct > 0 ? '+' : ''}{changePct.toFixed(2)}%)
           </Text>
         </View>
@@ -569,7 +552,10 @@ const CustomDatePicker = ({ visible, onClose, onSelectDate, bg, text, accent, bo
         border: `1px solid ${borderColor || accent}`,
         padding: 20,
         borderRadius: 16,
-        width: 300,
+        width: 'min(300px, calc(100vw - 32px))',
+        boxSizing: 'border-box',
+        maxHeight: 'calc(100vh - 32px)',
+        overflowY: 'auto',
         color: text,
         boxShadow: '0 12px 48px rgba(0,0,0,0.6)'
       }}>
@@ -833,7 +819,7 @@ export function ChartScreen() {
   const drawingToolsRef = useRef<DrawingToolsManager | null>(null);
   const [overlayRevision, setOverlayRevision] = useState(0);
 
-  const { data: apiSymbols = [] } = useMarketSymbols(isScreenFocused);
+  const { data: apiSymbols } = useMarketSymbols(isScreenFocused);
   const availableSymbols = useMemo(
     () => buildAvailableChartSymbols(chartSymbol, apiSymbols),
     [apiSymbols, chartSymbol],
@@ -882,6 +868,7 @@ export function ChartScreen() {
     hasHistoryCandles: chartHasHistoryCandles,
     loading: chartDataLoading,
     error: chartDataError,
+    refresh: refreshChartHistory,
     paginate,
   } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
   const areaVisibleBarTarget = useAreaChartHistoryExpansion({
@@ -1032,12 +1019,12 @@ export function ChartScreen() {
       chartMetaLastCandle
         ? [
           { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: chartMetaNeutralColor },
-          { label: 'H', value: formatChartValue(chartMetaLastCandle.high), color: CHART_OHLC_HIGH_COLOR },
+          { label: 'H', value: formatChartValue(chartMetaLastCandle.high), color: isDark ? CHART_OHLC_HIGH_COLOR : GLight.trading.profit },
           { label: 'L', value: formatChartValue(chartMetaLastCandle.low), color: CHART_OHLC_LOW_COLOR },
           { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: chartMetaNeutralColor },
         ]
         : [],
-    [chartMetaLastCandle, chartMetaNeutralColor, formatChartValue],
+    [chartMetaLastCandle, chartMetaNeutralColor, formatChartValue, isDark],
   );
   // Renko bricks can span price movement across source candles, so displaying
   // them as one timed candle's O/H/L/C row would be misleading.
@@ -1440,7 +1427,7 @@ export function ChartScreen() {
       targets.forEach((targetSymbol) => {
         void prefetchChartTimeframeHistory(targetSymbol, chartTimeframe).catch((error) => {
           if (typeof __DEV__ !== 'undefined' && __DEV__) {
-            console.warn('[CHART] Web symbol picker history prefetch failed', {
+            console.log('[CHART] Web symbol picker history prefetch failed', {
               symbol: targetSymbol,
               timeframe: chartTimeframe,
               message: error instanceof Error ? error.message : String(error),
@@ -1492,6 +1479,12 @@ export function ChartScreen() {
     refreshSelectedChartHistory(nextSymbol, chartTimeframe);
     setChartSymbol(nextSymbol);
   }, [chartSymbol, chartTimeframe, refreshSelectedChartHistory, setChartSymbol]);
+
+  useEffect(() => {
+    if (!isScreenFocused) return;
+    const nextSymbol = resolveBrokerChartSymbol(chartSymbol, apiSymbols);
+    if (nextSymbol) handleSymbolSelect(nextSymbol);
+  }, [apiSymbols, chartSymbol, handleSymbolSelect, isScreenFocused]);
 
   useEffect(() => {
     if (!hasCandles) return;
@@ -1718,7 +1711,7 @@ export function ChartScreen() {
           }),
         );
       } catch (e) {
-        console.warn('[ChartOverlay] Error creating overlay line:', e);
+        console.error('[ChartOverlay] Error creating overlay line:', e);
       }
     });
 
@@ -1729,7 +1722,7 @@ export function ChartScreen() {
           overlayPayload.markers as any,
         ) as any;
       } catch (e) {
-        console.warn('[ChartOverlay] Error creating overlay markers:', e);
+        console.error('[ChartOverlay] Error creating overlay markers:', e);
       }
     }
   }, [overlayPayloadSignature, overlayRevision, overlaySyncRevision]);
@@ -1831,7 +1824,8 @@ export function ChartScreen() {
           {/* Top Integrated Toolbar (TradingView Exact Style) */}
           <View style={styles.chartTopToolbar}>
             <ScrollView
-              keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+              keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}
+              contentContainerStyle={styles.toolbarScrollContent}>
               <View style={styles.toolbarButtonRow}>
                 {/* 1: Symbol & Add */}
                 <View style={styles.toolbarLeadingGroup}>
@@ -1876,29 +1870,14 @@ export function ChartScreen() {
 
                 <View style={styles.toolbarSeparator} />
 
-                {/* 7: Chart Preferences */}
-                <Pressable
-                  style={styles.toolbarIconButton}
-                  onPressIn={() => runImmediateAction('chart.web.settings.open', () => {
-                    hideChartConfigDestination();
-                    showChartSettingsHost();
-                  })}
-                  hitSlop={8}
-                  unstable_pressDelay={0}
-                >
-                  <Ionicons name="options-outline" size={16} color={toolbarNeutralIconColor} />
-                </Pressable>
-
-                <View style={styles.toolbarSeparator} />
-
-                {/* 8: Expand */}
+                {/* 7: Expand */}
                 <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.expand.toggle', () => setIsChartExpanded(!isChartExpanded))} hitSlop={8} unstable_pressDelay={0}>
                   <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={16} color={toolbarFullscreenIconColor} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
-                {/* 9: More */}
+                {/* 8: More */}
                 <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.moreMenu.open', () => setShowMoreMenu(true))} hitSlop={8} unstable_pressDelay={0}>
                   <Ionicons name="ellipsis-vertical" size={16} color={toolbarNeutralIconColor} />
                 </Pressable>
@@ -1988,6 +1967,14 @@ export function ChartScreen() {
                   <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
                   <Text style={styles.overlayText}>Unable to load chart</Text>
                   <Text style={styles.overlaySubText}>{chartDataError ?? 'Waiting for market data connection...'}</Text>
+                  <View style={styles.overlayActions}>
+                    <Pressable accessibilityRole="button" style={styles.overlayAction} onPress={refreshChartHistory}>
+                      <Text style={styles.overlayActionText}>Retry</Text>
+                    </Pressable>
+                    <Pressable accessibilityRole="button" style={styles.overlayAction} onPress={handleOpenSymbolPicker}>
+                      <Text style={styles.overlayActionText}>Select Symbol</Text>
+                    </Pressable>
+                  </View>
                 </View>
               )}
 
@@ -1996,6 +1983,14 @@ export function ChartScreen() {
                   <Ionicons name="analytics-outline" size={36} color={TEXT_MUTED} />
                   <Text style={styles.overlayText}>No market data available</Text>
                   <Text style={styles.overlaySubText}>Waiting for backend candle data...</Text>
+                  <View style={styles.overlayActions}>
+                    <Pressable accessibilityRole="button" style={styles.overlayAction} onPress={refreshChartHistory}>
+                      <Text style={styles.overlayActionText}>Retry</Text>
+                    </Pressable>
+                    <Pressable accessibilityRole="button" style={styles.overlayAction} onPress={handleOpenSymbolPicker}>
+                      <Text style={styles.overlayActionText}>Select Symbol</Text>
+                    </Pressable>
+                  </View>
                 </View>
               )}
 
@@ -2187,6 +2182,15 @@ export function ChartScreen() {
         instantOpen
         actions={[
           {
+            label: 'Chart Preferences',
+            icon: <Ionicons name="options-outline" size={20} color={TEXT_MUTED} />,
+            onPress: () => runImmediateAction('chart.web.settings.open', () => {
+              setShowMoreMenu(false);
+              hideChartConfigDestination();
+              showChartSettingsHost();
+            }),
+          },
+          {
             label: 'Remove from favorites',
             icon: <Ionicons name="star" size={20} color={TEXT_MUTED} />,
             onPress: () => { setShowMoreMenu(false); }
@@ -2377,7 +2381,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitleText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
       fontSize: 18,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0.3,
     },
     accountDot: {
@@ -2386,7 +2390,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 3,
     },
     dotDemo: {
-      backgroundColor: '#00E676',
+      backgroundColor: T.trading.profit,
     },
     dotLive: {
       backgroundColor: isDark ? '#FACC15' : '#D97706',
@@ -2397,7 +2401,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       letterSpacing: 0.5,
     },
     textDemo: {
-      color: '#00E676',
+      color: T.trading.profit,
     },
     textLive: {
       color: isDark ? '#FACC15' : '#D97706',
@@ -2523,9 +2527,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       flex: 1,
     },
+    toolbarScrollContent: {
+      flexGrow: 1,
+    },
     toolbarButtonRow: {
+      flexGrow: 1,
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'flex-end',
       height: '100%',
       paddingRight: 12,
     },
@@ -2746,17 +2755,48 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: isDark ? 'rgba(5, 8, 16, 0.85)' : 'rgba(255, 255, 255, 0.85)',
+      paddingHorizontal: 24,
+      paddingVertical: 16,
     },
     overlayText: {
-      color: isDark ? TEXT_MUTED : '#475569',
-      fontSize: 14,
+      color: T.text,
+      fontSize: 16,
       fontWeight: '600',
       marginTop: 12,
+      textAlign: 'center',
     },
     overlaySubText: {
-      color: isDark ? 'rgba(142, 154, 175, 0.6)' : '#94A3B8',
-      fontSize: 12,
-      marginTop: 4,
+      color: T.textMuted,
+      fontSize: 13,
+      lineHeight: 20,
+      marginTop: 8,
+      textAlign: 'center',
+      maxWidth: 320,
+    },
+    overlayActions: {
+      marginTop: 20,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 10,
+      maxWidth: '100%',
+    },
+    overlayAction: {
+      minHeight: 44,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 10,
+      backgroundColor: T.glass2,
+      borderWidth: 1,
+      borderColor: T.borderSubtle,
+      justifyContent: 'center',
+      maxWidth: '100%',
+    },
+    overlayActionText: {
+      color: BLUE,
+      fontSize: 14,
+      fontWeight: '600',
+      textAlign: 'center',
     },
     tvLegendContainer: {
       position: 'absolute',

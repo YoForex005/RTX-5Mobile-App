@@ -1,11 +1,14 @@
-import type { FeedAuthContext } from './activeBrokerSession';
-
 export const AUTH_CREDENTIAL_BUNDLE_VERSION = 1 as const;
 export const AUTH_CREDENTIAL_BUNDLE_KEY = 'rtx5_auth_credential_bundle_v1';
 
 export const LEGACY_ACCESS_TOKEN_KEY = 'access_token';
 export const LEGACY_REFRESH_TOKEN_KEY = 'refresh_token';
 export const LEGACY_EXPIRES_AT_KEY = 'expires_at';
+/**
+ * Secure-store keys from the removed feed-token era. They are never read; they
+ * are only deleted on every credential replace/clear so no stale secret stays
+ * on the device.
+ */
 export const LEGACY_FEED_TOKEN_KEYS = [
   'feed_broker_token',
   'broker_feed_token',
@@ -27,8 +30,6 @@ export type SecureAuthCredentialBundle = {
   accessToken: string;
   refreshToken: string;
   expiresAt: string;
-  feedToken?: string;
-  feedAuthContext: FeedAuthContext;
 };
 
 export type SecureAuthCredentialInput = {
@@ -37,15 +38,17 @@ export type SecureAuthCredentialInput = {
   accessToken: string;
   refreshToken?: string | null;
   expiresAt?: string | null;
-  feedToken?: string | null;
-  feedAuthContext?: FeedAuthContext | null;
 };
+
+// Read provenance only; never persisted as part of the credential bundle.
+const canonicalStoredBundles = new WeakSet<SecureAuthCredentialBundle>();
+export const isCanonicalStoredAuthCredentialBundle = (bundle: SecureAuthCredentialBundle): boolean =>
+  canonicalStoredBundles.has(bundle);
 
 export type LegacyAuthCredentialInput = {
   accessToken?: string | null;
   refreshToken?: string | null;
   expiresAt?: string | null;
-  feedToken?: string | null;
 };
 
 export type SecureCredentialStorage = {
@@ -59,108 +62,18 @@ const cleanString = (value: unknown): string =>
     ? String(value).trim()
     : '';
 
-const normalizeBrokerId = (value: unknown): string => cleanString(value).toLowerCase();
-
-const preserveNonBlankFeedToken = (value: unknown): string =>
-  typeof value === 'string' && value.trim() ? value : '';
-
-const normalizeFeedAuthContext = (
-  value: unknown,
-  brokerId: string,
-  hasFeedToken: boolean,
-): FeedAuthContext => {
-  const missing = (reason: 'missing_contract' | 'missing_credential'): FeedAuthContext =>
-    Object.freeze({ mode: 'disabled_unconfigured', reason });
-  const record = value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-
-  if (!record) {
-    if (brokerId !== 'achiever-financials' && hasFeedToken) {
-      return Object.freeze({
-        mode: 'query',
-        credential: 'feed_token',
-        tokenQueryParam: 'token',
-        brokerIdQueryParam: 'broker_id',
-      });
-    }
-    return missing('missing_contract');
-  }
-  if (
-    record.mode === 'disabled_unconfigured' &&
-    (record.reason === 'missing_contract' || record.reason === 'missing_credential')
-  ) {
-    return missing(record.reason);
-  }
-  if (record.mode === 'none') {
-    return brokerId === 'achiever-financials'
-      ? missing('missing_contract')
-      : Object.freeze({ mode: 'none' });
-  }
-  if (
-    record.mode !== 'query' ||
-    (record.credential !== 'feed_token' && record.credential !== 'access_token')
-  ) {
-    return missing('missing_contract');
-  }
-
-  const tokenQueryParam = cleanString(record.tokenQueryParam);
-  const brokerIdQueryParam = cleanString(record.brokerIdQueryParam);
-  const accountLoginQueryParam = cleanString(record.accountLoginQueryParam);
-  const params = [tokenQueryParam, brokerIdQueryParam, accountLoginQueryParam].filter(Boolean);
-  const validParam = (param: string): boolean =>
-    /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(param);
-  if (
-    !tokenQueryParam ||
-    params.some((param) => !validParam(param)) ||
-    new Set(params).size !== params.length ||
-    (
-      brokerId === 'achiever-financials' &&
-      (
-        record.credential !== 'feed_token' ||
-        tokenQueryParam !== 'token' ||
-        brokerIdQueryParam !== 'broker_id' ||
-        Boolean(accountLoginQueryParam)
-      )
-    )
-  ) {
-    return missing('missing_contract');
-  }
-  if (record.credential === 'feed_token' && !hasFeedToken) {
-    return missing('missing_credential');
-  }
-  return Object.freeze({
-    mode: 'query',
-    credential: record.credential,
-    tokenQueryParam,
-    ...(brokerIdQueryParam ? { brokerIdQueryParam } : {}),
-    ...(accountLoginQueryParam ? { accountLoginQueryParam } : {}),
-  });
-};
+const normalizeBrokerId = (value: unknown): string => cleanString(value);
 
 const createBundle = (input: SecureAuthCredentialInput): SecureAuthCredentialBundle => {
   const brokerId = normalizeBrokerId(input.brokerId);
   const accountLogin = cleanString(input.accountLogin);
   const accessToken = cleanString(input.accessToken);
-  if (!brokerId || !accountLogin || !accessToken) {
+  if (!brokerId || !/^\d+$/.test(accountLogin) || !/[1-9]/.test(accountLogin) || typeof input.accountLogin === 'number' && !Number.isSafeInteger(input.accountLogin) || !accessToken) {
     throw new Error('Secure auth credentials require brokerId, accountLogin, and accessToken.');
   }
 
-  const rawCandidateFeedToken = preserveNonBlankFeedToken(input.feedToken);
-  const candidateFeedToken =
-    brokerId === 'achiever-financials' && rawCandidateFeedToken === accessToken
-      ? ''
-      : rawCandidateFeedToken;
-  const feedAuthContext = normalizeFeedAuthContext(
-    input.feedAuthContext,
-    brokerId,
-    Boolean(candidateFeedToken),
-  );
-  const feedToken =
-    feedAuthContext.mode === 'query' &&
-    feedAuthContext.credential === 'feed_token'
-      ? candidateFeedToken
-      : '';
+  // Only these fields are written. Any extra field of an input object (for
+  // example a pre-v3 feed-auth field) is never copied into storage.
   return {
     version: AUTH_CREDENTIAL_BUNDLE_VERSION,
     brokerId,
@@ -168,8 +81,6 @@ const createBundle = (input: SecureAuthCredentialInput): SecureAuthCredentialBun
     accessToken,
     refreshToken: cleanString(input.refreshToken),
     expiresAt: cleanString(input.expiresAt),
-    ...(feedToken ? { feedToken } : {}),
-    feedAuthContext,
   };
 };
 
@@ -177,19 +88,24 @@ const parseBundle = (value: string | null): SecureAuthCredentialBundle | null =>
   if (!value) return null;
 
   try {
+    // Bundles written before contract v3 also hold feed-auth fields.
+    // Those fields are ignored (not an error) so the user stays signed in.
     const parsed = JSON.parse(value) as Partial<SecureAuthCredentialBundle> | null;
     if (!parsed || parsed.version !== AUTH_CREDENTIAL_BUNDLE_VERSION) {
       return null;
     }
-    return createBundle({
+    const bundle = createBundle({
       brokerId: parsed.brokerId ?? '',
       accountLogin: parsed.accountLogin ?? '',
       accessToken: parsed.accessToken ?? '',
       refreshToken: parsed.refreshToken,
       expiresAt: parsed.expiresAt,
-      feedToken: parsed.feedToken,
-      feedAuthContext: parsed.feedAuthContext,
     });
+    if (Object.keys(parsed).length === Object.keys(bundle).length &&
+      Object.entries(bundle).every(([key, value]) => (parsed as Record<string, unknown>)[key] === value)) {
+      canonicalStoredBundles.add(bundle);
+    }
+    return bundle;
   } catch {
     return null;
   }
@@ -251,10 +167,15 @@ export class SecureCredentialBundleStore {
     return this.enqueueMutation(async () => {
       const bundle = createBundle(input);
       // One versioned value makes credential replacement atomic at the secure
-      // storage boundary. Legacy individual keys are cleanup-only afterwards.
-      await this.storage.setItem(AUTH_CREDENTIAL_BUNDLE_KEY, JSON.stringify(bundle));
+      // storage boundary. Legacy keys are never read, so their independent
+      // deletion can overlap the bundle write. Settle both before rollback.
       try {
-        await this.removeLegacyCredentials();
+        const results = await Promise.allSettled([
+          this.storage.setItem(AUTH_CREDENTIAL_BUNDLE_KEY, JSON.stringify(bundle)),
+          this.removeLegacyCredentials(),
+        ]);
+        const failed = results.find(result => result.status === 'rejected');
+        if (failed?.status === 'rejected') throw failed.reason;
       } catch (error) {
         await Promise.allSettled([
           this.storage.removeItem(AUTH_CREDENTIAL_BUNDLE_KEY),
@@ -273,6 +194,11 @@ export class SecureCredentialBundleStore {
         ...LEGACY_AUTH_CREDENTIAL_KEYS.map((key) => this.storage.removeItem(key)),
       ]);
     });
+  }
+
+  /** Housekeeping only: serialize with replacements and never touch the bundle. */
+  clearLegacy(): Promise<void> {
+    return this.enqueueMutation(() => this.removeLegacyCredentials());
   }
 
   migrateLegacy(input: {
@@ -309,7 +235,6 @@ export class SecureCredentialBundleStore {
       const accessToken = cleanString(supplied.accessToken);
       const refreshToken = cleanString(supplied.refreshToken);
       const expiresAt = cleanString(supplied.expiresAt);
-      const feedToken = preserveNonBlankFeedToken(supplied.feedToken);
 
       if (!accessToken) {
         await this.removeLegacyCredentials();
@@ -322,7 +247,6 @@ export class SecureCredentialBundleStore {
         accessToken,
         refreshToken,
         expiresAt,
-        feedToken,
       });
       await this.storage.setItem(AUTH_CREDENTIAL_BUNDLE_KEY, JSON.stringify(bundle));
       await this.removeLegacyCredentials();

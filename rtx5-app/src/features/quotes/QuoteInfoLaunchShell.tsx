@@ -310,7 +310,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       color: T.text,
       flex: 1,
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: '500',
       textAlign: 'center',
     },
     hero: {

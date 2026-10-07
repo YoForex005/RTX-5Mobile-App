@@ -7,13 +7,14 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  * multi-dimension filtering, and live countdown timers.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { AppMenuIcon } from '../../../ui/components/AppMenuIcon';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
-import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
+import { useRetainedRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { useIsDarkTheme } from '../../../state/themeMode';
 import { useUIState } from '../../../state/uiState';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -50,8 +51,8 @@ const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 0;
  * Screen displaying a calendar of upcoming global macroeconomic events and their expected market impact.
  */
 export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
-  const routeBodyReady = useDeferredRouteContentReady(
-    isScreenFocused ? 0 : ECON_CALENDAR_BODY_PREWARM_DELAY_MS,
+  const routeBodyReady = useRetainedRouteContentReady(
+    isScreenFocused, ECON_CALENDAR_BODY_PREWARM_DELAY_MS,
   );
   const T = useTheme();
   const isDark = useIsDarkTheme();
@@ -76,6 +77,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
   }, [dataEvents.length]);
 
   useEffect(() => {
+    if (!routeBodyReady) return;
     // MT5-parity prewarm: this shell stays mounted (inactive) in the sidebar
     // destination host from boot. Replace the generated-fallback cache with
     // LIVE events once during idle boot time so the FIRST sidebar visit
@@ -91,7 +93,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
       }).catch(() => undefined);
     }, ECON_CALENDAR_IDLE_PREWARM_DELAY_MS);
     return () => clearTimeout(prewarmTimer);
-  }, []);
+  }, [routeBodyReady]);
 
   const loadData = useCallback(() => {
     fetchEconomicCalendarData().then((data) => {
@@ -158,8 +160,8 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
     const isLast = idx === total - 1;
 
     if (isExpanded && !event.isAllDay) {
-      const forecastDiff = parseAndDiff(event.actual, event.forecast);
-      const previousDiff = parseAndDiff(event.actual, event.previous);
+      const forecastDiff = parseAndDiff(event.actual, event.forecast, T.trading.profit);
+      const previousDiff = parseAndDiff(event.actual, event.previous, T.trading.profit);
 
       return (
         <Pressable
@@ -180,7 +182,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
                 </View>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: config.color + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 }}>
-                <PulseDot color={config.color} size={5} />
+                <PulseDot color={config.color} size={5} active={isScreenFocused} />
                 <Text style={{ marginLeft: 6, color: config.color, fontSize: 10, fontWeight: '600', letterSpacing: 0.5 }}>{t(config.label).toUpperCase()}</Text>
               </View>
             </View>
@@ -284,7 +286,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
         </View>
       </Pressable>
     );
-  }, [expandedEventId, styles, isDark, T, t]);
+  }, [expandedEventId, styles, isDark, T, t, isScreenFocused]);
 
   return (
     <Screen style={styles.screen}>
@@ -305,9 +307,9 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
             accessibilityRole="button"
             accessibilityLabel="Open menu"
           >
-            <Ionicons name="menu" size={28} color={T.text} />
+            <AppMenuIcon color={T.text} />
           </Pressable>
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>
+          <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '500', color: T.text }}>
             {t('Economic Calender')}
           </Text>
           <View style={{ width: 46 }} />

@@ -25,9 +25,19 @@ export const getPositionHistoryQueryKey = (
   login?: number,
   pageLimit?: number,
   maxPages?: number,
-) => pageLimit === undefined && maxPages === undefined
+  from?: number,
+  to?: number,
+) => pageLimit === undefined && maxPages === undefined && from === undefined && to === undefined
   ? [POSITION_HISTORY_KEY, cacheNamespace, login] as const
-  : [POSITION_HISTORY_KEY, cacheNamespace, login, pageLimit ?? null, maxPages ?? null] as const;
+  : [
+    POSITION_HISTORY_KEY,
+    cacheNamespace,
+    login,
+    pageLimit ?? null,
+    maxPages ?? null,
+    from ?? null,
+    to ?? null,
+  ] as const;
 
 type PollingQueryOptions = {
   enabled?: boolean;
@@ -35,8 +45,16 @@ type PollingQueryOptions = {
   refetchOnMount?: boolean | 'always';
   staleTime?: number;
   subscribed?: boolean;
+  /**
+   * @deprecated The v3 history endpoint ignores limit/offset. Kept only so
+   * existing callers keep an isolated cache entry; it is not sent.
+   */
   pageLimit?: number;
+  /** Maximum number of from/to time windows to walk (see closedHistory.ts). */
   maxPages?: number;
+  /** Optional history range in unix seconds. */
+  from?: number;
+  to?: number;
 };
 
 const resolvePollingRefetchInterval = (
@@ -66,7 +84,8 @@ function mapPositionToItem(dto: Position): PositionItem {
     openPrice: dto.price_open,
     currentPrice: dto.price_current,
     // Backend `profit` is price profit. The row P/L shown to users is net P/L,
-    // so swap and commission must be included exactly once.
+    // so swap and commission must be included exactly once. The v3 gateway
+    // does not send `commission`; a missing value means 0.
     pnl: dto.profit + (dto.swap || 0) + (dto.commission || 0),
     swap: dto.swap || 0,
     commission: dto.commission || 0,
@@ -119,15 +138,16 @@ export function usePositionHistoryQuery(
       login,
       options.pageLimit,
       options.maxPages,
+      options.from,
+      options.to,
     ),
     queryFn: () => runSessionBoundQuery(
       cacheNamespace,
-      () => positionsApi.getPositionHistory(
-        login!,
-        options.pageLimit,
-        0,
-        options.maxPages,
-      ),
+      () => positionsApi.getPositionHistory(login!, {
+        maxWindows: options.maxPages,
+        from: options.from,
+        to: options.to,
+      }),
     ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 30000, options.refetchInterval),
@@ -159,7 +179,6 @@ export function useClosePositionMutation() {
         'deals',
         'accountDeals',
         'accountSummary',
-        'exposure',
         'transactions',
       ]);
     },

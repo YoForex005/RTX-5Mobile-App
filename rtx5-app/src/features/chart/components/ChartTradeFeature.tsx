@@ -1,6 +1,7 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
+import { useTheme } from '../../../ui/theme/useTheme';
 import {
   type LayoutChangeEvent, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
@@ -301,6 +302,7 @@ function ChartTradeStopLevelsSection({
   handlers: any;
   useMtPendingTradeSheetLayout: boolean;
 }) {
+  const T = useTheme();
   const { t } = useTranslation();
   const slEnabled = !!sheet.chartTradeSlEnabled;
   const tpEnabled = !!sheet.chartTradeTpEnabled;
@@ -546,7 +548,7 @@ function ChartTradeStopLevelsSection({
             >
               <View style={styles.chartTradeStopPairHeader}>
                 <View style={[styles.chartTradeStopPairBadge, styles.chartTradeStopPairBadgeTp]}>
-                  <Ionicons name="trending-up-outline" size={16} color="#16A34A" />
+                  <Ionicons name="trending-up-outline" size={16} color={T.trading.profit} />
                 </View>
                 {sheet.chartTradeStopUnit === 'Pips' ? (
                   <Pressable
@@ -622,24 +624,28 @@ function ChartTradeSheetContent({
         >
           {/* Open from the first accepted touch so the already-preloaded symbol
               picker begins moving before a normal release-based press fires. */}
-          <Pressable
-            style={styles.chartTradeSheetSymbolBlock}
-            onPress={handlers.onOpenSymbolPicker}
-            activateOnPressIn
-            activateOnTouchStart
-            latencyLabel="chart.symbolPicker.open"
-            unstable_pressDelay={0}
-          >
-            <View style={styles.chartTradeSheetSymbolRow}>
-              <Text style={styles.chartTradeSheetSymbolText} numberOfLines={1} adjustsFontSizeToFit>
-                {symbolHeader.displaySymbol}
+          <View style={styles.chartTradeSheetSymbolBlock}>
+            <Pressable
+              style={styles.chartTradeSheetSymbolButton}
+              hitSlop={0}
+              pressRetentionOffset={0}
+              onPress={handlers.onOpenSymbolPicker}
+              activateOnPressIn
+              activateOnTouchStart
+              latencyLabel="chart.symbolPicker.open"
+              unstable_pressDelay={0}
+            >
+              <View style={styles.chartTradeSheetSymbolRow}>
+                <Text style={styles.chartTradeSheetSymbolText} numberOfLines={1} adjustsFontSizeToFit>
+                  {symbolHeader.displaySymbol}
+                </Text>
+                <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
+              </View>
+              <Text style={styles.chartTradeSheetSymbolMeta} numberOfLines={1} adjustsFontSizeToFit>
+                {symbolHeader.symbolName}
               </Text>
-              <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
-            </View>
-            <Text style={styles.chartTradeSheetSymbolMeta} numberOfLines={1} adjustsFontSizeToFit>
-              {symbolHeader.symbolName}
-            </Text>
-          </Pressable>
+            </Pressable>
+          </View>
           <ChartTradeSheetHeaderActions
             styles={styles}
             colors={colors}
@@ -1043,29 +1049,36 @@ function ChartTradeSheetPinnedHeader({
       >
         {/* The pinned header uses the same touch-start path as the inline
             header, keeping symbol-picker response equal in both layouts. */}
-        <Pressable
+        {/* Keep the flexible spacing outside the symbol's touch target. */}
+        <View
           style={[
             styles.chartTradeSheetSymbolBlock,
             compactForAppMenu && styles.chartTradeSheetSymbolBlockCompact,
           ]}
-          onPress={handlers.onOpenSymbolPicker}
-          activateOnPressIn
-          activateOnTouchStart
-          latencyLabel="chart.symbolPicker.open"
-          unstable_pressDelay={0}
         >
-          <View style={styles.chartTradeSheetSymbolRow}>
-            <Text style={styles.chartTradeSheetSymbolText} numberOfLines={1} adjustsFontSizeToFit>
-              {symbolHeader.displaySymbol}
-            </Text>
-            <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
-          </View>
-          {!compactForAppMenu ? (
-            <Text style={styles.chartTradeSheetSymbolMeta} numberOfLines={1} adjustsFontSizeToFit>
-              {symbolHeader.symbolName}
-            </Text>
-          ) : null}
-        </Pressable>
+          <Pressable
+            style={styles.chartTradeSheetSymbolButton}
+            hitSlop={0}
+            pressRetentionOffset={0}
+            onPress={handlers.onOpenSymbolPicker}
+            activateOnPressIn
+            activateOnTouchStart
+            latencyLabel="chart.symbolPicker.open"
+            unstable_pressDelay={0}
+          >
+            <View style={styles.chartTradeSheetSymbolRow}>
+              <Text style={styles.chartTradeSheetSymbolText} numberOfLines={1} adjustsFontSizeToFit>
+                {symbolHeader.displaySymbol}
+              </Text>
+              <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
+            </View>
+            {!compactForAppMenu ? (
+              <Text style={styles.chartTradeSheetSymbolMeta} numberOfLines={1} adjustsFontSizeToFit>
+                {symbolHeader.symbolName}
+              </Text>
+            ) : null}
+          </Pressable>
+        </View>
         <ChartTradeSheetHeaderActions
           styles={styles}
           colors={colors}

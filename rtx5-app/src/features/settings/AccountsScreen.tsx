@@ -36,6 +36,8 @@ import {
   useTradeNotifications,
 } from '../../state/tradeNotifications';
 import { signInWithCredentials } from '../../api/authSession';
+import { dismissAuthFlow } from '../trade/authFlowState';
+import { enrichSignedInAccountProfile } from '../../api/authSessionProfile';
 import { isLoginRequestAbortedError } from '../../api/auth';
 import { redactAuthPayload, redactSensitiveString } from '../../api/authRedaction';
 import { removeSecureItemAsync } from '../../utils/secureStorage';
@@ -45,13 +47,9 @@ import { ActionSheet } from '../../ui/components/ActionSheet';
 
 
 // ── API Integration: fetches live account + broker data for active card ──
-import {
-  useAccountDetails,
-  useAccounts,
-} from '../../query/accounts';
+import { useAccountDetails } from '../../query/accounts';
 import { useBrokerConfig, useBrokerServers } from '../../query/broker';
 import { useHealth } from '../../query/health';
-import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
@@ -92,7 +90,7 @@ import {
   hideSidebarDestination,
   sidebarDestinationController,
 } from '../../ui/components/sidebarDestinationHostController';
-import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
+import { useRetainedRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import {
   hideBrokersLaunch,
   scheduleBrokersLaunchNavigation,
@@ -107,6 +105,12 @@ import {
   type BrokerSessionCommitAuthorization,
 } from '../../services/brokerSessionCoordinator';
 import { getActiveBrokerSessionProvenance } from '../../state/activeBrokerSession';
+import { resolveAccountBrokerLabels } from './accountBrokerLabels';
+import {
+  resolveSavedAccountEnvironmentForDisplay,
+  resolveSettingsAccountEnvironment,
+  SETTINGS_ACCOUNT_ENVIRONMENT_BADGES,
+} from './SettingsScreen/accountEnvironmentBadge';
 
 const ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE =
   'Account does not exist on this broker anymore. It was removed from this device.';
@@ -152,7 +156,7 @@ const AccountsActionSheetHost = React.memo(function AccountsActionSheetHost() {
   );
 });
 
-const ACCOUNTS_SCREEN_DATA_DELAY_MS = 650;
+const ACCOUNTS_SCREEN_DATA_DELAY_MS = 0;
 // The sidebar host keeps this screen mounted from boot. Prewarm its visual
 // body and run the account queries once while it is still hidden, so the
 // first "Manage accounts" open shows real content instead of loading UI.
@@ -367,13 +371,16 @@ type DeleteAccountTarget =
   | { type: 'current' }
   | { type: 'saved'; row: OtherAccountRow };
 
-const buildSavedAccountSnapshot = (account: TradingAccount): SavedAccountSnapshot => ({
+const buildSavedAccountSnapshot = (
+  account: TradingAccount,
+  openPositionsCount?: number,
+): SavedAccountSnapshot => ({
   balance: account.balance,
   equity: account.equity,
   freeMargin: account.freeMargin,
   leverage: account.leverage,
   floatingPnl: account.floatingPnl,
-  openPositions: account.openPositions,
+  openPositions: openPositionsCount ?? account.openPositions,
   currency: account.currency,
   updatedAt: account.updatedAt,
 });
@@ -436,8 +443,8 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   // Match the mounted Trade tab: prepare the complete native body before the
   // drawer tap, then reveal an already-built layer. Queries, sockets, broker
   // warmups, and overlays remain gated by isScreenFocused below.
-  const hostBodyReady = useDeferredRouteContentReady(
-    isScreenFocused ? 0 : ACCOUNTS_BODY_PREWARM_DELAY_MS,
+  const hostBodyReady = useRetainedRouteContentReady(
+    isScreenFocused, ACCOUNTS_BODY_PREWARM_DELAY_MS,
   );
   const showAccountsBody = isScreenFocused || hostBodyReady;
 
@@ -468,7 +475,8 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     };
   }, []);
 
-  // ── GET /accounts — live trading accounts for the authenticated user ──
+  // ── GET /account/{login} — the session's trading account ──
+  // (`GET /accounts` returns 403 for traders under contract v3 and is not called.)
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const focusDataActive = useDeferredActiveFlag(
     isLoggedIn && isScreenFocused && firstPaintReady,
@@ -493,7 +501,6 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     };
   }, []);
   const screenDataActive = focusDataActive || (isLoggedIn && dataPrewarmWindowActive);
-  const { data: accounts } = useAccounts(screenDataActive);
 
   // ── GET /broker/config — broker name and server name ──
   const brokerId = useUserPreferences((s) => s.brokerId);
@@ -516,39 +523,40 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
 
   // Find the active account by matching the login from Zustand state
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
-  const listedAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
-  const activeLogin = listedAccount?.login ?? currentLogin;
+  const activeLogin = currentLogin;
   const { data: activeAccountDetails } = useAccountDetails(activeLogin, screenDataActive && !!activeLogin);
-  const activeAccount = activeAccountDetails ?? listedAccount;
-  const activeIsDemo = activeAccountType === 'demo';
-  const activeRibbonLabel = t(
-    activeAccountType === 'demo'
-      ? 'Demo'
-      : activeAccountType === 'contest'
-        ? 'Contest'
-        : 'Real',
-  );
-  const activeBadgeLabel = t(
-    activeAccountType === 'demo'
-      ? 'Demo'
-      : activeAccountType === 'contest'
-        ? 'Contest'
-        : 'Live',
-  );
+  const activeAccount = activeAccountDetails;
+  const activeEnvironment = resolveSettingsAccountEnvironment(activeAccount, {
+    accountType: activeAccountType,
+    source: activeAccountEnvironmentSource,
+  });
+  const activeEnvironmentBadge = SETTINGS_ACCOUNT_ENVIRONMENT_BADGES[activeEnvironment];
+  const activeRibbonLabel = t(activeEnvironmentBadge.label);
   const hasConnectedAccount = hasAuthenticatedAccountSession(isLoggedIn, accountDetails);
 
-  // Build the unified "Other Connected Accounts" list. We merge two sources:
-  //   1. `accounts` from /accounts — sub-accounts of the current session
-  //      (full live balance/equity), excluding the active account.
-  //   2. The persistent saved-accounts directory — accounts the user logged
-  //      into in prior sessions, even on different brokers.
-  // Entries are deduped by `${brokerId}:${login}`. When both sources have the
-  // same key, we keep the live data (richer) but treat credentials as saved.
+  // Build the "Other Connected Accounts" list from the persistent
+  // saved-accounts directory — accounts the user logged into in prior
+  // sessions, even on different brokers. Entries are deduped by
+  // `${brokerId}:${login}`. (Contract v3 has no per-user account list:
+  // `GET /accounts` is 403 for traders.)
   const activeBrokerId = brokerId;
   const activeLoginStr = activeAccount
     ? String(activeAccount.login)
     : accountDetails?.id ?? '';
   const activeKey = buildAccountEnvironmentKey(activeBrokerId, activeLoginStr);
+  const savedActiveAccount = savedAccounts.find(
+    (account) => buildAccountEnvironmentKey(account.brokerId, account.login) === activeKey,
+  );
+  const activeBrokerLabels = resolveAccountBrokerLabels({
+    brokerId: activeBrokerId,
+    serverUrl: brokerServerUrl || savedActiveAccount?.serverUrl,
+    config: brokerConfig,
+    directory: brokerServers,
+    sessionServerName: accountDetails?.server,
+    savedServerName: savedActiveAccount?.server,
+  });
+  const displayBrokerName = activeBrokerLabels.brokerName || t('Broker unavailable');
+  const displayServerName = activeBrokerLabels.serverName || t('Server unavailable');
 
   const otherRows: OtherAccountRow[] = useMemo(() => {
     const map = new Map<string, OtherAccountRow>();
@@ -595,66 +603,12 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       });
     }
 
-    for (const a of accounts ?? []) {
-      const loginStr = String(a.login);
-      const key = buildAccountEnvironmentKey(activeBrokerId, loginStr);
-      if (key === activeKey) continue;
-      const existing = map.get(key);
-      const resolvedAccountType = a.accountEnvironment;
-      const resolvedSource = a.accountEnvironmentSource;
-      const previousListedEnvironment: AccountEnvironmentState | null =
-        existing && existing.accountType !== 'unknown'
-          ? {
-              accountKey: key,
-              accountType: existing.accountType,
-              accountEnvironmentSource: existing.accountEnvironmentSource,
-              isDemoAccount: existing.accountType === 'demo',
-            }
-          : null;
-      const mergedAccountEnvironment = mergeAccountEnvironment(
-        previousListedEnvironment,
-        {
-          accountKey: key,
-          resolved: resolvedAccountType,
-          source: resolvedSource,
-          allowInitialFallback: !previousListedEnvironment,
-        },
-      )!;
-      const rowServerUrl = existing?.serverUrl || brokerServerUrl;
-      const rowLogoUrl = resolveAccountBrokerLogoUrl(
-        brokerLogoIndex,
-        {
-          brokerId: activeBrokerId,
-          serverUrl: rowServerUrl,
-          brokerName: brokerConfig?.broker_name,
-          serverName: existing?.server || brokerConfig?.server_name,
-        },
-        existing?.logoUrl,
-        activeBrokerLogoUrl,
-      );
-      map.set(key, {
-        key,
-        login: loginStr,
-        name: a.name,
-        brokerId: activeBrokerId,
-        server: existing?.server || brokerConfig?.server_name || '',
-        serverUrl: rowServerUrl,
-        logoUrl: rowLogoUrl,
-        accountType: mergedAccountEnvironment.accountType,
-        accountEnvironmentSource: mergedAccountEnvironment.accountEnvironmentSource,
-        rawGroup: a.group,
-        hasSavedCredentials: existing?.hasSavedCredentials ?? false,
-        snapshot: buildSavedAccountSnapshot(a),
-        liveAccount: a,
-      });
-    }
-
     return Array.from(map.values()).sort((a, b) => {
       // Live entries first (they have actionable balances), then saved-only.
       if (!!a.liveAccount !== !!b.liveAccount) return a.liveAccount ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  }, [accounts, activeBrokerId, activeKey, activeBrokerLogoUrl, brokerConfig?.broker_name, brokerConfig?.server_name, brokerLogoIndex, brokerServerUrl, savedAccounts]);
+  }, [activeBrokerId, activeKey, activeBrokerLogoUrl, brokerLogoIndex, savedAccounts]);
 
   // Backfill the active session into the directory so accounts that were
   // logged in before this feature shipped (or pre-existing sessions on first
@@ -666,9 +620,17 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     const existing = savedAccounts.find(
       (sa) => sa.brokerId === activeBrokerId && sa.login === activeLoginStr,
     );
-    const snapshot = buildSavedAccountSnapshot(activeAccount);
+    // open_positions is not sent by `GET /account/{login}`: use the hydrated
+    // positions list length for this login when available.
+    const positionsSnapshot = usePositionsState.getState();
+    const snapshot = buildSavedAccountSnapshot(
+      activeAccount,
+      positionsSnapshot.hydratedLogin === activeLoginStr
+        ? positionsSnapshot.positions.length
+        : undefined,
+    );
     const nextName = activeAccount.name || `Account ${activeLoginStr}`;
-    const nextServer = brokerConfig?.server_name || activeBrokerId;
+    const nextServer = activeBrokerLabels.serverName || existing?.server || '';
     const nextServerUrl = brokerServerUrl || existing?.serverUrl || '';
     const nextLogoUrl = activeBrokerLogoUrl || existing?.logoUrl || '';
     // The polled list/detail query is display data, not a canonical session
@@ -721,7 +683,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     activeBrokerId,
     activeKey,
     activeLoginStr,
-    brokerConfig?.server_name,
+    activeBrokerLabels.serverName,
     activeBrokerLogoUrl,
     brokerServerUrl,
     isScreenFocused,
@@ -854,10 +816,10 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   const displayLeverage = activeAccount ? `1:${activeAccount.leverage}` : '---';
   const displayFreeMargin = liveMatchesActiveAccount ? fmt.price(liveAccountSummary.freeMargin) : activeAccount ? fmt.price(activeAccount.freeMargin) : '---';
   const displayFloatingPnl = liveMatchesActiveAccount ? liveAccountSummary.floating : (activeAccount?.floatingPnl ?? 0);
-  // The REST account snapshot reports openPositions=0 even when the account has
-  // live trades, so prefer the actual hydrated open-positions count for the
-  // connected account (same source the Trade screen uses); fall back to the
-  // snapshot when positions aren't hydrated for this login.
+  // `GET /account/{login}` does not send open_positions (contract v3), so the
+  // count is the hydrated open-positions list length for the connected account
+  // (same source the Trade screen uses); fall back to the saved snapshot when
+  // positions aren't hydrated for this login.
   const livePositionsMatchActive =
     liveHydratedLogin != null &&
     resolvedAccountLogin != null &&
@@ -876,11 +838,8 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     if (!screenDataActive || resolvedAccountLogin == null) return;
     void usePositionsState.getState().refreshPositions(String(resolvedAccountLogin));
   }, [screenDataActive, resolvedAccountLogin]);
-  const displayBrokerName = brokerConfig?.broker_name ?? '---';
-  const displayServerName = brokerConfig?.server_name ?? '---';
 
   const { data: health } = useHealth(screenDataActive);
-  const { data: mt5Status } = useMt5Status(screenDataActive);
 
   /**
    * Leaves the screen: when hosted by the sidebar destination host, hiding the
@@ -1081,6 +1040,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
    */
   const handleConnectSavedAccount = async (row: OtherAccountRow) => {
     if (accountSwitchInFlightRef.current) return;
+    dismissAuthFlow();
     accountSwitchInFlightRef.current = true;
     setConnectingKey(row.key);
     const commitAuthorization = authorizeBrokerSessionCommit();
@@ -1165,7 +1125,9 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       const result = await signInWithCredentials({
         username: row.login,
         password,
-        brokerId: row.brokerId,
+        brokerId: endpoints.brokerId,
+        // Directory broker_name: the server label until /broker/config answers.
+        brokerName: approvedRoute.broker.broker_name?.trim() || undefined,
         serverUrl: exactServerUrl,
         logoUrl: approvedLogoUrl,
         signal: loginAbortController.signal,
@@ -1198,6 +1160,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       )!;
 
       const committedSession = await commitBrokerSession({
+        isCurrent: () => !loginAbortController.signal.aborted && activeAccountSwitchAttemptRef.current?.authorization === commitAuthorization,
         session: {
           brokerId: endpoints.brokerId,
           accountLogin: result.accountLogin,
@@ -1206,14 +1169,13 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
           tradeWsBase: endpoints.tradeWsBase,
           feedStatusUrl: endpoints.feedStatusUrl,
           servicesDomain: endpoints.servicesDomain,
-          feedAuthContext: result.feedAuthContext,
+          investor: result.investor,
           configVersion: endpoints.configVersion,
         },
         credentials: {
           accessToken: result.accessToken,
           refreshToken: result.refreshToken,
           expiresAt: result.expiresAtIso,
-          ...(result.feedToken ? { feedToken: result.feedToken } : {}),
         },
         account: {
           name: result.accountName,
@@ -1248,12 +1210,21 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
           hasCredentials: true,
         });
 
-        void bootstrapApp({
+        const bootstrapPromise = bootstrapApp({
           accountLogin: result.accountLogin,
           expectedProvenance: committedProvenance,
-        }).catch((err) => {
-          console.warn('[Accounts] Failed to bootstrap switched account', redactAuthPayload(err));
         });
+        bootstrapPromise.catch((err) => {
+          console.error('[Accounts] Failed to bootstrap switched account', redactAuthPayload(err));
+        });
+        // Name from /account/{login} (reusing bootstrap's fetch) and server
+        // from /broker/config. Never blocks or fails the switch.
+        void enrichSignedInAccountProfile({
+          provenance: committedProvenance,
+          brokerId: result.brokerId,
+          accountLogin: result.accountLogin,
+          accountDetail: bootstrapPromise.then((bootstrap) => bootstrap?.accounts ?? undefined),
+        }).catch(() => undefined);
       });
     } catch (error: any) {
       if (
@@ -1365,7 +1336,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     const cleanup = logoutBrokerSession();
     closeAccountsScreen();
     void cleanup.catch((error) => {
-      console.warn('[Accounts] Secure logout cleanup failed', redactAuthPayload(error));
+      console.error('[Accounts] Secure logout cleanup failed', redactAuthPayload(error));
     });
   };
 
@@ -1485,12 +1456,9 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
           {/* ── Active Account Card ── */}
           <View style={styles.activeCard}>
             {/* Corner ribbons */}
-            {!activeIsDemo && (
-              <View style={styles.ribbonRightContest}><Text style={styles.ribbonRightText}>{activeRibbonLabel}</Text></View>
-            )}
-            {activeIsDemo && (
-              <View style={styles.ribbonRightDemo}><Text style={styles.ribbonRightText}>{activeRibbonLabel}</Text></View>
-            )}
+            <View style={[styles.ribbonRight, { backgroundColor: activeEnvironmentBadge.backgroundColor }]}>
+              <Text style={[styles.ribbonRightText, { color: activeEnvironmentBadge.color }]}>{activeRibbonLabel}</Text>
+            </View>
             {/* Top: Avatar + Name + Connected badge */}
             <View style={styles.activeTopRow}>
               <View style={styles.avatarWrap}>
@@ -1507,11 +1475,6 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
                 <View style={styles.nameAndBadges}>
                   <Text style={styles.activeName} numberOfLines={1}>{displayName}</Text>
                   <View style={styles.badgesRow}>
-                    {!activeIsDemo && (
-                      <View style={styles.liveBadge}>
-                        <Text style={styles.liveBadgeText}>{activeBadgeLabel}</Text>
-                      </View>
-                    )}
                     {hasConnectedAccount ? (
                       <View style={styles.connectedBadge}>
                         <View style={styles.connectedDot} />
@@ -1520,7 +1483,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
                     ) : null}
                   </View>
                 </View>
-                <Text style={styles.activeCompany}>{displayBrokerName}</Text>
+                <Text style={styles.activeCompany} numberOfLines={2}>{displayBrokerName}</Text>
               </View>
             </View>
 
@@ -1546,7 +1509,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
               </View>
               <View style={styles.metricItem}>
                 <Text style={styles.metricLabel}>{t('Floating Profit/Loss')}</Text>
-                <Text style={[styles.metricValue, { color: displayFloatingPnl >= 0 ? '#10B981' : '#EF4444' }]} numberOfLines={1}>{displayFloatingPnl >= 0 ? '+' : ''}{fmt.price(displayFloatingPnl)}</Text>
+                <Text style={[styles.metricValue, { color: displayFloatingPnl >= 0 ? T.trading.profit : '#EF4444' }]} numberOfLines={1}>{displayFloatingPnl >= 0 ? '+' : ''}{fmt.price(displayFloatingPnl)}</Text>
               </View>
             </View>
 
@@ -1558,7 +1521,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
               </View>
               <View style={styles.detailChip}>
                 <Ionicons name="server-outline" size={13} color={T.textMuted} />
-                <Text style={styles.detailChipText}>{displayServerName}</Text>
+                <Text style={styles.detailChipText} numberOfLines={2}>{displayServerName}</Text>
               </View>
               <View style={styles.detailChip}>
                 <Ionicons name="briefcase-outline" size={13} color={T.textMuted} />
@@ -1572,10 +1535,8 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
             {/* Status + Actions row */}
             <View style={styles.activeFooter}>
               <View style={styles.statusRow}>
-                <View style={[styles.statusDot, { backgroundColor: mt5Status?.connected ? '#10B981' : '#94A3B8' }]} />
-                <Text style={styles.statusText}>Orrnn</Text>
-                <View style={styles.statusSep} />
-                <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#10B981' : '#94A3B8' }]} />
+                {/* The /api/mt5/status indicator was removed: that API does not exist (contract v3). */}
+                <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? T.trading.profit : '#94A3B8' }]} />
                 <Text style={styles.statusText}>{t('Gateway')}</Text>
               </View>
               <View style={styles.activeActions}>
@@ -1621,18 +1582,21 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
             </View>
           )}
           renderItem={({ item: row }) => {
-            const ribbonLabel = row.accountType === 'demo'
-              ? t('Demo')
-              : row.accountType === 'contest'
-                ? t('Contest')
-                : '';
+            const environment = resolveSavedAccountEnvironmentForDisplay(row);
+            const environmentBadge = SETTINGS_ACCOUNT_ENVIRONMENT_BADGES[environment];
+            const ribbonLabel = t(environmentBadge.label);
             const accountDisplayName = translateAccountCardName(row.name || `Account ${row.login}`, t);
             const isSwitching = connectingKey === row.key;
             const live = row.liveAccount;
             const metrics = live ? buildSavedAccountSnapshot(live) : row.snapshot;
             const isExpanded = expandedAccountKey === row.key;
-            const ribbonStyle = row.accountType === 'demo' ? styles.ribbonRightDemo : styles.ribbonRightContest;
-            const serverLabel = row.server || displayServerName;
+            const ribbonStyle = [styles.ribbonRight, { backgroundColor: environmentBadge.backgroundColor }];
+            const serverLabel = resolveAccountBrokerLabels({
+              brokerId: row.brokerId,
+              serverUrl: row.serverUrl,
+              directory: brokerServers,
+              savedServerName: row.server,
+            }).serverName || t('Server unavailable');
             const balanceText = metrics ? fmt.price(metrics.balance) : '---';
             const equityText = metrics ? fmt.price(metrics.equity) : '---';
             const freeMarginText = metrics ? fmt.price(metrics.freeMargin) : '---';
@@ -1684,7 +1648,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
                 {/* Diagonal ribbon */}
                 {!!ribbonLabel && (
                   <View style={ribbonStyle}>
-                    <Text style={styles.ribbonRightText}>{ribbonLabel}</Text>
+                    <Text style={[styles.ribbonRightText, { color: environmentBadge.color }]}>{ribbonLabel}</Text>
                   </View>
                 )}
 
@@ -1704,11 +1668,6 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
                     <View style={styles.secondaryInfo}>
                       <View style={styles.nameAndBadges}>
                         <Text style={styles.secondaryName} numberOfLines={1}>{accountDisplayName}</Text>
-                        {row.accountType === 'contest' && (
-                          <View style={styles.liveBadge}>
-                            <Text style={styles.liveBadgeText}>{ribbonLabel}</Text>
-                          </View>
-                        )}
                       </View>
                       <Text style={styles.secondaryMeta} numberOfLines={1}>
                         {row.login} · {serverLabel || row.brokerId}
@@ -1752,7 +1711,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
                       <View style={styles.metricItem}>
                         <Text style={styles.metricLabel}>{t('Floating Profit/Loss')}</Text>
                         <Text
-                          style={[styles.metricValue, metrics && { color: floatingPnl >= 0 ? '#10B981' : '#EF4444' }]}
+                          style={[styles.metricValue, metrics && { color: floatingPnl >= 0 ? T.trading.profit : '#EF4444' }]}
                           numberOfLines={1}
                         >
                           {floatingPnlText}
@@ -1781,10 +1740,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
                     {/* Footer: status + Switch button */}
                     <View style={styles.activeFooter}>
                       <View style={styles.statusRow}>
-                        <View style={[styles.statusDot, { backgroundColor: mt5Status?.connected ? '#10B981' : '#94A3B8' }]} />
-                        <Text style={styles.statusText}>Orrnn</Text>
-                        <View style={styles.statusSep} />
-                        <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#10B981' : '#94A3B8' }]} />
+                        <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? T.trading.profit : '#94A3B8' }]} />
                         <Text style={styles.statusText}>{t('Gateway')}</Text>
                       </View>
                       {switchButton}
@@ -2243,7 +2199,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   headerTitle: {
     color: T.text,
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '500',
     flex: 1,
     marginLeft: 8,
   },
@@ -2279,24 +2235,10 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     elevation: isDark ? 4 : 1,
     overflow: 'hidden',
   },
-  ribbonRightContest: {
+  ribbonRight: {
     position: 'absolute',
     top: -3,
     right: -55,
-    backgroundColor: T.accent,
-    width: 140,
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 6,
-    transform: [{ rotate: '45deg' }],
-    zIndex: 10,
-  },
-  ribbonRightDemo: {
-    position: 'absolute',
-    top: -3,
-    right: -55,
-    backgroundColor: '#10B981',
     width: 140,
     height: 38,
     justifyContent: 'center',
@@ -2306,7 +2248,6 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     zIndex: 10,
   },
   ribbonRightText: {
-    color: '#fff',
     fontSize: 10,
     fontWeight: '600',
     letterSpacing: 0.5,
@@ -2315,7 +2256,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     position: 'absolute',
     top: 14,
     left: -30,
-    backgroundColor: '#10B981',
+    backgroundColor: T.trading.profit,
     paddingVertical: 4,
     paddingHorizontal: 32,
     transform: [{ rotate: '-45deg' }],
@@ -2369,7 +2310,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   connectedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(16,185,129,0.1)',
+    backgroundColor: T.upGlow,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 20,
@@ -2379,10 +2320,10 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: '#10B981',
+    backgroundColor: T.trading.profit,
   },
   connectedLabel: {
-    color: '#10B981',
+    color: T.trading.profit,
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0,
@@ -2399,30 +2340,17 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     gap: 6,
   },
   demoBadgeActive: {
-    backgroundColor: 'rgba(16,185,129,0.1)',
+    backgroundColor: T.upGlow,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
   },
   demoBadgeActiveText: {
-    color: '#10B981',
+    color: T.trading.profit,
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0,
   },
-  liveBadge: {
-    backgroundColor: T.accentGlow,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  liveBadgeText: {
-    color: T.accent,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0,
-  },
-
   // Balance hero
   balanceSection: {
     marginBottom: 8,
@@ -2482,10 +2410,12 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   // Detail chips
   detailChipsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 6,
     marginBottom: 8,
   },
   detailChip: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: isDark ? raisedBg : 'rgba(0,0,0,0.03)',
@@ -2495,6 +2425,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     gap: 6,
   },
   detailChipText: {
+    flexShrink: 1,
     color: T.textMuted,
     fontSize: 12,
     fontWeight: '700',
@@ -2642,13 +2573,13 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     flexShrink: 1,
   },
   tagDemo: {
-    backgroundColor: 'rgba(16,185,129,0.1)',
+    backgroundColor: T.upGlow,
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 6,
   },
   tagDemoText: {
-    color: '#10B981',
+    color: T.trading.profit,
     fontSize: 10,
     fontWeight: '600',
     letterSpacing: 0,
@@ -2778,7 +2709,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     position: 'absolute',
     top: 10,
     left: -32,
-    backgroundColor: '#10B981',
+    backgroundColor: T.trading.profit,
     paddingVertical: 3,
     paddingHorizontal: 32,
     transform: [{ rotate: '-45deg' }],

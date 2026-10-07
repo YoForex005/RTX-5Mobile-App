@@ -34,6 +34,8 @@ import { useMarginCalculation } from '../../query/calculators';
 import type { MarginCalcPayload } from '../../api/calculators';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketSymbols } from '../../query/market';
+import { useMarketStatus } from '../../query/marketStatus';
+import { checkOrderPolicy } from '../../services/tradingPolicy';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { fmt } from '../../utils/format';
 import {
@@ -89,6 +91,7 @@ import {
   isActiveBrokerSessionProvenanceCurrent,
 } from '../../state/activeBrokerSession';
 import { requestOrrnnDemoTradeAuth } from './tradeAuthPrompt';
+import { blockInvestorTradeAction, useInvestorReadOnlySession } from '../../hooks/useInvestorReadOnlySession';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 import {
   resolveOrderTicketDefaultPendingPrice,
@@ -110,6 +113,7 @@ import {
   releaseChartProtectionDraftSubmission,
   tryBeginChartProtectionDraftSubmission,
 } from '../chart/chartProtectionDraftLifecycle';
+import { markTradeIntent } from '../../utils/tradeIntent';
 
 /* Main screen */
 // A single action model keeps BUY and SELL button behavior consistent across
@@ -140,8 +144,8 @@ const ORDER_TICKET_DIAGNOSTICS_ENABLED =
 const logOrderTicketDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (ORDER_TICKET_DIAGNOSTICS_ENABLED) console.log(...args.map(redactDiagnosticValue));
 };
-const warnOrderTicketDiagnostic = (...args: Parameters<typeof console.warn>) => {
-  if (ORDER_TICKET_DIAGNOSTICS_ENABLED) console.warn(...args.map(redactDiagnosticValue));
+const warnOrderTicketDiagnostic = (...args: Parameters<typeof console.log>) => {
+  if (ORDER_TICKET_DIAGNOSTICS_ENABLED) console.log(...args.map(redactDiagnosticValue));
 };
 
 const isOrderTicketLeverageValue = (value: number | null | undefined): value is number => (
@@ -310,7 +314,7 @@ function OrderTicketInteractiveContent() {
   }>();
   const resolvedOrigin = resolveOrderTicketOrigin(origin);
   const originHref = getOrderTicketOriginHref(resolvedOrigin);
-  const routeInitialSymbol = normalizeSymbol(routeSymbol || 'EURUSD');
+  const routeInitialSymbol = String(routeSymbol || '').trim();
   const routeProtectionDraftId =
     typeof routeProtectionDraftIdParam === 'string'
       ? routeProtectionDraftIdParam.trim()
@@ -349,6 +353,11 @@ function OrderTicketInteractiveContent() {
   const heavyContentReady = useDeferredRouteContentReady(ORDER_TICKET_HEAVY_CONTENT_DELAY_MS);
   const routeQueriesActive = isScreenFocused && routeDataReady;
   const { data: marketSymbols = [], isFetching: marketSymbolsFetching } = useMarketSymbols(routeQueriesActive);
+  const { data: marketStatus } = useMarketStatus(symbol, routeQueriesActive);
+  useEffect(() => {
+    if (!isScreenFocused || useUserPreferences.getState().isLoggedIn) return;
+    requestOrrnnDemoTradeAuth({ kind: 'order-ticket', symbol: routeSymbol, side: routeSide ?? undefined, volume: tradeVolume, origin: resolvedOrigin });
+  }, [isScreenFocused, routeSymbol, routeSide, tradeVolume, resolvedOrigin]);
 
   useEffect(() => {
     if (isScreenFocused) {
@@ -410,7 +419,7 @@ function OrderTicketInteractiveContent() {
     const seen = new Set<string>();
     const options: string[] = [];
     const addSymbol = (candidate: string | undefined) => {
-      const nextSymbol = normalizeSymbol(candidate || '');
+      const nextSymbol = String(candidate || '').trim();
       if (!nextSymbol || seen.has(nextSymbol)) {
         return;
       }
@@ -418,13 +427,10 @@ function OrderTicketInteractiveContent() {
       options.push(nextSymbol);
     };
 
-    addSymbol(symbol);
     marketSymbols
-      .map((candidate) => normalizeSymbol(candidate))
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b))
       .forEach(addSymbol);
-    DEFAULT_CHART_SYMBOLS.forEach(addSymbol);
 
     return options;
   }, [marketSymbols, symbol]);
@@ -436,7 +442,7 @@ function OrderTicketInteractiveContent() {
   }, []);
 
   const handleSymbolSelect = useCallback((nextSymbol: string) => {
-    const normalizedNextSymbol = normalizeSymbol(nextSymbol);
+    const normalizedNextSymbol = nextSymbol.trim();
 
     if (!normalizedNextSymbol || normalizedNextSymbol === symbol) {
       return;
@@ -614,7 +620,7 @@ function OrderTicketInteractiveContent() {
     if (!symbol || !(volume > 0)) return null;
     return { account_login: loginNum, symbol, side: 'buy', volume };
   }, [loginNum, routeQueriesActive, symbol, volume]);
-  const { data: serverMargin } = useMarginCalculation(marginCalcPayload);
+  const { data: serverMargin, isFetching: marginFetching, isError: marginError } = useMarginCalculation(marginCalcPayload);
 
   const serverRequiredMargin =
     typeof serverMargin?.required_margin === 'number' && Number.isFinite(serverMargin.required_margin)
@@ -807,10 +813,17 @@ function OrderTicketInteractiveContent() {
   // The tap lock blocks double-submits while a trade request is in flight.
   const tradeTapLockRef = useRef(false);
   const tradeTapLockSideRef = useRef<TradeSide | null>(null);
-  const tradeActionDisabled = pendingSide !== null || tradeActionLocked || quoteIsUnavailable;
+  // Investor (read-only) login: every order action is disabled.
+  const investorReadOnly = useInvestorReadOnlySession();
+  const readinessError = checkOrderPolicy(instrumentMeta, volume, routeSide ?? 'buy', accountDetails);
+  const policyReady = !readinessError && marketSymbols.includes(symbol) && marketStatus?.trade_open === true;
+  const marginReady = !marginFetching && !marginError && Number.isFinite(serverMargin?.required_margin) && Number.isFinite(serverMargin?.free_margin) && (serverMargin?.free_margin ?? -1) >= 0 && Number.isFinite(serverMargin?.max_lots) && volume <= (serverMargin?.max_lots ?? 0);
+  const tradeActionDisabled =
+    investorReadOnly || pendingSide !== null || tradeActionLocked || quoteIsUnavailable || !policyReady || !marginReady;
   const pricePanelActionUnavailable = !oneClickAccepted || !isMarketExecution;
   const isTradeActionPending = (side: TradeSide) => pendingSide === side;
-  const isPricePanelActionDisabled = (_side: TradeSide) => pricePanelActionUnavailable || tradeActionDisabled;
+  const isSideActionDisabled = (side: TradeSide) => tradeActionDisabled || Boolean(checkOrderPolicy(instrumentMeta, volume, side, accountDetails));
+  const isPricePanelActionDisabled = (side: TradeSide) => pricePanelActionUnavailable || isSideActionDisabled(side);
   const getPricePanelActionOpacity = (side: TradeSide) =>
     pricePanelActionUnavailable || isTradeActionPending(side) ? 0.5 : 1;
   const tradeButtonActions: readonly OrderTicketTradeAction[] = [
@@ -845,12 +858,20 @@ function OrderTicketInteractiveContent() {
   // Submit a market order. This path validates account context, builds the API
   // payload, handles backend rejection, and updates the positions list.
   const handlePlaceOrder = async (side: TradeSide) => {
+    // Tap time for the Journal's order latency telemetry.
+    markTradeIntent();
     if (requestOrrnnDemoTradeAuth({
       kind: 'market-order',
       symbol,
       side,
+      volume,
       origin: resolvedOrigin,
     })) {
+      return;
+    }
+    if (blockInvestorTradeAction(t)) return;
+    if (!policyReady || !marginReady || checkOrderPolicy(instrumentMeta, volume, side, accountDetails)) {
+      showModal({ visible: true, type: 'error', title: 'Trading unavailable', message: readinessError || 'Wait for account symbols, market status and margin checks to complete.', side });
       return;
     }
     const requestedSide = assertTradeSide(side);
@@ -1057,7 +1078,7 @@ function OrderTicketInteractiveContent() {
       void invalidateSessionQueryRoots(
         queryClient,
         marketActionProvenance.cacheNamespace,
-        ['positions', 'accountSummary', 'exposure', 'transactions'],
+        ['positions', 'accountSummary', 'transactions'],
       );
 
       const displaySymbol = symbol.replace(/\//g, '');
@@ -1164,25 +1185,42 @@ function OrderTicketInteractiveContent() {
   const adjustStopLoss = useCallback(
     (direction: -1 | 1) => {
       const seed = slEnabled && slPrice > 0 ? slPrice : resolveProtectionPriceSeed();
-      if (seed <= 0) return;
+      if (seed <= 0) {
+        // A silent return here read as a dead stepper button.
+        showModal({
+          visible: true,
+          type: 'error',
+          title: t('Market Data Unavailable'),
+          message: t('Wait for a live price before setting Stop Loss or Take Profit.'),
+        });
+        return;
+      }
       const nextPrice = roundPendingPrice(seed + direction * pricePointSize * 10);
       if (nextPrice <= 0) return;
       setSlEnabled(true);
       setSlPrice(nextPrice);
     },
-    [pricePointSize, resolveProtectionPriceSeed, roundPendingPrice, slEnabled, slPrice],
+    [pricePointSize, resolveProtectionPriceSeed, roundPendingPrice, slEnabled, slPrice, showModal, t],
   );
 
   const adjustTakeProfit = useCallback(
     (direction: -1 | 1) => {
       const seed = tpEnabled && tpPrice > 0 ? tpPrice : resolveProtectionPriceSeed();
-      if (seed <= 0) return;
+      if (seed <= 0) {
+        showModal({
+          visible: true,
+          type: 'error',
+          title: t('Market Data Unavailable'),
+          message: t('Wait for a live price before setting Stop Loss or Take Profit.'),
+        });
+        return;
+      }
       const nextPrice = roundPendingPrice(seed + direction * pricePointSize * 10);
       if (nextPrice <= 0) return;
       setTpEnabled(true);
       setTpPrice(nextPrice);
     },
-    [pricePointSize, resolveProtectionPriceSeed, roundPendingPrice, tpEnabled, tpPrice],
+    [pricePointSize, resolveProtectionPriceSeed, roundPendingPrice, tpEnabled, tpPrice, showModal, t],
   );
 
   const handleStopLevelAdjustment = useCallback(
@@ -1215,6 +1253,7 @@ function OrderTicketInteractiveContent() {
     })) {
       return;
     }
+    if (blockInvestorTradeAction(t)) return;
     // Defense in depth: the visible tabs are locked too, but a stale retained
     // screen must never reach the dormant API path before backend readiness.
     if (isPendingOrderTypeBackendLocked(orderType)) return;
@@ -1356,7 +1395,7 @@ function OrderTicketInteractiveContent() {
   const spread = Math.max(0, rawSpreadPoints);
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
+    <View style={[styles.root, { paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* Compact header: back button, current symbol, and symbol picker. */}
@@ -1390,6 +1429,16 @@ function OrderTicketInteractiveContent() {
         </FastPressable>
       </View>
 
+      {/* Prices and the form share one scroll area so the ticket stays reachable
+          on short landscape screens and while the software keyboard is open. */}
+      <ScrollView
+        canCancelContentTouches={Platform.OS === 'ios'}
+        style={styles.root}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="always"
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+      >
       {/* Price panel: large BID/ASK tap targets for one-click market execution. */}
       <View style={styles.pricePanel}>
         <FastPressable
@@ -1404,7 +1453,7 @@ function OrderTicketInteractiveContent() {
           testID={sellTradeAction.priceTestID}
         >
           <Text style={[styles.priceTag, { color: sellTradeAction.color }]}>{sellTradeAction.priceLabel}</Text>
-          <Text style={styles.priceMain}>{fmt.price(sellTradeAction.price)}</Text>
+          <Text style={styles.priceMain} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{fmt.price(sellTradeAction.price)}</Text>
         </FastPressable>
 
         {/* Spread pillar: shows the current difference between ASK and BID. */}
@@ -1426,18 +1475,11 @@ function OrderTicketInteractiveContent() {
           testID={buyTradeAction.priceTestID}
         >
           <Text style={[styles.priceTag, { color: buyTradeAction.color }]}>{buyTradeAction.priceLabel}</Text>
-          <Text style={styles.priceMain}>{fmt.price(buyTradeAction.price)}</Text>
+          <Text style={styles.priceMain} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{fmt.price(buyTradeAction.price)}</Text>
         </FastPressable>
       </View>
 
-      {/* Scrollable form: order type, volume, risk controls, graph, market data, and submit controls. */}
-      <ScrollView
-        canCancelContentTouches={Platform.OS === 'ios'}
-        style={styles.root}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 100 }}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="always"
-      >
+      {/* Order type, volume, risk controls, graph, market data, and submit controls. */}
         {/* 
  * Order type tabs: 
  * Allows the user to switch between Market Execution and pending order types 
@@ -1710,8 +1752,8 @@ function OrderTicketInteractiveContent() {
                 onPress={() => { void handlePlaceOrder(action.side); }}
                 latencyLabel={`orderTicket.exec.${action.side}`}
                 latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
-                disabled={tradeActionDisabled}
-                accessibilityState={{ disabled: tradeActionDisabled, busy: isTradeActionPending(action.side) }}
+                disabled={isSideActionDisabled(action.side)}
+                accessibilityState={{ disabled: isSideActionDisabled(action.side), busy: isTradeActionPending(action.side) }}
                 accessibilityRole="button"
                 accessibilityLabel={action.marketLabel}
                 testID={action.execTestID}
@@ -1894,7 +1936,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 14, zIndex: 10 },
     backBtn: { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
     hCenter: { flex: 1, alignItems: 'center' },
-    hSymbol: { color: WHITE, fontSize: 16, fontWeight: '600', letterSpacing: 0.3 },
+    hSymbol: { color: WHITE, fontSize: 16, fontWeight: '500', letterSpacing: 0.3 },
     symbolPickerBtn: {
       width: 44,
       height: 44,
@@ -1907,13 +1949,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
 
     pricePanel: {
-      flexDirection: 'row', direction: 'ltr', alignItems: 'center', marginHorizontal: 12, marginBottom: 12, borderRadius: 12, overflow: 'hidden',
+      flexDirection: 'row', direction: 'ltr', alignItems: 'center', marginHorizontal: -4, marginBottom: 12, borderRadius: 12, overflow: 'hidden',
       backgroundColor: SURFACE, borderWidth: 1, borderColor: T.border,
       shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 }, shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4
     },
-    priceHalf: { flex: 1, alignItems: 'center', paddingVertical: 10 },
+    priceHalf: { flex: 1, minWidth: 0, alignItems: 'center', paddingVertical: 10 },
     priceTag: { fontSize: 10, fontWeight: '600', letterSpacing: 1.2 },
-    priceMain: { color: WHITE, fontSize: 24, fontWeight: '600', fontVariant: ['tabular-nums'], padding: 8, letterSpacing: 0 },
+    priceMain: { width: '100%', textAlign: 'center', color: WHITE, fontSize: 24, fontWeight: '600', fontVariant: ['tabular-nums'], padding: 8, letterSpacing: 0 },
     spreadCenter: { width: 40, alignItems: 'center', justifyContent: 'center' },
     spreadVal: { color: WHITE, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'], marginTop: 1 },
     spreadUnit: { color: T.textSub, fontSize: 8, fontWeight: '600' },
@@ -1931,11 +1973,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     sectionTitle: { color: T.textSub, fontSize: 10, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', marginTop: 10, marginBottom: 2 },
 
-    flatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
+    flatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, paddingVertical: 10 },
     rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     rowRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     rowLabel: { color: SUB, fontSize: 14, fontWeight: '500' },
-    rowValueWhite: { color: WHITE, fontSize: 14, fontWeight: '600', fontVariant: ['tabular-nums'] },
+    rowValueWhite: { maxWidth: '100%', flexShrink: 1, color: WHITE, fontSize: 14, fontWeight: '600', fontVariant: ['tabular-nums'] },
     hairline: { height: 1, backgroundColor: LINE },
 
     orderTypeTabsScroll: { marginTop: 2 },
@@ -2268,8 +2310,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     tradeReceiptBar: {
       // Slightly wider than the chart's 52%/230 bar: native Text metrics run
       // wider than the WebView's, and the symbol must not ellipsize.
-      width: '58%',
-      minWidth: 220,
+      width: '94%',
+      minWidth: 0,
       maxWidth: 260,
       minHeight: 40,
       flexDirection: 'row',

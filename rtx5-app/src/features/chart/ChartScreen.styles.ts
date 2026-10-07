@@ -1,7 +1,7 @@
 import { FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT } from './ChartScreen.constants';
 import { ThemeColors } from "../../ui/theme/glass";
 import { spacing } from "../../ui/theme/index";
-import { StyleSheet, Platform, Dimensions } from "react-native";
+import { StyleSheet, Platform } from "react-native";
 import { MENU_BTN_GUTTER, MENU_BUTTON_VISUAL_LEFT } from "../../ui/components/AppHeader";
 
 
@@ -19,6 +19,8 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     const BLUE = T.trading.buy.primary;
     const RED = T.trading.sell.primary;
     const TEXT_MUTED = T.textMuted;
+    const HEADER_CONTROL_COLOR = T.text;
+    const TOOLBAR_TEXT_STYLE = { fontSize: 12, fontWeight: '500' as const, letterSpacing: 0 };
     // The SL/TP order sheet has many nested controls; keeping its colors in
     // one local palette prevents dark theme switches from leaving light panels
     // behind in tabs, inputs, stop levels, and stepper dialogs.
@@ -85,7 +87,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingLeft: 0,
-      paddingRight: 6,
+      paddingRight: 0,
       paddingTop: 0,
       paddingBottom: 7,
       minHeight: 58,
@@ -100,7 +102,14 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'flex-start',
       justifyContent: 'center',
       paddingLeft: MENU_BUTTON_VISUAL_LEFT,
-      marginBottom: 4,
+    },
+    chartCrosshairButton: {
+      width: 44,
+      height: 44,
+      flexShrink: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 8,
     },
     symbolSection: {
       flexBasis: 'auto',
@@ -217,12 +226,14 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flexGrow: 1,
       flexDirection: 'row',
       alignItems: 'stretch',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-end',
+      columnGap: 8,
       minHeight: 48,
+      paddingLeft: 6,
       paddingRight: 0,
     },
     compactHeaderToolbarSlot: {
-      width: 32,
+      width: 44,
       flexShrink: 0,
       alignItems: 'center',
       justifyContent: 'center',
@@ -234,17 +245,9 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingLeft: 0,
       paddingRight: 4,
     },
-    compactHeaderToolbarTradeSlot: {
-      width: 48,
-    },
-    compactHeaderToolbarLastSlot: {
-      width: 28,
-    },
     compactHeaderTimeframeText: {
-      color: TEXT_MUTED,
-      fontSize: 13,
-      fontWeight: '500',
-      letterSpacing: 0,
+      color: HEADER_CONTROL_COLOR,
+      ...TOOLBAR_TEXT_STYLE,
     },
 
     /* â”€â”€ Center: Live Price â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -331,7 +334,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitleText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
       fontSize: 18,
-      fontWeight: '600',
+      fontWeight: '500',
     },
     accountDot: {
       width: 6,
@@ -339,7 +342,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 3,
     },
     dotDemo: {
-      backgroundColor: '#00E676',
+      backgroundColor: T.trading.profit,
     },
     dotLive: {
       backgroundColor: isDark ? '#FACC15' : '#D97706',
@@ -350,7 +353,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       letterSpacing: 0.5,
     },
     textDemo: {
-      color: '#00E676',
+      color: T.trading.profit,
     },
     textLive: {
       color: isDark ? '#FACC15' : '#D97706',
@@ -387,8 +390,8 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       elevation: 24,
     },
     chartTradeReceiptBar: {
-      width: '52%',
-      minWidth: 200,
+      width: '90%',
+      minWidth: 0,
       maxWidth: 230,
       minHeight: 40,
       flexDirection: 'row',
@@ -611,29 +614,23 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
     },
     toolbarIconButton: {
-      width: 30,
-      height: 30,
+      width: 44,
+      height: 44,
       alignItems: 'center',
       justifyContent: 'center',
     },
     toolbarTradeButton: {
       width: '100%',
-      minWidth: 48,
+      minWidth: 44,
       minHeight: 44,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: 2,
-      paddingHorizontal: 2,
+      paddingHorizontal: 0,
     },
     toolbarTradeButtonLocked: {
       opacity: 0.58,
-    },
-    toolbarTradeText: {
-      color: TEXT_MUTED,
-      fontSize: 13,
-      fontWeight: '700',
-      letterSpacing: 0.1,
     },
     toolbarTrailingGroup: {
       flexDirection: 'row',
@@ -799,11 +796,11 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: '#EF4444',
     },
     chartTradeQuickChipTp: {
-      borderColor: isDark ? 'rgba(74,222,128,0.38)' : '#BDEBCC',
+      borderColor: isDark ? `${T.trading.profit}60` : T.upGlow,
     },
     chartTradeQuickChipTpActive: {
-      borderColor: '#22C55E',
-      backgroundColor: '#22C55E',
+      borderColor: T.trading.profit,
+      backgroundColor: T.trading.profit,
     },
     chartTradeQuickChipText: {
       fontSize: 12,
@@ -848,6 +845,10 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeSheetSymbolBlockCompact: {
       paddingRight: 4,
+    },
+    chartTradeSheetSymbolButton: {
+      alignSelf: 'flex-start',
+      maxWidth: '100%',
     },
     chartTradeSheetSymbolRow: {
       flexDirection: 'row',
@@ -1353,8 +1354,8 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 9,
     },
     chartTradeProtectionStatusActive: {
-      borderColor: isDark ? 'rgba(34,197,94,0.34)' : '#BDEBCC',
-      backgroundColor: isDark ? 'rgba(22,163,74,0.14)' : '#DCFCE7',
+      borderColor: isDark ? `${T.trading.profit}60` : T.upGlow,
+      backgroundColor: isDark ? T.upGlow : T.upGlow,
     },
     chartTradeProtectionStatusText: {
       color: TRADE_SHEET_TEXT_MUTED,
@@ -1474,7 +1475,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: isDark ? 'rgba(248,113,113,0.24)' : '#F5C7C7',
     },
     chartTradeStopPairCardTp: {
-      borderColor: isDark ? 'rgba(74,222,128,0.24)' : '#BDEBCC',
+      borderColor: isDark ? `${T.trading.profit}60` : T.upGlow,
     },
     chartTradeStopPairBadge: {
       width: 30,
@@ -1487,7 +1488,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(239,68,68,0.14)' : '#FEE2E2',
     },
     chartTradeStopPairBadgeTp: {
-      backgroundColor: isDark ? 'rgba(22,163,74,0.14)' : '#DCFCE7',
+      backgroundColor: isDark ? T.upGlow : T.upGlow,
     },
     chartTradeStopPairLabel: {
       color: TRADE_SHEET_TEXT_MUTED,
@@ -1839,17 +1840,48 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
       alignItems: 'center',
       zIndex: 50,
+      paddingHorizontal: 24,
+      paddingVertical: 16,
     },
     overlayText: {
-      color: isDark ? TEXT_MUTED : '#475569',
+      color: T.text,
       marginTop: 12,
-      fontSize: 14,
+      fontSize: 16,
       fontWeight: '600',
+      textAlign: 'center',
     },
     overlaySubText: {
-      color: isDark ? 'rgba(142,154,175,0.6)' : '#94A3B8',
-      marginTop: 4,
-      fontSize: 12,
+      color: T.textMuted,
+      marginTop: 8,
+      fontSize: 13,
+      lineHeight: 20,
+      textAlign: 'center',
+      maxWidth: 320,
+    },
+    overlayActions: {
+      marginTop: 20,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 10,
+      maxWidth: '100%',
+    },
+    overlayAction: {
+      minHeight: 44,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 10,
+      backgroundColor: T.glass2,
+      borderWidth: 1,
+      borderColor: T.borderSubtle,
+      justifyContent: 'center',
+      maxWidth: '100%',
+    },
+    overlayActionText: {
+      color: BLUE,
+      fontSize: 14,
+      fontWeight: '600',
+      textAlign: 'center',
     },
     floatingAutoBtn: {
       position: 'absolute',
@@ -1983,6 +2015,8 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'column',
       alignItems: 'stretch',
       gap: 8,
+      flexShrink: 1,
+      minHeight: 0,
     },
     footerLotPickerQuickRail: {
       flexDirection: 'row',
@@ -2023,6 +2057,8 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     footerLotPickerValuesScrollVertical: {
       flexGrow: 0,
+      flexShrink: 1,
+      minHeight: 0,
       marginHorizontal: 0,
     },
     footerLotPickerValuesContent: {

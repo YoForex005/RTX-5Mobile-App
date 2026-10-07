@@ -12,6 +12,7 @@ test('quote runtime reset clears session-scoped memory state and pending timers'
 
   assert.match(snapshotsSource, /export const resetLiveQuoteSnapshotRuntimeState/);
   assert.match(snapshotsSource, /snapshotsBySymbol\.clear\(\)/);
+  assert.match(snapshotsSource, /quoteSnapshotContinuity\.clear\(\)/);
   assert.match(snapshotsSource, /listenersBySymbol\.clear\(\)/);
   assert.match(snapshotsSource, /pendingNotifySymbols\.clear\(\)/);
   assert.match(snapshotsSource, /clearTimeout\(notifyTimer\)/);

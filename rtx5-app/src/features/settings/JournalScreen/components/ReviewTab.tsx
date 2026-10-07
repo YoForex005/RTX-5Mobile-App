@@ -1,3 +1,4 @@
+import { GDark, GLight } from '../../../../ui/theme/glass';
 import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TextInput } from 'react-native';
@@ -241,7 +242,7 @@ function makePalette(isDark: boolean) {
     subText: isDark ? '#94A3B8' : '#64748B',
     muted: isDark ? '#64748B' : '#94A3B8',
     accent: '#2563EB',
-    positive: '#10B981',
+    positive: (isDark ? GDark : GLight).trading.profit,
     negative: '#EF4444',
     warning: '#F59E0B',
   };
@@ -265,7 +266,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     title: {
       color: colors.text,
       fontSize: 20,
-      fontWeight: '600',
+      fontWeight: '500',
       marginTop: 2,
     },
     periodTabs: {
@@ -410,7 +411,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
       justifyContent: 'center',
     },
     positiveIcon: {
-      backgroundColor: 'rgba(16,185,129,0.12)',
+      backgroundColor: `${colors.positive}1F`,
     },
     negativeIcon: {
       backgroundColor: 'rgba(239,68,68,0.12)',

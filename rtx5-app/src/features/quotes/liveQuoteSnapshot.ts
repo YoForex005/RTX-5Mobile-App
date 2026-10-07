@@ -3,7 +3,7 @@ import type { QuoteTickEvent } from '../../api/ws/quoteTickNormalizer';
 import { normalizeSymbol } from '../../domain/symbols';
 import type { QuoteItem } from '../../dev/mock/tradingData';
 import { hasQuotePriceChange } from '../../utils/quotePriceChange';
-import { calculateQuoteSpreadPoints } from '../../utils/quoteSpread';
+import { calculateQuoteSpreadPoints, resolveQuoteDisplayDigits } from '../../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../../utils/quoteVolume';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../../market/quotePolicy';
 
@@ -31,22 +31,6 @@ const toFiniteNumber = (value: unknown): number | undefined => {
   }
 
   return undefined;
-};
-
-const resolveDigits = (
-  symbol: string,
-  bid: number,
-  tickDigits?: number,
-  previousDigits?: number,
-): number => {
-  const candidate = toFiniteNumber(tickDigits) ?? toFiniteNumber(previousDigits);
-  if (candidate !== undefined) {
-    return Math.max(0, Math.min(8, Math.floor(candidate)));
-  }
-
-  if (symbol.endsWith('JPY')) return 3;
-  if (bid >= 100) return 2;
-  return 5;
 };
 
 const resolveChangePct = (
@@ -123,11 +107,13 @@ export const buildInitialLiveQuoteSnapshot = (
   };
   // Spread is a display calculation from bid/ask; volume is backend-owned.
   // This avoids trusting stale spread fields or mock volume after live ticks.
-  const spread = calculateQuoteSpreadPoints(merged.bid, merged.ask, merged.digits);
+  const digits = resolveQuoteDisplayDigits(symbol, merged.bid, merged.digits, merged.point);
+  const spread = calculateQuoteSpreadPoints(merged.bid, merged.ask, digits);
   const volume = resolveBackendQuoteVolume({ incoming: liveQuote?.volume, previous: liveQuote });
 
   return {
     ...merged,
+    digits,
     volume,
     volumeSource: volume === undefined ? undefined : 'backend',
     ...(spread === undefined ? {} : { spread }),
@@ -156,9 +142,14 @@ export const applyLiveQuoteTickToSnapshot = (
 
   const base = previous;
   const receivedAt = normalizeQuoteTickTimestampToMs(tick.receivedAt) ?? now;
-  const feedTickAt = normalizeQuoteTickTimestampToMs(tick.feedTickAt ?? tick.timestamp);
+  const feedTickAt = normalizeQuoteTickTimestampToMs(tick.feedTickAt);
   const lastTickAt = feedTickAt ?? receivedAt;
-  const digits = resolveDigits(symbol, bid, tick.digits, base?.digits);
+  const digits = resolveQuoteDisplayDigits(
+    symbol,
+    bid,
+    tick.digits ?? base?.digits,
+    tick.point ?? base?.point,
+  );
   const bidChanged = base?.bid !== bid;
   const askChanged = base?.ask !== ask;
   const priceChanged = hasQuotePriceChange(base, tick);
@@ -188,7 +179,7 @@ export const applyLiveQuoteTickToSnapshot = (
     volume,
     volumeSource: volume === undefined ? undefined : 'backend',
     changePct: resolveChangePct(tick, bid, base),
-    feedTickAt: feedTickAt ?? undefined,
+    feedTickAt: feedTickAt ?? base?.feedTickAt,
     lastTickAt,
     lastReceivedAt: receivedAt,
     lastPriceChangedAt: priceChanged ? receivedAt : base?.lastPriceChangedAt,
@@ -199,6 +190,7 @@ export const applyLiveQuoteTickToSnapshot = (
     transport: tick.transport,
     stale: tick.stale,
     tradable: tick.tradable,
+    marketState: tick.marketState,
     degraded: tick.degraded,
     degradationReason: tick.degradationReason,
     sequence: tick.sequence,

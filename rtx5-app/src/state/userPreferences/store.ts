@@ -53,6 +53,7 @@ import {
   sanitizePreferenceAuthStorageValue,
 } from './authPersistence';
 import { setImmediateThemeMode } from '../themeMode';
+import { completeChartDrawingHydration } from './chartDrawingHydration';
 import type {
   ChartColorsConfig,
   ChartDisplaySettings,
@@ -65,7 +66,7 @@ import type {
 
 const defaultSymbols: string[] = [];
 const normalizeBrokerConnectionId = (brokerId?: string | null): string =>
-  String(brokerId ?? '').trim().toLowerCase();
+  String(brokerId ?? '').trim();
 
 type PersistedUserPreferencesState = Omit<
   UserPreferencesState,
@@ -322,12 +323,9 @@ const normalizeDrawingRecordsBySymbol = (value: unknown): PersistedChartDrawings
   );
 };
 
-const hasDrawingRecordBuckets = (value: PersistedChartDrawingsBySymbol): boolean =>
-  Object.values(value).some((drawings) => drawings.length > 0);
-
 function persistChartDrawingRecordsBySymbol(recordsBySymbol: PersistedChartDrawingsBySymbol): void {
   void AsyncStorage.setItem(CHART_DRAWING_RECORDS_STORAGE_KEY, JSON.stringify(recordsBySymbol)).catch((error) => {
-    console.warn('[UserPreferences] Failed to persist chart drawings', error);
+    console.error('[UserPreferences] Failed to persist chart drawings', error);
   });
 }
 
@@ -337,9 +335,9 @@ async function readChartDrawingRecordsBySymbol(): Promise<PersistedChartDrawings
     const normalized = value ? normalizeDrawingRecordsBySymbol(JSON.parse(value)) : {};
     return normalized;
   } catch (error) {
-    console.warn('[UserPreferences] Ignoring invalid persisted chart drawings', error);
+    console.error('[UserPreferences] Ignoring invalid persisted chart drawings', error);
     void AsyncStorage.removeItem(CHART_DRAWING_RECORDS_STORAGE_KEY).catch((removeError) => {
-      console.warn('[UserPreferences] Failed to clear invalid persisted chart drawings', removeError);
+      console.error('[UserPreferences] Failed to clear invalid persisted chart drawings', removeError);
     });
     return {};
   }
@@ -552,7 +550,7 @@ function flushPendingPreferenceWrites() {
   // Scheduled UI-preference writes remain non-blocking, but an explicit session
   // commit can await the same operation through flushUserPreferencesPersistence.
   void operation.catch((error) => {
-    console.warn('[UserPreferences] Failed to persist preferences', error);
+    console.error('[UserPreferences] Failed to persist preferences', error);
   });
   return operation;
 }
@@ -602,7 +600,7 @@ const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void
           accountLogin: authSnapshot.accountIdentity.id,
           credentials: authSnapshot.legacyCredentials,
         }).catch(async (error) => {
-          console.warn('[UserPreferences] Secure auth restore failed closed', error);
+          console.error('[UserPreferences] Secure auth restore failed closed', error);
           return null;
         });
 
@@ -642,9 +640,9 @@ const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void
 
       return runtimeStorageValue as StorageValue<PersistedUserPreferencesState>;
     } catch (error) {
-      console.warn('[UserPreferences] Ignoring invalid persisted preferences', error);
+      console.error('[UserPreferences] Ignoring invalid persisted preferences', error);
       void AsyncStorage.removeItem(name).catch((removeError) => {
-        console.warn('[UserPreferences] Failed to clear invalid persisted preferences', removeError);
+        console.error('[UserPreferences] Failed to clear invalid persisted preferences', removeError);
       });
       return null;
     }
@@ -748,7 +746,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       isDemoAccount: false,
       isLoggedIn: false,
       hasSetInitialSymbols: false,
-      brokerId: ORRNN_DEMO_PUBLIC_BROKER_ID,
+      brokerId: '',
       brokerServerUrl: ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL,
       brokerLogoUrl: '',
       accountDetails: null,
@@ -1014,22 +1012,24 @@ export const useUserPreferences = create<UserPreferencesState>()(
       }),
       onRehydrateStorage: () => (state, error) => {
         if (error) {
-          console.warn('[UserPreferences] Failed to rehydrate persisted preferences', error);
+          console.error('[UserPreferences] Failed to rehydrate persisted preferences', error);
         }
         if (state?.themeMode) {
           setImmediateThemeMode(state.themeMode, { deferRetained: false });
         }
+        const drawingsBeforeRead = state?.chartDrawingRecordsBySymbol ?? {};
         void readChartDrawingRecordsBySymbol()
           .then((storedRecordsBySymbol) => {
-            if (!state || !hasDrawingRecordBuckets(storedRecordsBySymbol)) {
-              return;
-            }
-
-            Object.entries(storedRecordsBySymbol).forEach(([symbol, drawings]) => {
-              state.setChartDrawingRecordsForSymbol(symbol, drawings);
-            });
+            if (!state) return;
+            // The disk reader already sanitized every record. Publish the
+            // restored map and readiness atomically; per-symbol edit actions
+            // would repeatedly serialize/write the entire map during startup.
+            useUserPreferences.setState(current => completeChartDrawingHydration(
+              current, drawingsBeforeRead, storedRecordsBySymbol,
+            ));
           })
-          .finally(() => {
+          .catch((restoreError) => {
+            console.error('[UserPreferences] Failed to restore chart drawing state', restoreError);
             state?.setHasHydrated(true);
           });
       },

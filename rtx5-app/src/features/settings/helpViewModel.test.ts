@@ -82,11 +82,13 @@ test('help screen and route are wired as a real settings destination', () => {
   assert.match(screenSource, /latencyLabel="help\.search\.clear"/);
   assert.match(screenSource, /categoryCounts\[category\]/);
   assert.match(screenSource, /expandedFaqId/);
+  assert.match(screenSource, /<HelpQuestionForm/);
+  assert.match(screenSource, /latencyLabel="help\.question\.open"/);
   assert.match(screenSource, /latencyLabel=\{`help\.faq\.\$\{item\.id\}`\}/);
   assert.match(screenSource, /openSidebarDrawerImmediately\(\)/);
   assert.match(screenSource, /scheduleAfterSidebarOpenVisual\(hideActionSheet\)/);
   assert.match(screenSource, /latencyLabel="help\.menu"/);
-  assert.match(screenSource, /name="menu"/);
+  assert.match(screenSource, /<AppMenuIcon color=\{menuIconColor\}/);
   assert.match(screenSource, /accessibilityState=\{\{ expanded \}\}/);
   assert.doesNotMatch(screenSource, /<SidebarDrawer \/>/);
   assert.doesNotMatch(screenSource, /latencyLabel="help\.back"/);

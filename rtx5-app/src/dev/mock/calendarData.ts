@@ -181,12 +181,10 @@ function generateFallbackEvents(): EconomicEvent[] {
 export async function fetchEconomicCalendarData(): Promise<EconomicEvent[]> {
   // Return cache if still fresh
   if (_cachedEvents && !_cacheIsFallback && Date.now() - _cacheTimestamp < CACHE_TTL) {
-    console.log('[EconCalendar] Serving from cache:', _cachedEvents.length, 'events');
     return _cachedEvents;
   }
 
   try {
-    console.log('[EconCalendar] Fetching from API...');
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
@@ -194,7 +192,6 @@ export async function fetchEconomicCalendarData(): Promise<EconomicEvent[]> {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.warn('[EconCalendar] API returned', response.status, '- using fallback');
       throw new Error(`HTTP ${response.status}`);
     }
 
@@ -203,23 +200,19 @@ export async function fetchEconomicCalendarData(): Promise<EconomicEvent[]> {
       throw new Error('Empty response');
     }
 
-    console.log('[EconCalendar] ✓ Fetched', raw.length, 'live events');
     const events = mapRawToEvents(raw);
     _cachedEvents = events;
     _cacheTimestamp = Date.now();
     _cacheIsFallback = false;
     return events;
-  } catch (err) {
-    console.warn('[EconCalendar] API fetch failed:', err);
-
+  } catch {
+    // Expected when offline or the feed is down: fall back silently.
     // Return stale cache if available
     if (_cachedEvents) {
-      console.log('[EconCalendar] Using stale cache');
       return _cachedEvents;
     }
 
     // Generate fallback events pinned to real dates
-    console.log('[EconCalendar] Generating fallback events for current week');
     const fallback = generateFallbackEvents();
     _cachedEvents = fallback;
     _cacheTimestamp = Date.now();

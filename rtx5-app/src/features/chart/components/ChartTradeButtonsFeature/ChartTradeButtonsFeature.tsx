@@ -7,8 +7,10 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useActiveBrokerQuerySession } from '../../../../query/authenticatedQueryScope';
+import { useInvestorReadOnlySession } from '../../../../hooks/useInvestorReadOnlySession';
 import { useUserPreferences } from '../../../../state/userPreferences';
 import { formatTradeVolume, type TradeVolumeBounds } from '../../../../utils/tradeVolume';
 import type { TradeSide } from '../../../../domain/tradeSide';
@@ -22,7 +24,7 @@ import {
   resolveChartTradeButtonDisplayQuote,
 } from './quoteFallback';
 import { splitFormattedChartTradePrice } from './pricePresentation';
-import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
+import { baseStyles, COMPACT_TRADE_FOOTER_ROW_HEIGHT, darkStyles, lightStyles, textBaseStyles } from './styles';
 import { useTradeHandler, type TradeFeedback } from './useTradeHandler';
 import { resolveChartTradeQuoteAvailability } from './tradeAvailability';
 import type { ChartTradeQueueEvent } from '../ChartTradeReceiptStack';
@@ -124,8 +126,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons(
   props: ChartTradeButtonsProps,
 ) {
   const activeSession = useActiveBrokerQuerySession();
+  const investorReadOnly = useInvestorReadOnlySession();
   const displayQuoteScopeKey =
     `${activeSession?.cacheNamespace ?? ''}:${props.symbol.trim().toUpperCase()}`;
+  // Investor (read-only) logins cannot trade: the Buy/Sell footer is hidden.
+  if (investorReadOnly) return null;
   return (
     <ChartTradeButtonsSessionScoped
       key={displayQuoteScopeKey}
@@ -169,9 +174,14 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
   sellColor,
   lotInvalid = false,
   invalidLotDisplay = '',
-  compactPane = false,
+  compactPane: requestedCompactPane = false,
   displayQuoteScopeKey,
 }: ChartTradeButtonsSessionScopedProps) {
+  const { width: windowWidth, fontScale } = useWindowDimensions();
+  const [controlWidth, setControlWidth] = React.useState<number | null>(null);
+  // Measure the pane itself: tablet split charts can be narrower than the window.
+  const compactPane = requestedCompactPane || (controlWidth ?? windowWidth) < 360;
+  const footerRowHeight = Math.ceil(COMPACT_TRADE_FOOTER_ROW_HEIGHT * Math.max(1, fontScale));
   const retainedDisplayQuoteRef = React.useRef<{
     scopeKey: string;
     bid: number;
@@ -413,6 +423,8 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
               lotInvalid && { color: INVALID_LOT_COLOR },
             ]}
             numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
           >
             {lotDisplayText}
           </Text>
@@ -506,8 +518,14 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
   }
 
   return (
-    <View style={[baseStyles.tradeControlsRow, themeStyles.tradeControlsRow]}>
-      <View style={[baseStyles.actionButtonSlot, { backgroundColor: sellTileColor }]}>
+    <View
+      style={[baseStyles.tradeControlsRow, themeStyles.tradeControlsRow, { minHeight: footerRowHeight }]}
+      onLayout={(event) => {
+        const nextWidth = Math.round(event.nativeEvent.layout.width);
+        if (nextWidth > 0) setControlWidth((current) => current === nextWidth ? current : nextWidth);
+      }}
+    >
+      <View style={[baseStyles.actionButtonSlot, { backgroundColor: sellTileColor, height: footerRowHeight }]}>
         <Pressable
           style={[
             baseStyles.actionBtn,
@@ -542,7 +560,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
         </Pressable>
       </View>
 
-      <View style={[baseStyles.actionLotSlot, compactPane && baseStyles.actionLotSlotCompact, themeStyles.actionLotSlot]}>
+      <View style={[baseStyles.actionLotSlot, compactPane && baseStyles.actionLotSlotCompact, themeStyles.actionLotSlot, { height: footerRowHeight }]}>
         {lotControl}
         {!isLotEditing ? (
           <View
@@ -568,6 +586,8 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
             <Text
               style={[textBaseStyles.actionLotValue, baseStyles.actionLotCommittedValue, themeStyles.actionLotValue, lotInvalid && { color: INVALID_LOT_COLOR }]}
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
             >
               {lotDisplayText}
             </Text>
@@ -589,7 +609,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
         ) : null}
       </View>
 
-      <View style={[baseStyles.actionButtonSlot, { backgroundColor: buyTileColor }]}>
+      <View style={[baseStyles.actionButtonSlot, { backgroundColor: buyTileColor, height: footerRowHeight }]}>
         <Pressable
           style={[
             baseStyles.actionBtn,

@@ -49,7 +49,7 @@ export function IndicatorLevelScreen() {
   if (!level || !levelId) {
     return (
       <Screen style={styles.screen}>
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
           <Pressable
             onPress={() => safeRouterBack(router, '/chart/indicators')}
             activateOnPressIn
@@ -84,7 +84,7 @@ export function IndicatorLevelScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
           <Pressable
             onPress={() => safeRouterBack(router, '/chart/indicators')}
             activateOnPressIn
@@ -298,7 +298,7 @@ function makeStyles(bgColor: string, isDark: boolean, textColor: string) {
     headerTitle: {
       color: textColor,
       fontSize: 17,
-      fontWeight: '700',
+      fontWeight: '500',
     },
     previewRow: {
       alignItems: 'center',

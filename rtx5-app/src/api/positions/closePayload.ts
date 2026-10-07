@@ -1,7 +1,21 @@
+/**
+ * Wire bodies for POST /positions/{ticket}/close (backend contract v3, 6.2).
+ *
+ * - Full close:    {"client_order_id":"close-<ticket>-<uuid>"}
+ *                  (the old `mode:"full"` field is ignored and not sent)
+ * - Partial close: {"client_order_id":"...","volume":0.01}
+ *                  `volume` MUST be a JSON number; "0.01" returns 400.
+ *
+ * `client_order_id` is the only idempotency the gateway honours. One id is
+ * generated per user close action and reused only for exact resends of the
+ * same body (the brokerApi replay after a 401 refresh).
+ */
+import { createClosePositionClientOrderId } from '../tradeIdempotency';
+
 export type ClosePositionVolume = number | string;
 
-export type FullClosePositionBody = Readonly<{ mode: 'full' }>;
-export type PartialClosePositionBody = Readonly<{ volume: ClosePositionVolume }>;
+export type FullClosePositionBody = Readonly<Record<string, never>>;
+export type PartialClosePositionBody = Readonly<{ volume: number }>;
 
 export type PreparedClosePositionRequest = Readonly<{
   body: FullClosePositionBody | PartialClosePositionBody;
@@ -12,11 +26,12 @@ export type ClosePositionRequestDescriptor = Readonly<{
   ticket: string;
   endpoint: string;
   method: 'POST';
+  clientOrderId: string;
   body: string;
   journalPayload?: Readonly<{ volume: number }>;
 }>;
 
-const FULL_CLOSE_BODY: FullClosePositionBody = Object.freeze({ mode: 'full' });
+const FULL_CLOSE_BODY: FullClosePositionBody = Object.freeze({});
 const DECIMAL_VOLUME_PATTERN = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
 
 /**
@@ -38,14 +53,14 @@ export const normalizeClosePositionTicket = (ticket: string | number): string =>
   return normalized;
 };
 
-/** Builds the only valid body for a full position close. */
+/** Builds the full-close body. The descriptor adds `client_order_id`. */
 export const buildFullClosePositionRequestPayload = (): PreparedClosePositionRequest => ({
   body: FULL_CLOSE_BODY,
 });
 
 /**
- * Builds the strict partial-close alternative. Keeping this separate from the
- * full-close helper makes it impossible to serialize mode and volume together.
+ * Builds the strict partial-close alternative. Decimal-string input is
+ * accepted from callers but always serialized as a JSON number.
  */
 export const buildPartialClosePositionRequestPayload = (
   volume: ClosePositionVolume,
@@ -58,13 +73,15 @@ export const buildPartialClosePositionRequestPayload = (
     throw new TypeError('Partial close volume must be a positive number or decimal string.');
   }
 
-  const numericVolume = Number(normalizedVolume);
-  if (!Number.isFinite(numericVolume) || numericVolume <= 0) {
+  const parsedVolume = Number(normalizedVolume);
+  if (!Number.isFinite(parsedVolume) || parsedVolume <= 0) {
     throw new TypeError('Partial close volume must be a positive number or decimal string.');
   }
+  // Strip binary float noise (0.1 + 0.2) without changing a real lot value.
+  const numericVolume = Number(parsedVolume.toFixed(8));
 
   return {
-    body: Object.freeze({ volume: normalizedVolume }),
+    body: Object.freeze({ volume: numericVolume }),
     journalPayload: Object.freeze({ volume: numericVolume }),
   };
 };
@@ -73,13 +90,16 @@ export const buildPartialClosePositionRequestPayload = (
 export const buildClosePositionRequestDescriptor = (
   ticketId: string | number,
   request: PreparedClosePositionRequest,
+  clientOrderId?: string,
 ): ClosePositionRequestDescriptor => {
   const ticket = normalizeClosePositionTicket(ticketId);
+  const resolvedClientOrderId = clientOrderId ?? createClosePositionClientOrderId(ticket);
   return Object.freeze({
     ticket,
     endpoint: `/positions/${ticket}/close`,
     method: 'POST',
-    body: JSON.stringify(request.body),
+    clientOrderId: resolvedClientOrderId,
+    body: JSON.stringify({ client_order_id: resolvedClientOrderId, ...request.body }),
     ...(request.journalPayload ? { journalPayload: request.journalPayload } : {}),
   });
 };

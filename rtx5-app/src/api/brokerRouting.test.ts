@@ -6,6 +6,7 @@ import {
   buildBrokerApiBaseUrl,
   buildBrokerHealthUrl,
   buildBrokerWsUrl,
+  buildVersionedBrokerApiUrl,
   containsBlockedTestNetBrokerIp,
   deriveBrokerTradeWsBase,
   ensureBrokerRestApiBase,
@@ -399,6 +400,25 @@ test('API URL joining rejects absolute endpoints outside the captured API base',
     () => buildApiUrl(
       'https://other-broker.com/api/v2/quotes',
       'https://services.alpha-broker.com/api/v2',
+    ),
+    /outside the active broker API base/,
+  );
+});
+
+test('versioned broker API routes retain the selected broker authority', () => {
+  assert.equal(
+    buildVersionedBrokerApiUrl(
+      '/journal?mode=2&type=0&filter=%20',
+      'https://services.alpha-broker.com/api/v2',
+      'v1',
+    ),
+    'https://services.alpha-broker.com/api/v1/journal?mode=2&type=0&filter=%20',
+  );
+  assert.throws(
+    () => buildVersionedBrokerApiUrl(
+      'https://other-broker.com/api/v1/journal',
+      'https://services.alpha-broker.com/api/v2',
+      'v1',
     ),
     /outside the active broker API base/,
   );

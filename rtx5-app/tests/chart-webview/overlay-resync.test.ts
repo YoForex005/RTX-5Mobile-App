@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 
 import {
   assertSourceContains,
@@ -8,6 +9,75 @@ import {
 } from '../support/chartSourceTestUtils';
 
 const source = readChartScreenSource();
+
+test('retained chart clocks stop while hidden and resume once without losing overlay repair', () => {
+  const intervals = new Map<number, () => void>();
+  const timeouts = new Map<number, () => void>();
+  let nextTimer = 0;
+  let repairs = 0;
+  let countdownPaints = 0;
+  const context = {
+    document: { hidden: false },
+    chartRuntimeActive: false,
+    _overlayResyncTimer: null,
+    candleCountdownTimer: null,
+    candleCountdownActive: true,
+    candleCountdownTimeframe: 'M1',
+    setInterval: (callback: () => void) => { intervals.set(++nextTimer, callback); return nextTimer; },
+    clearInterval: (id: number) => intervals.delete(id),
+    setTimeout: (callback: () => void) => { timeouts.set(++nextTimer, callback); return nextTimer; },
+    clearTimeout: (id: number) => timeouts.delete(id),
+    scheduleMarketPriceScaleDomOnly: () => { countdownPaints += 1; },
+    lastPostedChartTouchActive: false,
+    activeTradeLineDrag: null,
+    activeHorizontalScrollGesture: false,
+    horizontalScrollMotionActive: false,
+    verticalPricePanGestureActive: false,
+    chartScaleGestureActive: false,
+    pendingHorizontalOverlayApply: false,
+    pendingVerticalOverlayApply: false,
+    verticalGestureDomWorkPending: false,
+    visibleRangeIdlePendingAfterGesture: false,
+    series: {},
+    _overlayPayload: { priceLines: [{}] },
+    _positionLinesArr: [],
+    countOverlayNativePriceLines: () => 1,
+    applyOverlayPayload: () => { repairs += 1; },
+    schedulePriceScaleHealthCheck: () => {},
+    scheduleOverlayVisibleCandleScaleRecovery: () => {},
+  };
+  const functions = [
+    ['stopOverlayResync', ''], ['startOverlayResync', ''],
+    ['stopCandleCountdownTicker', ''], ['scheduleNextCandleCountdownTick', ''],
+    ['syncChartRuntimeTimers', ''], ['setChartRuntimeActive', 'active'],
+  ].map(([name, args]) => `function ${name}(${args}) {${extractFunctionBody(source, name)}}`).join('\n');
+  const runtime = runInNewContext(`${functions}; ({setChartRuntimeActive, syncChartRuntimeTimers, scheduleNextCandleCountdownTick})`, context);
+
+  runtime.scheduleNextCandleCountdownTick();
+  assert.equal(timeouts.size, 0, 'prewarmed hidden documents do no clock work');
+  runtime.setChartRuntimeActive(true);
+  runtime.setChartRuntimeActive(true);
+  assert.equal(intervals.size, 1);
+  assert.equal(timeouts.size, 1);
+  intervals.values().next().value!();
+  assert.equal(repairs, 1, 'visible charts still repair missing overlay lines');
+  const [id, tick] = timeouts.entries().next().value!;
+  timeouts.delete(id);
+  tick();
+  assert.equal(countdownPaints, 1);
+  assert.equal(timeouts.size, 1, 'one countdown tick schedules one successor');
+
+  context.document.hidden = true;
+  runtime.syncChartRuntimeTimers();
+  assert.equal(intervals.size + timeouts.size, 0, 'backgrounding clears both clocks');
+  context.document.hidden = false;
+  runtime.syncChartRuntimeTimers();
+  assert.equal(intervals.size, 1);
+  assert.equal(timeouts.size, 1);
+  runtime.setChartRuntimeActive(false);
+  runtime.syncChartRuntimeTimers();
+  assert.equal(intervals.size + timeouts.size, 0, 'a hidden native tab stays paused even when the document is visible');
+});
 
 test('setData full reload clears and recreates overlay price lines and markers', () => {
   const body = extractFunctionBody(source, 'updateChartData');

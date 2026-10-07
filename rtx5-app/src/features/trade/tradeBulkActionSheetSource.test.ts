@@ -38,7 +38,7 @@ test('trade bulk launcher opens through the shared Quotes-style action sheet pat
   assert.match(source, /label: t\('Close Profitable Positions'\)/);
   assert.match(source, /label: t\('Close Losing Positions'\)/);
   assert.match(source, /label: t\('Close Buy Positions'\)/);
-  assert.doesNotMatch(source, /label: t\('Close Sell Positions'\)/);
+  assert.match(source, /label: t\('Close Sell Positions'\),\s*onPress: \(\) => navigateToBulkMode\('sell'\)/);
   assert.doesNotMatch(source, /uniqueBulkSymbols/);
   assert.doesNotMatch(source, /navigateToBulkMode\(`symbol:\$\{symbol\}`\)/);
   assert.match(

@@ -40,6 +40,10 @@ interface WatchlistPutEntry {
 // API
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** POST /watchlist/{symbol} outcome: any 2xx, or the legacy duplicate 400. */
+export const isWatchlistAddAccepted = (status: number): boolean =>
+  (status >= 200 && status < 300) || status === 400;
+
 export const watchlistApi = {
   /**
    * Fetch the user's server-side watchlist.
@@ -64,7 +68,9 @@ export const watchlistApi = {
    * Add a single symbol to the watchlist.
    *
    * POST /api/v2/watchlist/{symbol}
-   * Returns 400 if the symbol is already in the watchlist.
+   * Contract v3: returns 200 {symbol, status:"added"} even when the symbol is
+   * already listed. Older servers answered 400 for a duplicate, which is still
+   * tolerated as a no-op.
    *
    * @param symbol - Instrument symbol (e.g. "GBPUSD")
    */
@@ -72,8 +78,9 @@ export const watchlistApi = {
     const response = await apiClient(`/watchlist/${encodeURIComponent(symbol)}`, {
       method: 'POST',
     });
-    // 400 means "already in watchlist" — treat as a no-op, not an error
-    if (!response.ok && response.status !== 400) {
+    // 2xx (including 200 for an existing symbol) is success; a legacy 400
+    // "already in watchlist" is a no-op, not an error.
+    if (!isWatchlistAddAccepted(response.status)) {
       const err = await response.json().catch(() => ({}));
       throw { response: { data: err, status: response.status } };
     }

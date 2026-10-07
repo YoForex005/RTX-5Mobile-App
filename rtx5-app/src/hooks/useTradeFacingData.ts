@@ -13,7 +13,7 @@ export function useTradeFacingData(active = true) {
 
     brokerRealtimeService.connect();
     void bootstrapApp().catch((error) => {
-      console.warn('[TradeFacingData] Bootstrap failed', error);
+      console.error('[TradeFacingData] Bootstrap failed', error);
     });
   }, [active, isLoggedIn]);
 }

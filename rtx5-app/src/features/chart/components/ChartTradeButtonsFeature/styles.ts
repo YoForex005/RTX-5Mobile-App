@@ -170,7 +170,7 @@ export const darkStyles = StyleSheet.create({
 
 export const textBaseStyles = StyleSheet.create({
   actionLotValue: {
-    minWidth: 52,
+    minWidth: 0,
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '700',

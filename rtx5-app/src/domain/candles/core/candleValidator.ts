@@ -327,12 +327,12 @@ export const logCandleSeriesDiagnosticsInDevelopment = (
   }
 
   if (hasCandleValidationProblems(summary) || summary.suspiciousGaps > 0) {
-    console.warn('[candles] series validation', {
+    console.log('[candles] series validation', {
       label,
       ...context,
       ...summary,
     });
-    console.warn('[candles] series validation issues', {
+    console.log('[candles] series validation issues', {
       label,
       ...context,
       issues: collectValidationIssues(candles, expectedGapSeconds).slice(0, 20),
@@ -357,11 +357,11 @@ export const logCandleSeriesDiagnosticsInDevelopment = (
 };
 
 /**
- * Safely logs a warning to the console if an invalid candle is detected, 
- * but only in development environments. Prevents console spam in production.
+ * Logs a rejected (already filtered-out) candle in development builds only.
+ * Uses console.log: the rejection is handled, so it must not raise a LogBox toast.
  */
 export const logInvalidCandleInDevelopment = (label: string, raw: unknown): void => {
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
-    console.warn(`[candles] rejected invalid candle: ${label}`, raw);
+    console.log(`[candles] rejected invalid candle: ${label}`, raw);
   }
 };

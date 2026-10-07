@@ -15,6 +15,7 @@ export type QuoteItem = {
   transport?: 'websocket' | 'rest_snapshot';
   stale?: boolean;
   tradable?: boolean;
+  marketState?: string;
   degraded?: boolean;
   degradationReason?: 'missing_ask';
   sequence?: string | number;

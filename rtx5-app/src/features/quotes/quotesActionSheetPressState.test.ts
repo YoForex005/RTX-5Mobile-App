@@ -60,8 +60,11 @@ test('quote symbol action sheets stay Quotes-private and open synchronously on c
   assert.doesNotMatch(quoteCardSource, /activateOnTouchStart/);
   assert.match(
     source,
-    /<QuoteCard[\s\S]*onPressIn=\{\(event\) => handleSymbolPressIn\(sym, event\)\}[\s\S]*onPressOut=\{\(\) => handleSymbolPressOut\(sym\)\}[\s\S]*onTouchMove=\{handleSymbolPressMove\}[\s\S]*onPress=\{\(event\) => handleSymbolTap\(sym, event\)\}[\s\S]*suppressPressFeedback[\s\S]*onLongPress=/,
+    /<QuoteCard[\s\S]*onPressIn=\{handleSymbolPressIn\}[\s\S]*onPressOut=\{handleSymbolPressOut\}[\s\S]*onTouchMove=\{handleSymbolPressMove\}[\s\S]*onPress=\{handleSymbolTap\}[\s\S]*suppressPressFeedback[\s\S]*onLongPress=\{handleSymbolLongPress\}/,
   );
+  assert.match(quoteCardSource, /const handlePress = useCallback\(\(event: GestureResponderEvent\) => onPress\?\.\(symbol, event\)/);
+  assert.match(quoteCardSource, /const handlePressIn = useCallback\(\(event: GestureResponderEvent\) => onPressIn\?\.\(symbol, event\)/);
+  assert.match(quoteCardSource, /const handlePressOut = useCallback\(\(\) => onPressOut\?\.\(symbol\)/);
   assert.doesNotMatch(source, /onPressIn=\{\(\) => handleSymbolTap\(sym\)\}/);
 
   const tapConfigsStart = source.indexOf('const quoteTapActionSheetConfigs = useMemo');
@@ -103,7 +106,7 @@ test('quote symbol action sheets stay Quotes-private and open synchronously on c
   assert.match(source, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
   assert.match(source, /const quoteRestFallbackActive = quoteCatalogActive/);
   assert.match(source, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteStickyFeedActive, \{[\s\S]*restFallbackActive: quoteRestFallbackActive,[\s\S]*\}\)/);
-  assert.match(source, /liveUpdatesActive=\{quoteStickyFeedActive\}/);
+  assert.match(source, /liveUpdatesActive=\{isQuoteRowLive\(quoteStickyFeedActive, sym, index, visibleQuoteSymbols\)\}/);
   assert.match(source, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}/);
   assert.match(source, /const pauseQuoteSheetFeed = useCallback\(\(durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS\) => \{/);
   assert.match(source, /quotesWsService\.deferReconnectForInteraction\?\.\(durationMs\)/);
@@ -235,7 +238,8 @@ test('quote symbol action sheets stay Quotes-private and open synchronously on c
     /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*gesture\.accepted = true[\s\S]*openQuotesSymbolSheet\(\s*config,\s*'quotes\.symbolSheet\.longPress\.open',\s*sym,/,
     'long-press configs must use the same dedicated Quotes opener',
   );
-  assert.match(source, /onLongPress=\{\(\) => handleSymbolLongPress\(sym\)\}/);
+  assert.match(source, /onLongPress=\{handleSymbolLongPress\}/);
+  assert.match(quoteCardSource, /const handleLongPress = useCallback\(\(\) => onLongPress\(symbol\)/);
   assert.doesNotMatch(
     source,
     /openChartActionSheetSmoothly|handleOpenMoreMenu|from ['"]\.\.\/chart\/ChartScreen/,
@@ -290,11 +294,11 @@ test('quote details specification shows point and account leverage', () => {
   assert.match(source, /const resolvedLeverage = accountSummary\?\.leverage && accountSummary\.leverage > 0[\s\S]*\? accountSummary\.leverage[\s\S]*: undefined/);
   assert.match(source, /const leverageText = resolvedLeverage && resolvedLeverage > 0[\s\S]*\? `1:\$\{formatDetailNumber\(resolvedLeverage\)\}`[\s\S]*: '--'/);
   assert.match(contractSpec, /<Row label=\{t\('Point'\)\} value=\{formatDetailNumber\(point\)\} \/>/);
-  assert.match(pricingFees, /<Row label=\{t\('Leverage'\)\} value=\{leverageText\} \/>/);
+  assert.match(pricingFees, /<Row label=\{t\('Leverage'\)\} value=\{leverageText\} last=\{!hasSwapRates\} \/>/);
   assert.doesNotMatch(pricingFees, /onPress|ActionSheet|Select/);
 });
 
-test('quote details keeps real swap values visible', () => {
+test('quote details keeps real swap values visible and hides absent swaps (contract v3)', () => {
   const source = readSymbolDetailsSource();
   const pricingFeesStart = source.indexOf("<Section title={t('Pricing & Fees')}");
   const instrumentProfileStart = source.indexOf("<Section title={t('Instrument Profile')}");
@@ -311,6 +315,9 @@ test('quote details keeps real swap values visible', () => {
   assert.match(source, /const swapShort = resolveDetailNumber\(remoteMeta\?\.swapShort, q\.swapShort\)/);
   assert.match(pricingFees, /<Row label=\{t\('Swap Long'\)\} value=\{formatSwapValue\(swapLong\)\}/);
   assert.match(pricingFees, /<Row label=\{t\('Swap Short'\)\} value=\{formatSwapValue\(swapShort\)\}/);
+  // v3 instruments carry no swap_* keys: swap rows render only when a value exists.
+  assert.match(source, /const hasSwapRates = \(swapLong !== undefined && Number\.isFinite\(swapLong\)\)/);
+  assert.match(pricingFees, /\{hasSwapRates \? \([\s\S]*Swap Long[\s\S]*Swap Short[\s\S]*\) : null\}/);
   assert.doesNotMatch(pricingFees, /\(q\.swapLong \?\? 0\)\.toFixed\(2\)/);
   assert.doesNotMatch(pricingFees, /\(q\.swapShort \?\? 0\)\.toFixed\(2\)/);
 });

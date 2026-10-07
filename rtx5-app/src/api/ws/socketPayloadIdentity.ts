@@ -8,6 +8,16 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 const clean = (value: unknown): string => String(value ?? '').trim();
 const cleanBroker = (value: unknown): string => clean(value).toLowerCase();
 
+const sameAccountLogin = (left: unknown, right: unknown): boolean => {
+  const leftText = clean(left);
+  const rightText = clean(right);
+  if (leftText === rightText) return true;
+  if (!/^\d+$/.test(leftText) || !/^\d+$/.test(rightText)) return false;
+  const leftNumber = Number(leftText);
+  const rightNumber = Number(rightText);
+  return Number.isSafeInteger(leftNumber) && leftNumber === rightNumber;
+};
+
 const ACCOUNT_SCOPED_CHANNELS = new Set([
   'account',
   'metrics',
@@ -41,11 +51,17 @@ export const payloadMatchesSocketIdentity = (
 ): boolean => {
   const outer = asRecord(payload);
   if (!outer) return false;
-  const records = [
+  const first = [
     outer,
     asRecord(outer.data),
     asRecord(outer.payload),
     asRecord(outer.result),
+  ].filter((record): record is Record<string, unknown> => Boolean(record));
+  // Contract v3 trade frames nest the row one level deeper:
+  // `{channel, data:{event_id, type, data:{ticket, account_login, broker_id, ...}}}`.
+  const records = [
+    ...first,
+    ...first.slice(1).map((record) => asRecord(record.data)),
   ].filter((record): record is Record<string, unknown> => Boolean(record));
 
   const brokerId = explicitValue(records, ['broker_id', 'brokerId']);
@@ -53,7 +69,9 @@ export const payloadMatchesSocketIdentity = (
     return false;
   }
   const accountLogin = explicitValue(records, ['account_login', 'accountLogin', 'login']);
-  if (accountLogin !== undefined && clean(accountLogin) !== clean(identity.accountLogin)) {
+  // `account_login` is a JSON number on the wire; compare numerically when both
+  // sides are numeric so `200074`, `"200074"` and `"0200074"` agree.
+  if (accountLogin !== undefined && !sameAccountLogin(accountLogin, identity.accountLogin)) {
     return false;
   }
   const epoch = explicitValue(records, ['session_epoch', 'sessionEpoch']);
@@ -67,7 +85,7 @@ export const payloadMatchesSocketIdentity = (
     if (separator > 0) {
       const prefix = channel.slice(0, separator).toLowerCase();
       const scopedLogin = channel.slice(separator + 1);
-      if (ACCOUNT_SCOPED_CHANNELS.has(prefix) && scopedLogin !== clean(identity.accountLogin)) {
+      if (ACCOUNT_SCOPED_CHANNELS.has(prefix) && !sameAccountLogin(scopedLogin, identity.accountLogin)) {
         return false;
       }
     }

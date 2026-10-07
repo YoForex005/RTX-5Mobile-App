@@ -9,7 +9,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { z } from 'zod';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { View, Text, StyleSheet, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing } from '../../ui/theme/index';
@@ -73,6 +73,7 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
 
   const onSubmit = async (data: PasswordFormValues) => {
     if (passwordChangeInFlightRef.current) {
@@ -101,8 +102,15 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
-      style={[styles.container, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}
+      style={[styles.container, { maxHeight: Math.max(0, height - insets.top - 12) }]}
     >
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, spacing.md) }}
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={Platform.OS === 'ios'}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      >
       <View style={styles.sheetHeader}>
         <Text style={styles.title}>Change {type === 'master' ? 'Master' : 'Investor'} Password</Text>
         <Pressable hitSlop={15} onPress={onClose} style={styles.closeBtn}>
@@ -205,6 +213,7 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
           )}
         </Pressable>
       </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -220,6 +229,10 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     borderBottomWidth: 0,
     borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)',
   },
+  scroll: {
+    flexShrink: 1,
+    minHeight: 0,
+  },
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -227,6 +240,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     marginBottom: 12,
   },
   title: {
+    flex: 1,
+    minWidth: 0,
     color: T.text,
     fontSize: 18,
     fontWeight: '700',
@@ -262,6 +277,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   },
   input: {
     flex: 1,
+    minWidth: 0,
     color: T.text,
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -321,6 +337,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     opacity: 0.7,
   },
   submitBtnText: {
+    flexShrink: 1,
+    textAlign: 'center',
     color: '#fff',
     fontSize: 15,
     fontWeight: '700',

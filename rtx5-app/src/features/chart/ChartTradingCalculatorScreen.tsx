@@ -152,7 +152,7 @@ export function ChartTradingCalculatorScreen() {
       onLayout={handleLaunchBodyLayout}
       style={styles.screen}
     >
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <View style={styles.headerRow}>
           <Pressable
             onPress={() => safeRouterBack(router, '/(tabs)/chart')}
@@ -268,7 +268,10 @@ export function ChartTradingCalculatorScreen() {
             { key: 'Free Margin', label: t('Free Margin'), value: fmtMoney(marginResult?.free_margin, profitCurrency) },
             { key: 'Max Lots', label: t('Max Lots'), value: marginResult?.max_lots != null ? marginResult.max_lots.toFixed(2) : '—' },
             { key: 'Commission', label: t('Commission'), value: fmtMoney(commission, profitCurrency) },
-            { key: 'Swap / day', label: t('Swap / day'), value: fmtMoney(swapPerDay, profitCurrency) },
+            // Contract v3 instruments carry no swap_* fields; hide instead of '—'.
+            ...(swapPerDay !== undefined && Number.isFinite(swapPerDay)
+              ? [{ key: 'Swap / day', label: t('Swap / day'), value: fmtMoney(swapPerDay, profitCurrency) }]
+              : []),
             { key: 'Spread', label: t('Spread'), value: spread !== undefined ? `${spread.toFixed(1)} ${t('pts')}` : '—' },
             { key: 'Pip Value', label: t('Pip Value'), value: fmtPipValue(pipValue, profitCurrency) },
             { key: 'P/L', label: t('P/L'), value: fmtMoney(profitLoss, profitCurrency) },
@@ -338,7 +341,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 17,
-      fontWeight: '700',
+      fontWeight: '500',
       letterSpacing: 0.3,
     },
     scrollContent: {

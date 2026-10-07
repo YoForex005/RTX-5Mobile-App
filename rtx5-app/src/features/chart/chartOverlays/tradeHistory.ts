@@ -73,8 +73,7 @@ export type ChartTradeHistoryOverlay = {
 };
 
 const VOLUME_EPSILON = 1e-9;
-// MT5's history connector is slightly stronger than a one-pixel guide while
-// remaining visually lighter than the two-pixel live-position line.
+// MT5's history connector is slightly stronger than a one-pixel guide.
 const TRADE_HISTORY_CONNECTOR_LINE_WIDTH = 1.5;
 
 const toFinitePositiveNumber = (value: unknown): number | null => {

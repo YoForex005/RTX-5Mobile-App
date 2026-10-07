@@ -182,3 +182,24 @@ test('candle history abort handling is safe in React Native without DOMException
   assert.doesNotMatch(source, /instanceof DOMException/);
   assert.doesNotMatch(source, /instanceof AbortSignal/);
 });
+
+test('contract v3 REST candles: M1-style timeframe, ascending by time, de-duplicated, gaps kept', async () => {
+  const { normalizeCandleSeries } = await import('../core/candles');
+  // REST never sends `1m` (400 INVALID_TIMEFRAME); the app timeframe maps to M1.
+  assert.equal(buildCandleHistorySearchParams('1m', 2500).get('timeframe'), 'M1');
+  assert.deepEqual(getCandleHistoryRequestTimeframes('1m'), ['M1']);
+
+  const payload = extractCandleHistoryPayload({
+    symbol: 'EURUSD',
+    timeframe: 'M1',
+    candles: [
+      { time: 1790241480, open: 1.1377, high: 1.1378, low: 1.1376, close: 1.1377, volume: 5, tickCount: 5, isClosed: true },
+      { time: 1790241360, open: 1.1376, high: 1.137625, low: 1.137205, close: 1.137205, volume: 129, tickCount: 129, isClosed: true },
+      { time: 1790241360, open: 1.1376, high: 1.137625, low: 1.137205, close: 1.137205, volume: 129, tickCount: 129, isClosed: true },
+    ],
+  });
+  const candles = normalizeCandleSeries(payload.candles, 'M1');
+  assert.deepEqual(candles.map((candle) => candle.time), [1790241360, 1790241480]);
+  // 1790241420 is missing and stays a gap: no synthetic bar is inserted.
+  assert.equal(candles.length, 2);
+});

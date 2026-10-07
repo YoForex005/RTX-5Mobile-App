@@ -1,3 +1,4 @@
+﻿import { AuthEntryScreen } from '../src/features/auth/AuthEntryScreen';
 import { useIsFocused } from '@react-navigation/native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
@@ -32,7 +33,7 @@ const REGISTER_BACK_FALLBACK_HREF = '/(tabs)/settings';
 /**
  * Retained handoff route that opens the demo-account registration form directly.
  */
-export default function RegisterEntryScreen() {
+function LegacyRegisterEntryScreen() {
   const isScreenFocused = useIsFocused();
   const { origin, registerLaunchRevision } = useLocalSearchParams<{
     origin?: string;
@@ -311,3 +312,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F4F8',
   },
 });
+
+export default function SharedAuthenticationEntry() { return <AuthEntryScreen form="demo" />; }
+

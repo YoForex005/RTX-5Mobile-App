@@ -39,7 +39,6 @@ export const RegisterHandoffPreview = React.memo(function RegisterHandoffPreview
   const isDark = themeMode === 'dark';
   const styles = React.useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
   const iconColor = isDark ? T.textSub : T.textMuted;
-  const accentColor = isDark ? T.accent : T.trading.buy.primary;
 
   return (
     <View style={styles.bg}>
@@ -159,13 +158,6 @@ export const RegisterHandoffPreview = React.memo(function RegisterHandoffPreview
             label={t('Origin broker')}
             value={ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME}
             detailValue={ORRNN_DEMO_ORIGIN_BROKER_LABEL}
-          />
-          <SelectPreview
-            styles={styles}
-            icon="shield-checkmark-outline"
-            iconColor={accentColor}
-            label={t('Group')}
-            value={t('Demo groups unavailable')}
           />
 
           <View style={styles.termsRow}>
@@ -311,7 +303,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       flex: 1,
       fontSize: 17,
       lineHeight: 22,
-      fontWeight: '600',
+      fontWeight: '500',
       letterSpacing: 0,
       textAlign: 'center',
       paddingHorizontal: 12,

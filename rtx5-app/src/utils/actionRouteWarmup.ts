@@ -24,6 +24,8 @@ import {
 import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount';
 import { prefetchBrokerServers } from '../query/broker';
 import { scheduleIdleWork } from './startupScheduler';
+import { isStartupBackgroundWorkAllowed, subscribeStartupBackgroundWork } from './startupWorkGate';
+import { createStartupWorkQueue } from './startupWorkQueue';
 
 const ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS = 180;
 
@@ -48,53 +50,40 @@ const ACTION_DEFERRED_MODULE_WARMUPS = [
   { cacheKey: MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY, load: loadMarketStatisticsScreenRoute },
 ] as const;
 
-let actionResourcesWarmupStarted = false;
-
-const scheduleNextFrame = (callback: () => void) => {
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(callback);
-    return;
-  }
-  setTimeout(callback, 16);
-};
+let directoryWarmupStarted = false;
+let warmupOwners = 0;
+let unsubscribeWorkGate: (() => void) | null = null;
+const moduleWarmupQueue = createStartupWorkQueue({
+  tasks: ACTION_DEFERRED_MODULE_WARMUPS.map(module => () =>
+    preloadDeferredRouteModule(module.cacheKey, module.load)),
+  canRun: isStartupBackgroundWorkAllowed,
+  schedule: (work, index) => scheduleIdleWork(work, {
+    delayMs: index === 0 ? ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS : 0,
+    timeoutMs: 1200,
+  }),
+});
 
 export function warmActionRoutes() {
-  if (actionResourcesWarmupStarted) {
-    return () => {};
+  if (!directoryWarmupStarted) {
+    directoryWarmupStarted = true;
+    // Directory reads are coalesced independently from optional module work;
+    // the initial broker picker needs this data while auth prewarming pauses.
+    void prefetchBrokerServers().catch(() => undefined);
   }
-
-  actionResourcesWarmupStarted = true;
-  // The Brokers preview already looks complete; warm the real directory now so
-  // its interactive rows can replace that preview without a loading state.
-  void prefetchBrokerServers().catch(() => undefined);
-  let cancelled = false;
-  let cancelDeferredModuleWarmups: (() => void) | null = null;
-
-  const scheduleDeferredModuleWarmups = () => {
-    if (cancelled) {
-      return;
-    }
-
-    cancelDeferredModuleWarmups = scheduleIdleWork(() => {
-      if (cancelled) {
-        return;
-      }
-      for (const module of ACTION_DEFERRED_MODULE_WARMUPS) {
-        void preloadDeferredRouteModule(module.cacheKey, module.load).catch(() => undefined);
-      }
-    }, {
-      delayMs: ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS,
-      timeoutMs: 1200,
-    });
-  };
-
-  // Dynamic imports populate the module cache without creating hidden Expo
-  // Router scenes. Keep them behind the first paint and an idle delay.
-  scheduleNextFrame(scheduleDeferredModuleWarmups);
-
+  warmupOwners += 1;
+  if (warmupOwners === 1) {
+    unsubscribeWorkGate = subscribeStartupBackgroundWork(moduleWarmupQueue.refresh);
+    moduleWarmupQueue.setActive(true);
+  }
+  let disposed = false;
   return () => {
-    cancelled = true;
-    cancelDeferredModuleWarmups?.();
-    cancelDeferredModuleWarmups = null;
+    if (disposed) return;
+    disposed = true;
+    warmupOwners -= 1;
+    if (warmupOwners === 0) {
+      unsubscribeWorkGate?.();
+      unsubscribeWorkGate = null;
+      moduleWarmupQueue.setActive(false);
+    }
   };
 }

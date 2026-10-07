@@ -2,8 +2,8 @@
  * Trading Positions & History API (V2).
  *
  * Endpoints:
- *  GET  /api/v2/positions/{login}             — open positions for an account
- *  GET  /api/v2/positions/{login}/history     — closed-trade history (paginated)
+ *  GET  /api/v2/positions/{login}             — ALL open positions (no paging)
+ *  GET  /api/v2/positions/{login}/history     — closed-trade history (time windows)
  *  POST /api/v2/positions/{ticket}/close      — close a single position
  *  PUT  /api/v2/positions/{ticket}            — modify SL/TP on an open position
  *
@@ -17,13 +17,17 @@
 import { apiClient } from '../apiClient';
 import { createTradingApiError } from '../tradingErrors';
 import {
+  recordClosePositionGatewayLatency,
   recordClosePositionJournalFailure,
   recordClosePositionJournalRequest,
   recordClosePositionJournalSuccess,
+  recordModifyPositionGatewayLatency,
   recordModifyPositionJournalFailure,
   recordModifyPositionJournalRequest,
   recordModifyPositionJournalSuccess,
+  watchClosePositionExecution,
 } from '../../state/terminalJournalState';
+import { getApiLatencyNow } from '../../utils/apiLatency';
 import { getPositionHistory } from './closedHistory';
 import {
   buildFullClosePositionRequestPayload,
@@ -46,6 +50,13 @@ import {
 } from './modifyPositionWire';
 import { redactDiagnosticValue } from '../../utils/securityRedaction';
 import { assertActiveExistingPositionSltpAllowed } from '../sltpCapabilityGuard';
+import { captureActiveBrokerSessionOwnerStamp } from '../../state/activeBrokerSession';
+import { StaleBrokerSessionError } from '../brokerApi';
+import { pollOrderCommand } from '../orders/orderCommands';
+import { executeClosePositionRequest } from './closeSubmission';
+
+/** Contract 6.1/6.2: close can be held like a market order; wait >= 30 s. */
+export const CLOSE_POSITION_HTTP_TIMEOUT_MS = 35_000;
 
 const DEBUG_POSITIONS_API =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_POSITIONS_API === 'true';
@@ -56,9 +67,9 @@ const logPositionsApiDiagnostic = (...args: Parameters<typeof console.log>) => {
   }
 };
 
-const warnPositionsApiDiagnostic = (...args: Parameters<typeof console.warn>) => {
+const warnPositionsApiDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (DEBUG_POSITIONS_API) {
-    console.warn(...args.map(redactDiagnosticValue));
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
@@ -66,32 +77,46 @@ const submitClosePositionRequest = async (
   ticketId: string | number,
   request: PreparedClosePositionRequest,
 ): Promise<ClosePositionResponse> => {
+  // One client_order_id per user close action (close-<ticket>-<uuid>). The
+  // only resend of these exact bytes is brokerApi's replay after a 401
+  // refresh, which the gateway deduplicates by this id.
   const descriptor = buildClosePositionRequestDescriptor(ticketId, request);
+  const owner = captureActiveBrokerSessionOwnerStamp();
+  if (!owner) throw new StaleBrokerSessionError();
   recordClosePositionJournalRequest(descriptor.ticket, descriptor.journalPayload);
-  let failureRecorded = false;
   try {
-    const response = await apiClient(descriptor.endpoint, {
-      method: descriptor.method,
-      body: descriptor.body,
+    const data = await executeClosePositionRequest(descriptor, {
+      send: async (prepared) => {
+        const sentAtMs = getApiLatencyNow();
+        watchClosePositionExecution(prepared.clientOrderId, descriptor.ticket, sentAtMs);
+        const response = await apiClient(prepared.endpoint, {
+          method: prepared.method,
+          // Optional mirror of the body id; the gateway ignores this header.
+          headers: { 'Idempotency-Key': prepared.clientOrderId },
+          body: prepared.body,
+          timeoutMs: CLOSE_POSITION_HTTP_TIMEOUT_MS,
+        });
+        const body = await response.json().catch(() => ({}));
+        recordClosePositionGatewayLatency(descriptor.ticket, getApiLatencyNow() - sentAtMs);
+        return {
+          status: response.status,
+          body,
+          retryAfter: response.headers.get('retry-after'),
+        };
+      },
+      pollCommand: (clientOrderId) => pollOrderCommand({
+        clientOrderId,
+        accountLogin: owner.accountLogin,
+      }),
+      readOpenTickets: async () => {
+        const positions = await positionsApi.getPositionsForReconciliation(owner.accountLogin);
+        return positions.map((position) => String(position.ticket));
+      },
     });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const headers: Record<string, string> = {};
-      if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
-      const error = createTradingApiError(response.status, errorData, headers);
-      failureRecorded = true;
-      recordClosePositionJournalFailure(descriptor.ticket, error);
-      throw error;
-    }
-
-    const data = await response.json().catch(() => ({} as ClosePositionResponse));
     recordClosePositionJournalSuccess(descriptor.ticket, data);
     return data;
   } catch (error) {
-    if (!failureRecorded) {
-      recordClosePositionJournalFailure(descriptor.ticket, error);
-    }
+    recordClosePositionJournalFailure(descriptor.ticket, error);
     throw error;
   }
 };
@@ -120,17 +145,19 @@ export {
 
 export const positionsApi = {
   /**
-   * Fetch all open positions for a trading account.
+   * Fetch ALL open positions for a trading account.
    *
-   * GET /api/v2/positions/{login}?limit={limit}&offset={offset}
+   * GET /api/v2/positions/{login}
    *
-   * @param login   - The MT5 account login number (e.g. 200074)
-   * @param limit   - Maximum number of positions to return (default: 50)
-   * @param offset  - Pagination offset (default: 0)
+   * The v3 gateway returns every open position as a bare array and ignores
+   * limit/offset, so no paging parameters are sent (a limit=50 default used
+   * to hide positions beyond the first page).
+   *
+   * @param login   - The trading account login number (e.g. 200074)
    * @returns Array of open Position objects from the live trading server
    */
-  getPositions: async (login: number, limit = 50, offset = 0): Promise<Position[]> => {
-    const url = `/positions/${login}?limit=${limit}&offset=${offset}`;
+  getPositions: async (login: number): Promise<Position[]> => {
+    const url = `/positions/${login}`;
     logPositionsApiDiagnostic('[PositionsAPI] GET', url);
 
     const response = await apiClient(url);
@@ -206,13 +233,10 @@ export const positionsApi = {
   /**
    * Fetch closed position history for a trading account.
    *
-   * GET /api/v2/positions/{login}/history?limit={limit}&offset={offset}
+   * GET /api/v2/positions/{login}/history?from={unix s}&to={unix s}
    *
-   * @param login   - The MT5 account login number
-   * @param limit   - Page size used while loading closed history records (default: 1000)
-   * @param offset  - Initial pagination offset (default: 0)
-   * @param maxPages - Maximum page count to load (default: all safety-capped pages)
-   * @returns Array of ClosedPosition objects representing the account's trade history
+   * The endpoint ignores limit/offset and returns at most 500 rows, so the
+   * loader walks backwards in from/to time windows (see closedHistory.ts).
    */
   getPositionHistory,
 
@@ -275,6 +299,7 @@ export const positionsApi = {
     const normalizedPayload = normalizeModifyPositionRequest(payload);
     recordModifyPositionJournalRequest(normalizedTicket.path, normalizedPayload);
     let failureRecorded = false;
+    const sentAtMs = getApiLatencyNow();
     try {
       const response = await apiClient(`/positions/${normalizedTicket.path}`, {
         method: 'PUT',
@@ -287,6 +312,7 @@ export const positionsApi = {
         timeoutMs: requestOptions.timeoutMs,
         replayAfterAuthRefresh: false,
       });
+      recordModifyPositionGatewayLatency(normalizedTicket.path, getApiLatencyNow() - sentAtMs);
       try {
         const requestId = response.headers.get('x-request-id')?.trim();
         const serverTiming = response.headers.get('server-timing')?.trim();

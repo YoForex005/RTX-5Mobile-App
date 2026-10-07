@@ -43,15 +43,23 @@ export const selectObsoleteSessionCacheKeys = (
 
 /** Removes only cache namespaces that the active session can no longer use. */
 export const pruneObsoleteSessionCaches = async (
-  preserveCacheNamespace?: string | null,
+  preserveCacheNamespace?: string | null | (() => string | null | undefined),
+  storage: Pick<typeof AsyncStorage, 'getAllKeys' | 'multiRemove'> = AsyncStorage,
 ): Promise<number> => {
-  const storageKeys = await AsyncStorage.getAllKeys();
+  const storageKeys = await storage.getAllKeys();
+  // Background cleanup can outlive a login or account switch. Resolve the
+  // current namespace after enumeration, then select and queue removal in
+  // this same turn. Any later activation uses a new namespace that cannot
+  // appear in this snapshot, so its caches cannot be removed by this pass.
+  const currentNamespace = typeof preserveCacheNamespace === 'function'
+    ? preserveCacheNamespace()
+    : preserveCacheNamespace;
   const obsoleteKeys = selectObsoleteSessionCacheKeys(
     storageKeys,
-    preserveCacheNamespace,
+    currentNamespace,
   );
   if (obsoleteKeys.length > 0) {
-    await AsyncStorage.multiRemove(obsoleteKeys);
+    await storage.multiRemove(obsoleteKeys);
   }
   return obsoleteKeys.length;
 };

@@ -1,36 +1,24 @@
-export const ORRNN_DEMO_PUBLIC_BROKER_ID = 'orrnn-demo';
-export const ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL =
-  'https://demobackend.orrnn.com';
-export const ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE =
-  'public-market:orrnn-demo:v1';
-export const ORRNN_DEMO_PUBLIC_MARKET_API_BASE_URL =
-  `${ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL}/api/v1`;
-export const ORRNN_DEMO_PUBLIC_FEED_WS_URL =
-  'wss://demobackend.orrnn.com/ws/feed';
-export const ORRNN_DEMO_PUBLIC_FEED_STATUS_URL =
-  `${ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL}/ws/feed/status`;
-
-export function resolveBrokerConnectionWithPublicDemoDefault(input: {
-  brokerId: string;
-  serverUrl: string;
-  isLoggedIn: boolean;
-}): { brokerId: string; serverUrl: string } {
-  if (input.isLoggedIn) {
-    return {
-      brokerId: input.brokerId,
-      serverUrl: input.serverUrl,
-    };
-  }
-
-  if (input.brokerId && input.brokerId !== ORRNN_DEMO_PUBLIC_BROKER_ID) {
-    return {
-      brokerId: input.brokerId,
-      serverUrl: input.serverUrl,
-    };
-  }
-
-  return {
-    brokerId: ORRNN_DEMO_PUBLIC_BROKER_ID,
-    serverUrl: input.serverUrl || ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL,
-  };
+﻿// Compatibility names retained for chart callers; routing is now directory-scoped.
+import { getPublicBrokerContext, subscribePublicBrokerContext } from '../state/publicBrokerContext';
+export let ORRNN_DEMO_PUBLIC_BROKER_ID = '';
+export let ORRNN_PUBLIC_DEMO_LOGIN_BROKER_ID = '';
+export let ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL = '';
+export let ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE = 'public-market:unselected';
+export let ORRNN_DEMO_PUBLIC_MARKET_API_BASE_URL = '';
+export let ORRNN_DEMO_PUBLIC_FEED_WS_URL = '';
+export let ORRNN_DEMO_PUBLIC_FEED_STATUS_URL = '';
+function update() {
+  const context = getPublicBrokerContext();
+  ORRNN_DEMO_PUBLIC_BROKER_ID = ORRNN_PUBLIC_DEMO_LOGIN_BROKER_ID = context?.brokerId ?? '';
+  ORRNN_DEMO_PUBLIC_MARKET_API_BASE_URL = context?.apiBase ?? '';
+  ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL = context?.apiBase.replace(/\/api\/v2$/, '') ?? '';
+  ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE = context?.cacheNamespace ?? 'public-market:unselected';
+  ORRNN_DEMO_PUBLIC_FEED_WS_URL = context?.feedWsBase ?? '';
+  ORRNN_DEMO_PUBLIC_FEED_STATUS_URL = context?.feedStatusUrl ?? '';
 }
+subscribePublicBrokerContext(update); update();
+export function resolveBrokerConnectionWithPublicDemoDefault(input: { brokerId: string; serverUrl: string; isLoggedIn: boolean }) {
+  return !input.isLoggedIn && input.brokerId === 'orrnn-demo'
+    ? { brokerId: '', serverUrl: '' } : { brokerId: input.brokerId, serverUrl: input.serverUrl };
+}
+

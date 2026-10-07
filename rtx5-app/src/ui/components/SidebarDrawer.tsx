@@ -9,8 +9,9 @@ import { usePathname, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useMemo, useState, type MutableRefObject } from 'react';
 import {
   Alert, Animated, BackHandler, Easing, Image, Linking, ScrollView, StyleSheet, Text, View,
-  Platform
+  Platform, useWindowDimensions
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GDark, GLight, ThemeColors } from '../theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
 import {
@@ -30,7 +31,7 @@ import { pauseLiveQuoteSnapshotNotifications } from '../../features/quotes/useLi
 import { useTranslation } from '../../i18n/useTranslation';
 import { pauseLiveSymbolQuoteNotifications } from '../../query/websocket';
 import { quotesWsService } from '../../api/ws/quotesSocket';
-import { navigateMountedSidebarTab, registerSidebarOpenHandler } from './sidebarDrawerController';
+import { invalidateSidebarOpenVisualWork, navigateMountedSidebarTab, registerSidebarOpenHandler, scheduleAfterSidebarOpenVisual } from './sidebarDrawerController';
 import {
   hideSidebarDestination,
   resolveSidebarHostDestination,
@@ -38,9 +39,12 @@ import {
   sidebarDestinationController,
 } from './sidebarDestinationHostController';
 import {
+  scheduleFastTabNavigation,
   showFastTabVisualForSidebar,
+  TAB_BAR_NAVIGATION_SETTLE_DELAY_MS,
 } from '../navigation/fastTabVisualController';
 import { requestOrrnnDemoTradeAuth } from '../../features/trade/tradeAuthPrompt';
+import { registerInteractionLifecycleHandler } from '../../utils/interactionLifecycle';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
@@ -66,7 +70,6 @@ const MENU_ITEMS: MenuItem[] = [
 // DELETED Props so component handles its own state
 const DRAWER_WIDTH = 310;
 const DRAWER_CLOSED_TRANSLATE_X = -DRAWER_WIDTH - 2;
-const DRAWER_OPEN_ANIMATION_MS = 110;
 const DRAWER_CLOSE_ANIMATION_MS = 60;
 const SIDEBAR_MENU_ITEM_HIT_SLOP = { top: 6, bottom: 6, left: 8, right: 8 } as const;
 const SIDEBAR_PROFILE_ACTION_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 4 } as const;
@@ -175,6 +178,9 @@ const SidebarMenuRow = memo(function SidebarMenuRow({
  * Main global navigation drawer component. It houses the user's active account context, global navigation links (Trade, Quotes, History, Settings), and the theme toggle.
  */
 export const SidebarDrawer = memo(function SidebarDrawer() {
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const drawerWidth = Math.min(DRAWER_WIDTH, Math.max(0, width - Math.max(24, insets.right)));
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const onClose = useCallback(() => setSidebarOpen(false), [setSidebarOpen]);
   const initialSidebarOpenRef = useRef(useUIState.getState().sidebarOpen);
@@ -203,12 +209,13 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
   );
   const [brokerLogoFailed, setBrokerLogoFailed] = useState(false);
 
-  const slideAnim = useRef(new Animated.Value(initialSidebarOpenRef.current ? 0 : DRAWER_CLOSED_TRANSLATE_X)).current;
-  const overlayAnim = useRef(new Animated.Value(initialSidebarOpenRef.current ? 1 : 0)).current;
+  const [slideAnim] = useState(() => new Animated.Value(initialSidebarOpenRef.current ? 0 : DRAWER_CLOSED_TRANSLATE_X, { useNativeDriver: true }));
+  const [overlayAnim] = useState(() => new Animated.Value(initialSidebarOpenRef.current ? 1 : 0, { useNativeDriver: true }));
   const isClosingRef = useRef(false);
   const animatedVisibleRef = useRef(initialSidebarOpenRef.current);
   const drawerAnimationGenerationRef = useRef(0);
   const interactiveGenerationRef = useRef(0);
+  const cancelOpenCommitRef = useRef<(() => void) | null>(null);
   const navigationLockedRef = useRef(false);
   const navigationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveSnapshotPauseReleaseRef = useRef<(() => void) | null>(null);
@@ -217,6 +224,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
   const containerRef = useRef<View>(null);
 
   useEffect(() => () => {
+    cancelOpenCommitRef.current?.();
     themeCommitGenerationRef.current += 1;
   }, []);
 
@@ -305,77 +313,65 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     }, SIDEBAR_LIVE_WORK_RESUME_DELAY_MS);
   }, []);
 
-  /* Keep the drawer warm offscreen so opening only has to run native-driver motion. */
-  const startOpenAnimation = useCallback(() => {
-    pauseLiveWorkForDrawer();
-    const animationGeneration = drawerAnimationGenerationRef.current + 1;
-    drawerAnimationGenerationRef.current = animationGeneration;
+  /* Keep the drawer warm offscreen and reveal its final position on touch-down. */
+  const revealDrawerImmediately = useCallback(() => {
+    drawerAnimationGenerationRef.current += 1;
     animatedVisibleRef.current = true;
     isClosingRef.current = false;
     slideAnim.stopAnimation();
     overlayAnim.stopAnimation();
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: DRAWER_OPEN_ANIMATION_MS,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(overlayAnim, {
-        toValue: 1,
-        duration: DRAWER_OPEN_ANIMATION_MS,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      if (
-        animationGeneration === drawerAnimationGenerationRef.current
-        && finished
-        && animatedVisibleRef.current
-      ) {
-        setSidebarOpen(true);
-      }
-    });
-  }, [overlayAnim, pauseLiveWorkForDrawer, setSidebarOpen, slideAnim]);
+    slideAnim.setValue(0);
+    overlayAnim.setValue(1);
+    pauseLiveWorkForDrawer();
+  }, [overlayAnim, pauseLiveWorkForDrawer, slideAnim]);
 
   const showInteractiveAfterVisualFrame = useCallback(() => {
     const generation = interactiveGenerationRef.current + 1;
     interactiveGenerationRef.current = generation;
 
-    // The native-driver drawer can become visible while the JS thread is busy.
-    // Give it touch ownership in this same event turn so a quick menu-row tap
-    // cannot be dropped while the React accessibility state catches up.
-    containerRef.current?.setNativeProps({ pointerEvents: 'auto' });
+    // Touch and accessibility ownership follow the native reveal immediately.
+    containerRef.current?.setNativeProps({
+      pointerEvents: 'auto',
+      importantForAccessibility: 'auto',
+      accessibilityElementsHidden: false,
+      style: { opacity: 1 },
+    });
 
-    // The interactive re-render waits until the open motion has finished —
-    // committing it one frame into the 110ms slide was measured dropping
-    // 45-99ms of animation frames on-device. Touches already work via the
-    // synchronous setNativeProps above.
-    setTimeout(() => {
+    cancelOpenCommitRef.current?.();
+    cancelOpenCommitRef.current = scheduleAfterSidebarOpenVisual(() => {
+      cancelOpenCommitRef.current = null;
       if (interactiveGenerationRef.current === generation && animatedVisibleRef.current) {
         setInteractive(true);
+        setSidebarOpen(true);
       }
-    }, DRAWER_OPEN_ANIMATION_MS + 40);
-  }, []);
+    });
+  }, [setSidebarOpen]);
 
   const hideInteractiveNow = useCallback(() => {
+    cancelOpenCommitRef.current?.();
+    cancelOpenCommitRef.current = null;
     interactiveGenerationRef.current += 1;
-    containerRef.current?.setNativeProps({ pointerEvents: 'none' });
+    containerRef.current?.setNativeProps({
+      pointerEvents: 'none',
+      importantForAccessibility: 'no-hide-descendants',
+      accessibilityElementsHidden: true,
+      style: { opacity: 0 },
+    });
     setInteractive(false);
   }, []);
 
   useEffect(() => registerSidebarOpenHandler(() => {
-    if (!animatedVisibleRef.current) {
-      startOpenAnimation();
-    }
+    if (animatedVisibleRef.current) return;
+    revealDrawerImmediately();
     showInteractiveAfterVisualFrame();
-  }), [showInteractiveAfterVisualFrame, startOpenAnimation]);
+  }), [showInteractiveAfterVisualFrame, revealDrawerImmediately]);
 
   /**
    * Animates the sidebar drawer off-screen and updates the global visibility state to closed.
    */
   const handleClose = useCallback((afterClose?: () => void) => {
     if (isClosingRef.current) return;
+    invalidateSidebarOpenVisualWork();
     const animationGeneration = drawerAnimationGenerationRef.current + 1;
     drawerAnimationGenerationRef.current = animationGeneration;
     animatedVisibleRef.current = false;
@@ -384,6 +380,8 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     // Stop intercepting the newly revealed screen in this touch turn without
     // adding a React state commit to the native-driver close animation.
     interactiveGenerationRef.current += 1;
+    cancelOpenCommitRef.current?.();
+    cancelOpenCommitRef.current = null;
     containerRef.current?.setNativeProps({ pointerEvents: 'none' });
     slideAnim.stopAnimation();
     overlayAnim.stopAnimation();
@@ -430,9 +428,9 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
 
       if (state.sidebarOpen) {
         if (!animatedVisibleRef.current) {
-          startOpenAnimation();
+          revealDrawerImmediately();
+          showInteractiveAfterVisualFrame();
         }
-        showInteractiveAfterVisualFrame();
         return;
       }
 
@@ -442,20 +440,17 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     });
 
     return unsubscribe;
-  }, [handleClose, showInteractiveAfterVisualFrame, startOpenAnimation]);
+  }, [handleClose, showInteractiveAfterVisualFrame, revealDrawerImmediately]);
 
   useEffect(() => {
-    if (!interactive) {
-      return undefined;
-    }
-
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!animatedVisibleRef.current) return false;
       handleClose();
       return true;
     });
 
     return () => subscription.remove();
-  }, [handleClose, interactive]);
+  }, [handleClose]);
 
   const unlockSidebarNavigation = useCallback(() => {
     if (navigationUnlockTimerRef.current) {
@@ -472,6 +467,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     // visuals before clearing the global state so no destination can inherit
     // an open drawer or wait for the close animation.
     animatedVisibleRef.current = false;
+    invalidateSidebarOpenVisualWork();
     isClosingRef.current = false;
     drawerAnimationGenerationRef.current += 1;
     slideAnim.stopAnimation();
@@ -479,7 +475,35 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     slideAnim.setValue(DRAWER_CLOSED_TRANSLATE_X);
     overlayAnim.setValue(0);
     interactiveGenerationRef.current += 1;
+    cancelOpenCommitRef.current?.();
+    cancelOpenCommitRef.current = null;
   }, [overlayAnim, slideAnim]);
+
+  const closeForNavigation = useCallback(() => {
+    snapClosedForNavigation();
+    hideInteractiveNow();
+    onClose();
+    scheduleLiveWorkResumeAfterClose();
+  }, [hideInteractiveNow, onClose, scheduleLiveWorkResumeAfterClose, snapClosedForNavigation]);
+
+  const resetDrawerForLifecycle = useCallback(() => {
+    // A native close animation can be suspended without its completion
+    // callback. Settle its values/flags and input barrier synchronously.
+    snapClosedForNavigation();
+    hideInteractiveNow();
+    onClose();
+    navigationLockedRef.current = false;
+    if (navigationUnlockTimerRef.current !== null) clearTimeout(navigationUnlockTimerRef.current);
+    navigationUnlockTimerRef.current = null;
+    if (liveWorkResumeTimerRef.current !== null) clearTimeout(liveWorkResumeTimerRef.current);
+    liveWorkResumeTimerRef.current = null;
+    liveSnapshotPauseReleaseRef.current?.();
+    liveSnapshotPauseReleaseRef.current = null;
+    liveSymbolPauseReleaseRef.current?.();
+    liveSymbolPauseReleaseRef.current = null;
+  }, [hideInteractiveNow, onClose, snapClosedForNavigation]);
+
+  useEffect(() => registerInteractionLifecycleHandler(resetDrawerForLifecycle), [resetDrawerForLifecycle]);
 
   const runSidebarNavigation = useCallback((route: string) => {
     const currentPath = normalizeSidebarPath(pathnameRef.current);
@@ -528,10 +552,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
       // The trade-access dialog owns the next destination. Close the drawer underneath it so
       // choosing Demo Account or Log In cannot reveal a stale open overlay.
       navigationLockedRef.current = true;
-      snapClosedForNavigation();
-      hideInteractiveNow();
-      onClose();
-      scheduleLiveWorkResumeAfterClose();
+      closeForNavigation();
       unlockSidebarNavigation();
       return;
     }
@@ -550,42 +571,33 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
       if (hostedPath === targetPath && resolveSidebarHostDestination(route)) {
         showSidebarDestination(route, 'sidebar');
       }
-      handleClose(() => {
-        unlockSidebarNavigation();
-      });
+      closeForNavigation();
+      unlockSidebarNavigation();
       return;
     }
 
     if (resolveSidebarHostDestination(route)) {
       showSidebarDestination(route, 'sidebar');
-      handleClose(() => {
-        unlockSidebarNavigation();
-      });
+      closeForNavigation();
+      unlockSidebarNavigation();
       return;
     }
 
     if (SIDEBAR_PRIMARY_TAB_ROUTES.has(route)) {
-      showFastTabVisualForSidebar(route);
+      const revision = showFastTabVisualForSidebar(route);
       hideSidebarDestination();
-      // Start the native close before dispatching navigation, then let the
-      // mounted tab adopt the same visual choice in this tap turn. Waiting for
-      // the close callback left a brief old-tab highlight under the newly
-      // revealed Trade/Settings screen when JS was busy.
-      handleClose(() => {
-        unlockSidebarNavigation();
-      });
-      try {
-        runSidebarNavigation(route);
-      } catch (error) {
-        unlockSidebarNavigation();
-        throw error;
-      }
+      closeForNavigation();
+      unlockSidebarNavigation();
+      // Match the bottom bar: reveal cached pixels first, then commit focus
+      // work after that frame. A newer selection cancels this route commit.
+      if (revision !== null) {
+        scheduleFastTabNavigation(revision, () => runSidebarNavigation(route), TAB_BAR_NAVIGATION_SETTLE_DELAY_MS);
+      } else runSidebarNavigation(route);
       return;
     }
 
-    handleClose(() => {
-      unlockSidebarNavigation();
-    });
+    closeForNavigation();
+    unlockSidebarNavigation();
     try {
       runSidebarNavigation(route);
     } catch (error) {
@@ -593,12 +605,8 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
       throw error;
     }
   }, [
-    handleClose,
-    hideInteractiveNow,
-    onClose,
+    closeForNavigation,
     runSidebarNavigation,
-    scheduleLiveWorkResumeAfterClose,
-    snapClosedForNavigation,
     unlockSidebarNavigation,
   ]);
 
@@ -623,14 +631,11 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     }
 
     navigationLockedRef.current = true;
-    snapClosedForNavigation();
-    hideInteractiveNow();
-    onClose();
-    scheduleLiveWorkResumeAfterClose();
+    closeForNavigation();
     void openSupportEmail().finally(() => {
       unlockSidebarNavigation();
     });
-  }, [hideInteractiveNow, onClose, openSupportEmail, scheduleLiveWorkResumeAfterClose, snapClosedForNavigation, unlockSidebarNavigation]);
+  }, [closeForNavigation, openSupportEmail, unlockSidebarNavigation]);
 
   /**
    * Navigates to the selected route when a menu item is tapped, automatically closing the drawer.
@@ -654,7 +659,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
       pointerEvents={interactive ? 'auto' : 'none'}
       importantForAccessibility={interactive ? 'auto' : 'no-hide-descendants'}
       accessibilityElementsHidden={!interactive}
-      style={ds.container}
+      style={[ds.container, { opacity: interactive ? 1 : 0 }]}
     >
         <SidebarPathnameSync pathnameRef={pathnameRef} />
         {/* Overlay */}
@@ -664,6 +669,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
           needsOffscreenAlphaCompositing
           style={[
             ds.overlay,
+            { left: drawerWidth },
             { opacity: overlayAnim },
           ]}
         >
@@ -680,9 +686,17 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
         <Animated.View
           style={[
             ds.drawer,
+            { width: drawerWidth, paddingTop: insets.top + 12, paddingLeft: insets.left },
             { transform: [{ translateX: slideAnim }] },
           ]}
         >
+          <ScrollView
+            style={ds.menuScroll}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="always"
+            canCancelContentTouches={Platform.OS === 'ios'}
+            contentContainerStyle={{ paddingBottom: Math.max(16, insets.bottom) }}
+          >
           {/* ── Profile Header ── */}
           <View style={ds.profileHeader}>
             <View style={ds.profileRow}>
@@ -746,13 +760,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
           <View style={ds.divider} />
 
           {/* ── Menu Items ── */}
-          <ScrollView
-            style={ds.menuScroll}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="always"
-            canCancelContentTouches={Platform.OS === 'ios'}
-            contentContainerStyle={ds.menuContent}
-          >
+          <View style={ds.menuContent}>
             {MENU_ITEMS.map((item) => (
               <SidebarMenuRow
                 key={item.label}
@@ -763,6 +771,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
                 iconColor={T.textSub}
               />
             ))}
+          </View>
           </ScrollView>
 
         </Animated.View>
@@ -863,7 +872,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? T.bg : T.glass1,
       borderRightWidth: 1,
       borderRightColor: T.border,
-      paddingTop: 58,
     },
 
     /* Profile */
@@ -892,6 +900,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     profileText: {
       flex: 1,
+      minWidth: 0,
       marginLeft: 12,
     },
     userName: {
@@ -949,6 +958,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     themePill: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       backgroundColor: T.glass2,
       borderRadius: 20,
       padding: 3,
@@ -1014,6 +1024,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 28,
     },
     menuText: {
+      flex: 1,
+      minWidth: 0,
       color: T.text,
       fontSize: 14,
       fontWeight: '600',

@@ -5,11 +5,11 @@
  * Provides normalization mappers converting backend snake_case to UI camelCase formats.
  */
 
-import { apiClient } from './apiClient';
+import { commitApiJson } from './apiClient';
+import { fetchAccountSnapshotResponse } from './accountSnapshotRequests';
+import { StaleBrokerSessionError, type BrokerApiJsonResponse } from './brokerApi';
 
-const DEBUG_ACCOUNTS_API = process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_API === 'true';
 import { mapRawAccount, type TradingAccount, type TradingAccountRaw } from './accountsMapper';
-import { ACCOUNTS_LIST_PATH, buildAccountDetailPath } from './accountsRoutes';
 
 export { mapRawAccount };
 export type { TradingAccount, TradingAccountRaw };
@@ -24,20 +24,22 @@ export type AccountDetailResult = Readonly<{
 }>;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// V2 Accounts API — https://backend.orrnn.com/api/v2/accounts
+// V2 Accounts API
 //
 // Endpoints integrated:
-//   GET /accounts        — List all trading accounts for the authenticated user
-//   GET /account/{login} — Get details of a specific account by login number
+//   GET /account/{login} — Get details of the session's account (`account_login`)
+//
+// `GET /accounts` is NOT called: contract v3 returns 403 FORBIDDEN for traders.
+// The user's only trading account is the session `account_login`.
 //
 // Authentication:
 //   Requires Bearer token (JWT). Returns 401 if no token provided.
 //   Token injection and 401 refresh are handled automatically by apiClient.
 //
 // Response format:
-//   GET /accounts        → flat JSON array: [ { login, name, ... }, ... ]
-//   GET /account/{login} → single JSON object: { login, name, ... }
-//   Note: single-account response may omit open_positions field.
+//   GET /account/{login} → single JSON object: { login, name, group, ..., used_margin, ... }
+//   Note: open_positions / pending_orders are not sent; derive them from the
+//   positions and pending-orders list lengths.
 //
 // Error responses handled:
 //   200 — Success
@@ -80,71 +82,6 @@ const HTTP_ERROR_MESSAGES: Record<number, string> = {
   504: 'Gateway timeout — the trading backend took too long to respond',
 };
 
-// ─── API Function ───────────────────────────────────────────────────────────────
-
-/**
- * GET /accounts
- *
- * Lists all trading accounts for the authenticated user.
- * Uses apiClient for automatic Bearer token injection and 401 refresh handling.
- *
- * Response is a flat JSON array (not wrapped in an object).
- *
- * @returns Array of TradingAccount objects (normalized to camelCase)
- * @throws AccountsApiError with status-specific message on failure:
- *         - 401: Unauthorized (token expired/missing)
- *         - 422: Validation error
- *         - 500: Internal server error
- *         - 503: Service unavailable / maintenance mode
- *         - Network: Connection failure
- */
-export async function getAccounts(): Promise<TradingAccount[]> {
-  let response: Response;
-
-  try {
-    response = await apiClient(ACCOUNTS_LIST_PATH);
-  } catch (networkError) {
-    // Network-level failures (DNS, timeout, connection refused)
-    throw new AccountsApiError(
-      0,
-      'Network error — unable to connect to the trading server. Please check your connection.'
-    );
-  }
-
-  // ─── Handle non-200 HTTP responses with status-specific messages ────────
-  if (!response.ok) {
-    let serverMessage = '';
-    try {
-      const errorData = await response.json();
-      serverMessage = errorData.detail || errorData.message || errorData.error || '';
-    } catch (_e) {
-      // Response body not parseable — use status-based message
-    }
-
-    const statusMessage = HTTP_ERROR_MESSAGES[response.status]
-      || `Unexpected error (HTTP ${response.status})`;
-
-    const fullMessage = serverMessage
-      ? `${statusMessage}: ${serverMessage}`
-      : statusMessage;
-
-    throw new AccountsApiError(response.status, fullMessage);
-  }
-
-  // API returns a flat array, not { accounts: [...] }
-  const data: unknown = await response.json();
-  if (!Array.isArray(data)) {
-    throw new AccountsApiError(0, 'Invalid accounts response — expected an array');
-  }
-  const mapped = (data as TradingAccountRaw[]).map(mapRawAccount);
-  if (DEBUG_ACCOUNTS_API) {
-    console.log('[Accounts API] Accounts response received', {
-      accountCount: mapped.length,
-    });
-  }
-  return mapped;
-}
-
 // ─── API Function: Single Account ───────────────────────────────────────────────
 
 /**
@@ -167,12 +104,14 @@ export async function getAccounts(): Promise<TradingAccount[]> {
  */
 export async function getAccountByIdResult(
   login: number | string,
+  previous?: TradingAccount | null,
 ): Promise<AccountDetailResult> {
-  let response: Response;
+  let response: BrokerApiJsonResponse<unknown>;
 
   try {
-    response = await apiClient(buildAccountDetailPath(login));
+    response = await fetchAccountSnapshotResponse(login);
   } catch (networkError) {
+    if (networkError instanceof StaleBrokerSessionError) throw networkError;
     // Network-level failures (DNS, timeout, connection refused)
     throw new AccountsApiError(
       0,
@@ -184,7 +123,7 @@ export async function getAccountByIdResult(
   if (!response.ok) {
     let serverMessage = '';
     try {
-      const errorData = await response.json();
+      const errorData = response.data as Record<string, any>;
       // 404 error response uses nested { error: { code, message } } shape
       serverMessage = errorData.error?.message || errorData.detail || errorData.message || errorData.error || '';
     } catch (_e) {
@@ -202,19 +141,22 @@ export async function getAccountByIdResult(
   }
 
   // API returns a single account object
-  const raw: unknown = await response.json();
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new AccountsApiError(0, 'Invalid account response — expected an object');
-  }
-
-  const typedRaw = raw as TradingAccountRaw;
-  return Object.freeze({
-    raw: typedRaw,
-    account: mapRawAccount(typedRaw),
+  return commitApiJson(response, response.cacheNamespace, (raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new AccountsApiError(0, 'Invalid account response — expected an object');
+    }
+    const typedRaw = raw as TradingAccountRaw;
+    return Object.freeze({
+      raw: typedRaw,
+      account: mapRawAccount(typedRaw, previous),
+    });
   });
 }
 
-export async function getAccountById(login: number | string): Promise<TradingAccount> {
-  const result = await getAccountByIdResult(login);
+export async function getAccountById(
+  login: number | string,
+  previous?: TradingAccount | null,
+): Promise<TradingAccount> {
+  const result = await getAccountByIdResult(login, previous);
   return result.account;
 }

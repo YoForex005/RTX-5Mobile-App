@@ -6,10 +6,11 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { AppMenuIcon } from '../../ui/components/AppMenuIcon';
 import { useIsFocused } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -35,7 +36,7 @@ import { useUIState } from '../../state/uiState';
 import { AppLogo } from '../../ui/components/AppLogo';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { Screen } from '../../ui/components/Screen';
-import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
+import { useRetainedRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { showSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
 import { GDark } from '../../ui/theme/glass';
@@ -43,6 +44,8 @@ import { safeRouterBack } from '../../utils/navigation';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { useTranslation } from '../../i18n/useTranslation';
+import { BugReportScreen } from './BugReportScreen';
+import { primeBugReportContext } from './bugReportRuntime';
 import {
   hideAboutDetailDestination,
   showAboutDetailDestination,
@@ -91,10 +94,11 @@ const ABOUT_BODY_PREWARM_DELAY_MS = 0;
  * Displays information about the app version, copyright, and developer details.
  */
 export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
-  const routeBodyReady = useDeferredRouteContentReady(
-    isScreenFocused ? 0 : ABOUT_BODY_PREWARM_DELAY_MS,
+  const routeBodyReady = useRetainedRouteContentReady(
+    isScreenFocused, ABOUT_BODY_PREWARM_DELAY_MS,
   );
   const router = useRouter();
+  const pathname = usePathname();
   const isDark = useIsDarkTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
@@ -180,11 +184,12 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
           showAboutDetailDestination('account-deletion');
           return;
         case 'contact-developer':
+          primeBugReportContext(pathname);
           showAboutDetailDestination('contact-developer');
           return;
       }
     });
-  }, [handleOpenPrivacyPolicy, handleRateExperience, router]);
+  }, [handleOpenPrivacyPolicy, handleRateExperience, pathname, router]);
 
   return (
     <Screen noBottomInset style={styles.screen}>
@@ -198,7 +203,7 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
           accessibilityRole="button"
           accessibilityLabel="Open menu"
         >
-          <Ionicons name="menu" size={32} color={menuIconColor} />
+          <AppMenuIcon color={menuIconColor} />
         </FastPressable>
         <Text style={styles.headerTitle} numberOfLines={1}>{t('About')}</Text>
       </View>
@@ -353,6 +358,17 @@ export function DeveloperContactRequestScreen({
     }
     safeRouterBack(router, '/settings/about');
   }, [hosted, onHostedBack, router]);
+
+  if (!isAccountDeletion) {
+    return (
+      <BugReportScreen
+        active={!hosted || hostedActive}
+        insetsTop={insets.top}
+        insetsBottom={insets.bottom}
+        onClose={handleClose}
+      />
+    );
+  }
 
   return (
     <ContactDeveloperScreen
@@ -662,7 +678,7 @@ function ContactDeveloperScreen({
 
   return (
     <Screen noBottomInset style={styles.contactScreen}>
-      <View style={[styles.contactPageHeader, { paddingTop: Math.max(insetsTop, 0) + 14 }]}>
+      <View style={[styles.contactPageHeader, { paddingTop: Math.max(insetsTop, 0) + 8 }]}>
         <FastPressable
           onPress={onClose}
           activateOnPressIn

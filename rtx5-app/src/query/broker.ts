@@ -34,7 +34,7 @@ import {
 
 export const BROKER_CONFIG_KEY = 'brokerConfig';
 export const BROKER_SERVERS_KEY = 'brokerServers';
-export const BROKER_DIRECTORY_QUERY_VERSION = 4;
+export const BROKER_DIRECTORY_QUERY_VERSION = 5;
 
 const getBrokerDirectoryQueryKey = () => [
   BROKER_SERVERS_KEY,
@@ -123,12 +123,17 @@ export function useBrokerDirectory(enabled: boolean = true) {
   });
 }
 
+// QueryObserver reuses the selected array while both data and selector stay
+// unchanged. An inline selector rebuilt it on every credential/search render.
+const selectBrokerServers = (directory: BrokerDirectoryResult): ValidatedBrokerServer[] =>
+  [...directory.selectableServers];
+
 /** Backwards-compatible view containing every validated selectable server. */
 export function useBrokerServers(enabled: boolean = true) {
   return useQuery<BrokerDirectoryResult, Error, ValidatedBrokerServer[]>({
     queryKey: getBrokerDirectoryQueryKey(),
     queryFn: () => getBrokerDirectory(),
-    select: (directory) => [...directory.selectableServers],
+    select: selectBrokerServers,
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: shouldRetryBrokerConfig,

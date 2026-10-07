@@ -115,7 +115,7 @@ function makeStyles(T: any, isDark: boolean) {
       borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E2E8F0',
     },
     headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
-    headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
+    headerTitle: { flex: 1, fontSize: 17, fontWeight: '500', textAlign: 'center', letterSpacing: 0.2 },
     scrollView: {
       flex: 1,
     },

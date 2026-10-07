@@ -1,9 +1,15 @@
 /**
  * Core module: equityHistory.ts
+ *
+ * GET /account/{login}/equity?from&to (contract v3) for the session account.
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { getEquityHistory, type EquityHistoryResponse } from '../api/equityHistory';
+import {
+  DEFAULT_EQUITY_HISTORY_PERIOD,
+  getEquityHistory,
+  type EquityDataPoint,
+} from '../api/equityHistory';
 import {
   getSessionQueryCacheNamespace,
   runSessionBoundQuery,
@@ -15,24 +21,23 @@ export const EQUITY_HISTORY_KEY = 'equityHistory';
 export const getEquityHistoryQueryKey = (
   cacheNamespace: string,
   period: string,
-  interval: string,
-) => [EQUITY_HISTORY_KEY, cacheNamespace, period, interval] as const;
+) => [EQUITY_HISTORY_KEY, cacheNamespace, period] as const;
 
 /**
  * TanStack Query hook for fetching equity curve data.
  *
- * @param period   - Time period: '7d' | '30d' | '90d' | '1y'
- * @param interval - Data interval: '1h' | '4h' | '1d'
+ * @param period - '1d' (default, server default of 24 h) | '7d' | '30d' | '90d' | '1y'
  */
-export function useEquityHistory(period: string = '30d', interval: string = '1d') {
+export function useEquityHistory(period: string = DEFAULT_EQUITY_HISTORY_PERIOD) {
   const session = useActiveBrokerQuerySession();
   const cacheNamespace = getSessionQueryCacheNamespace(session);
-  const enabled = Boolean(session);
-  return useQuery<EquityHistoryResponse, Error>({
-    queryKey: getEquityHistoryQueryKey(cacheNamespace, period, interval),
+  const login = session?.accountLogin;
+  const enabled = Boolean(session) && Boolean(login);
+  return useQuery<EquityDataPoint[], Error>({
+    queryKey: getEquityHistoryQueryKey(cacheNamespace, period),
     queryFn: () => runSessionBoundQuery(
       cacheNamespace,
-      () => getEquityHistory(period, interval),
+      () => getEquityHistory(login!, period),
     ),
     enabled,
     staleTime: 60000,       // 1 minute before stale

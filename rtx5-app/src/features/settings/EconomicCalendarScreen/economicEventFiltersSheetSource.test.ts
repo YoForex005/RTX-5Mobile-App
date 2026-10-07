@@ -31,7 +31,7 @@ test('Economic Calendar opens its retained filter sheet without rebuilding the c
   );
 });
 
-test('Economic Calendar filter sheet uses a retained smooth UI-thread entrance', () => {
+test('Economic Calendar filter sheet reveals its retained layout without animation or dismissal timers', () => {
   const sheet = readSource(
     'src/features/settings/EconomicCalendarScreen/EconomicEventFiltersSheet.tsx',
   );
@@ -53,24 +53,11 @@ test('Economic Calendar filter sheet uses a retained smooth UI-thread entrance',
   );
   assert.match(sheet, /backdropColor = isDark \? 'rgba\(0,0,0,0\.72\)' : 'rgba\(0,0,0,0\.3\)'/);
   assert.doesNotMatch(sheet, /rgba\(0,0,0,0\.6\)/);
-  assert.match(
-    sheet,
-    /AccessibilityInfo,[\s\S]*Animated,[\s\S]*Easing,[\s\S]*from 'react-native'/,
-  );
-  assert.doesNotMatch(sheet, /react-native-reanimated|Reanimated\.View/);
-  assert.match(
-    sheet,
-    /EVENT_FILTER_OPEN_BACKDROP_MS = 170[\s\S]*EVENT_FILTER_OPEN_SHEET_MS = 195[\s\S]*EVENT_FILTER_CLOSE_MS = 150/,
-  );
-  assert.match(
-    sheet,
-    /Animated\.parallel\(\[[\s\S]*Animated\.timing\(backdropOpacity, \{[\s\S]*toValue: 1[\s\S]*Easing\.out\(Easing\.cubic\)[\s\S]*Animated\.timing\(sheetTranslateY, \{[\s\S]*toValue: 0[\s\S]*Easing\.out\(Easing\.cubic\)/,
-  );
-  assert.match(sheet, /useNativeDriver: true/);
-  assert.match(sheet, /useLayoutEffect\(\(\) => \{[\s\S]*startEventFilterOpenAnimation/);
-  assert.match(sheet, /AccessibilityInfo\.isReduceMotionEnabled\(\)[\s\S]*'reduceMotionChanged'/);
-  assert.match(sheet, /<Animated\.View[\s\S]*\{ opacity: backdropOpacity \}/);
-  assert.match(sheet, /<Animated\.View[\s\S]*styles\.modalCard[\s\S]*transform: \[\{ translateY: sheetTranslateY \}\]/);
+  assert.doesNotMatch(sheet, /Animated\.timing|Animated\.View|setTimeout|reduceMotionChanged/);
+  assert.match(sheet, /const open = useCallback[\s\S]*if \(visibleRef\.current\) return;[\s\S]*setDraftImpacts\(new Set\(selectedImpactsRef\.current\)\)[\s\S]*setVisible\(true\)/);
+  assert.match(sheet, /const hideNow = useCallback[\s\S]*visibleRef\.current = false;[\s\S]*setVisible\(false\)/);
+  assert.match(sheet, /'hardwareBackPress'[\s\S]*hideNow\(\)/);
+  assert.match(sheet, /Date\.now\(\) - openedAtRef\.current < EVENT_FILTER_OPEN_GUARD_MS/);
   assert.doesNotMatch(sheet, /scale:|scaleY:|opacity: sheetOpacity/);
   assert.match(
     sheet,

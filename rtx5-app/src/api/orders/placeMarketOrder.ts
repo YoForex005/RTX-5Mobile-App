@@ -1,20 +1,36 @@
 /**
  * Place a market order on the trading server.
  *
- * POST /api/v2/orders
+ * POST /api/v2/orders (backend contract v3, sections 6.0 and 6.1)
  *
- * Rate limited by the active broker gateway.
- * Uses a DB transaction for atomicity. Rejected if market data returns
- * zero or negative prices. SL/TP values are validated server-side.
+ * - Idempotency is the body field `client_order_id` (`order-<uuidv4>`).
+ *   The `Idempotency-Key` header is ignored by the gateway and is kept only
+ *   as a harmless mirror of the same id.
+ * - The server can hold the request for up to 25 s, so the HTTP budget is
+ *   MARKET_ORDER_HTTP_TIMEOUT_MS (>= 30 s).
+ * - 200 is always a fill ({order_ticket, position_ticket, price, status:
+ *   "filled", action}). A 200 never means "rejected"; rejections are 4xx/5xx
+ *   `{"error","message"}` envelopes (including a generic ORDER_REJECTED).
+ * - 202 `order_accepted` is confirmed by polling /order-commands; if it is
+ *   not final within 30 s the caller gets "Confirmation Pending" and the
+ *   captured-owner reconciliation below re-reads GET /positions/{login}.
  */
 import { apiClient } from '../apiClient';
 import { StaleBrokerSessionError } from '../brokerApi';
 import { assertTradeSide } from '../../domain/tradeSide';
-import { createTradingApiError } from '../tradingErrors';
+import { createTradingApiError, getTradingErrorCode, TradingApiError } from '../tradingErrors';
 import {
+  createOrderCommandRejectedError,
+  createOrderConfirmationPendingError,
+  isOrderAcceptedResponse,
+  pollOrderCommand,
+} from './orderCommands';
+import {
+  recordMarketOrderGatewayLatency,
   recordMarketOrderJournalFailure,
   recordMarketOrderJournalRequest,
   recordMarketOrderJournalSuccess,
+  watchMarketOrderExecution,
 } from '../../state/terminalJournalState';
 import {
   captureActiveBrokerSessionOwnerStamp,
@@ -23,12 +39,15 @@ import {
 } from '../../state/activeBrokerSession';
 import { usePositionsState } from '../../state/positionsState';
 import { getApiLatencyNow, recordApiLatency } from '../../utils/apiLatency';
+import { takeTradeIntentStartedAt } from '../../utils/tradeIntent';
+import { recordOrderLatencySample, type OrderTerminalStatus } from '../../state/orderLatencyTelemetry';
+import { buildJournalSessionScopeKey } from '../../state/journalSessionScope';
 import { resolveBrokerSymbol, resolveBrokerSymbolFromCache } from './symbolResolver';
 import { buildMarketOrderSymbolCandidates, getAcceptedSymbolCacheKey } from './placeMarketOrderCandidates';
 import type { PlaceOrderPayload, PlaceOrderResponse } from './types';
 import { redactDiagnosticValue } from '../../utils/securityRedaction';
 import { assertActiveMarketProtectionAllowed } from '../sltpCapabilityGuard';
-import { createTradeIdempotencyKey } from '../tradeIdempotency';
+import { createMarketOrderClientOrderId } from '../tradeIdempotency';
 import { positionsApi } from '../positions';
 import { beginProtectedPositionsMutation } from '../../state/positionsMutationBarrier';
 import { reconcileMarketOrderPositions } from './marketPositionReconciliation';
@@ -38,6 +57,9 @@ import {
 } from './marketOrderReconciliationCoordinator';
 
 const acceptedOrderSymbolCache = new Map<string, string>();
+
+/** Contract 6.1: at least 30 s; the gateway may wait 25 s for the fill. */
+export const MARKET_ORDER_HTTP_TIMEOUT_MS = 35_000;
 const ORDER_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
 
@@ -47,9 +69,9 @@ const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   }
 };
 
-const warnOrderDiagnostic = (...args: Parameters<typeof console.warn>) => {
+const warnOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (ORDER_DIAGNOSTICS_ENABLED) {
-    console.warn(...args.map(redactDiagnosticValue));
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
@@ -93,7 +115,7 @@ const utf8ByteLength = (value: string): number => {
 };
 
 const normalizeMarketOrderSymbol = (value: unknown): string => {
-  const symbol = String(value ?? '').trim().toUpperCase();
+  const symbol = String(value ?? '').trim();
   if (!symbol) {
     throw createTradingApiError(400, {
       error: 'INVALID_INPUT',
@@ -109,18 +131,40 @@ const normalizeMarketOrderSymbol = (value: unknown): string => {
   return symbol;
 };
 
-const createPayloadBoundIdempotencyKeyResolver = (action: string) => {
-  const keysBySerializedBody = new Map<string, string>();
+/**
+ * One `client_order_id` per distinct wire body, for the lifetime of ONE user
+ * action (one placeMarketOrder call).
+ *
+ * - Identical body (an exact retry of the same user action, including the
+ *   brokerApi replay after a 401 refresh, which resends these exact bytes)
+ *   => the SAME id, so the gateway deduplicates it.
+ * - Different body (the symbol-candidate retry sends another symbol) => a NEW
+ *   id. Reusing the id with a different body would be rejected with
+ *   409 IDEMPOTENCY_CONFLICT. A candidate retry only happens after the server
+ *   answered with a symbol/market-data miss, i.e. nothing was executed.
+ * - A new tap is a new user action and always gets a new id.
+ */
+const createPayloadBoundClientOrderIdResolver = () => {
+  const idsBySerializedBody = new Map<string, string>();
   return (serializedBody: string): string => {
-    const existing = keysBySerializedBody.get(serializedBody);
+    const existing = idsBySerializedBody.get(serializedBody);
     if (existing) return existing;
-    const created = createTradeIdempotencyKey(action);
-    keysBySerializedBody.set(serializedBody, created);
+    const created = createMarketOrderClientOrderId();
+    idsBySerializedBody.set(serializedBody, created);
     return created;
   };
 };
 
-export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<PlaceOrderResponse> => {
+type MarketOrderAttemptTrace = {
+  /** client_order_id of the latest attempt sent (the accepted one on success). */
+  clientOrderId?: string;
+  symbol?: string;
+};
+
+const placeMarketOrderAttempt = async (
+  payload: PlaceOrderPayload,
+  trace: MarketOrderAttemptTrace,
+): Promise<PlaceOrderResponse> => {
   const initialOwner = captureActiveBrokerSessionOwnerStamp();
   if (!initialOwner) throw new StaleBrokerSessionError();
   let owner: ActiveBrokerSessionOwnerStamp = initialOwner;
@@ -213,18 +257,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       label,
     );
   }
-  if (restWithoutBroker.fill_mode !== undefined) {
-    if (
-      restWithoutBroker.fill_mode !== 'return' &&
-      restWithoutBroker.fill_mode !== 'fok'
-    ) {
-      throw createTradingApiError(400, {
-        error: 'INVALID_INPUT',
-        message: 'Order fill mode must be return or fok.',
-      });
-    }
-    orderBody.fill_mode = restWithoutBroker.fill_mode;
-  }
+  // `fill_mode` is ignored by the gateway (contract 6.1) and is never sent.
   if (typeof restWithoutBroker.comment === 'string' && restWithoutBroker.comment.length > 0) {
     if (utf8ByteLength(restWithoutBroker.comment) > 1024) {
       throw createTradingApiError(400, {
@@ -262,9 +295,10 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     volume: restWithoutBroker.volume,
     price_sl: restWithoutBroker.price_sl,
     price_tp: restWithoutBroker.price_tp,
+    started_at_ms: Date.now(),
   };
   recordMarketOrderJournalRequest(journalPayload);
-  const resolveIdempotencyKey = createPayloadBoundIdempotencyKeyResolver('order');
+  const resolveClientOrderId = createPayloadBoundClientOrderIdResolver();
   let createRequestStarted = false;
   let reconciliationHandle: ReturnType<
     typeof beginCoalescedMarketOrderReconciliation
@@ -273,11 +307,14 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
 
   type Attempt = {
     symbol: string;
+    clientOrderId: string;
     status: number;
     body: any;
     response: Response;
+    /** 200: the body is the fill. */
     ok: boolean;
-    graceful: boolean;
+    /** 202 order_accepted: confirm through /order-commands. */
+    acceptedAsync: boolean;
   };
 
   const unwrap = (json: any): any => {
@@ -294,9 +331,15 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     const canonicalSymbol = normalizeMarketOrderSymbol(symbolToSend);
     const body = { ...orderBody, symbol: canonicalSymbol };
     const serializedBody = JSON.stringify(body);
-    const idempotencyKey = resolveIdempotencyKey(serializedBody);
-    logOrderDiagnostic('[RTX5 Order] POST /orders body:', serializedBody);
+    const clientOrderId = resolveClientOrderId(serializedBody);
+    trace.clientOrderId = clientOrderId;
+    trace.symbol = canonicalSymbol;
+    const wireBody = JSON.stringify({ client_order_id: clientOrderId, ...body });
+    logOrderDiagnostic('[RTX5 Order] POST /orders body:', wireBody);
     const startedAtMs = getApiLatencyNow();
+    // The backend echoes this id on its realtime execution event, which
+    // writes the journal's Terminal "Order executed" row.
+    watchMarketOrderExecution(clientOrderId, { ...journalPayload, symbol: canonicalSymbol }, startedAtMs);
     let response: Response | null = null;
 
     try {
@@ -306,8 +349,10 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       createRequestStarted = true;
       response = await apiClient('/orders', {
         method: 'POST',
-        headers: { 'Idempotency-Key': idempotencyKey },
-        body: serializedBody,
+        // Optional mirror of the body id; the gateway ignores this header.
+        headers: { 'Idempotency-Key': clientOrderId },
+        body: wireBody,
+        timeoutMs: MARKET_ORDER_HTTP_TIMEOUT_MS,
       });
       let raw: any;
       try {
@@ -318,28 +363,33 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       }
       adoptCurrentCredentialOwner();
       assertOrderSessionCurrent();
-      const inner = unwrap(raw);
-      const bodyStatus = typeof inner?.status === 'string' ? inner.status.toLowerCase() : '';
-      const graceful = response.status === 200 && ['rejected', 'failed', 'error'].includes(bodyStatus);
-      const ok = response.status === 200 && !graceful;
+      const ok = response.status === 200;
+      const acceptedAsync = response.status >= 200 &&
+        response.status < 300 &&
+        !ok &&
+        isOrderAcceptedResponse(response.status, raw);
+      const durationMs = getApiLatencyNow() - startedAtMs;
       recordApiLatency({
         label: `trade.placeMarketOrder.${requestedSide}`,
         method: 'POST',
         endpoint: '/orders',
         source: 'trade',
         status: response.status,
-        ok,
-        durationMs: getApiLatencyNow() - startedAtMs,
+        ok: ok || acceptedAsync,
+        durationMs,
       });
+      recordMarketOrderGatewayLatency(journalPayload, durationMs);
       return {
         symbol: canonicalSymbol,
+        clientOrderId,
         status: response.status,
         body: raw,
         response,
         ok,
-        graceful,
+        acceptedAsync,
       };
     } catch (error) {
+      const durationMs = getApiLatencyNow() - startedAtMs;
       recordApiLatency({
         label: `trade.placeMarketOrder.${requestedSide}`,
         method: 'POST',
@@ -347,9 +397,10 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
         source: 'trade',
         status: response?.status ?? null,
         ok: false,
-        durationMs: getApiLatencyNow() - startedAtMs,
+        durationMs,
         error,
       });
+      recordMarketOrderGatewayLatency(journalPayload, durationMs);
       recordMarketOrderJournalFailure(journalPayload, error);
       throw error;
     }
@@ -357,7 +408,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
 
   const isMarketDataMiss = (attempt: Attempt): boolean => {
     const isHttpError = attempt.status === 400 || attempt.status === 404;
-    if (!isHttpError && !attempt.graceful) return false;
+    if (!isHttpError) return false;
     const inner = unwrap(attempt.body);
     const msg = String(
       inner?.message ?? inner?.comment ?? inner?.error ?? attempt.body?.message ?? '',
@@ -421,7 +472,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   try {
     for (const candidate of candidates) {
       const attempt = await sendOrder(candidate);
-      if (attempt.ok) {
+      if (attempt.ok || attempt.acceptedAsync) {
         accepted = attempt;
         if (candidate !== callerSymbol) {
           logOrderDiagnostic('[RTX5 Order] symbol accepted after fallback:', candidate);
@@ -434,7 +485,6 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
         JSON.stringify({
           symbol: candidate,
           status: attempt.status,
-          graceful: attempt.graceful,
           body: attempt.body,
         }),
       );
@@ -450,7 +500,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       assertOrderSessionCurrent();
       if (catalogSymbol && !candidates.includes(catalogSymbol)) {
         const attempt = await sendOrder(catalogSymbol);
-        if (attempt.ok) {
+        if (attempt.ok || attempt.acceptedAsync) {
           accepted = attempt;
           logOrderDiagnostic('[RTX5 Order] symbol accepted after /instruments fallback:', catalogSymbol);
         } else {
@@ -459,7 +509,6 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
             JSON.stringify({
               symbol: catalogSymbol,
               status: attempt.status,
-              graceful: attempt.graceful,
               body: attempt.body,
             }),
           );
@@ -469,28 +518,49 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     }
 
     if (!accepted) {
-      const status = lastBad?.status ?? 400;
-      const rejectedBody = lastBad ? unwrap(lastBad.body) : null;
-      const body = lastBad?.graceful
-        ? {
-          ...(typeof rejectedBody?.error === 'string' ? { error: rejectedBody.error } : {}),
-          message: rejectedBody?.comment
-            || rejectedBody?.message
-            || 'Order rejected by the trading server.',
-        }
+      // Every rejection is a 4xx/5xx {"error","message"} envelope. An
+      // unexpected 2xx that is neither a fill nor order_accepted is treated
+      // as an unconfirmed outcome, never as a rejection.
+      const rawStatus = lastBad?.status ?? 400;
+      const unexpectedSuccess = rawStatus >= 200 && rawStatus < 300;
+      const status = unexpectedSuccess ? 202 : rawStatus;
+      const body = unexpectedSuccess
+        ? createOrderConfirmationPendingError(lastBad?.clientOrderId ?? '').data
         : (lastBad?.body ?? { message: 'Order rejected before a valid symbol candidate was available.' });
       const headers: Record<string, string> = {};
       if (status === 429 && lastBad?.response) {
         headers['retry-after'] = lastBad.response.headers.get('retry-after') || '';
       }
-      const error = createTradingApiError(lastBad?.graceful ? 400 : status, body, headers);
+      const error = createTradingApiError(status, body, headers);
       recordMarketOrderJournalFailure(journalPayload, error);
       throw error;
     }
 
     assertOrderSessionCurrent();
     acceptedOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
-    const finalData = unwrap(accepted.body) as PlaceOrderResponse;
+    let finalData: PlaceOrderResponse;
+    if (accepted.acceptedAsync) {
+      const outcome = await pollOrderCommand({
+        clientOrderId: accepted.clientOrderId,
+        accountLogin: loginInt,
+        assertCurrent: assertOrderSessionCurrent,
+      });
+      if (outcome.kind === 'rejected') {
+        const error = createOrderCommandRejectedError(outcome);
+        recordMarketOrderJournalFailure(journalPayload, error);
+        throw error;
+      }
+      if (outcome.kind === 'pending') {
+        // Not final after 30 s: "Confirmation Pending". The finally block
+        // hands null evidence to the coalesced GET /positions reconciliation.
+        const error = createOrderConfirmationPendingError(accepted.clientOrderId);
+        recordMarketOrderJournalFailure(journalPayload, error);
+        throw error;
+      }
+      finalData = unwrap(outcome.data) as PlaceOrderResponse;
+    } else {
+      finalData = unwrap(accepted.body) as PlaceOrderResponse;
+    }
 
     // The handler's canonical execution response already contains
     // order_ticket, position_ticket, and price. Preserve only safe aliases for
@@ -529,6 +599,72 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     // The primary response/error never waits for reconciliation. Finishing only
     // admits this transport outcome to the owner's shared trailing worker.
     reconciliationHandle?.finish(reconciliationResponse);
+  }
+};
+
+const classifyPlacementFailure = (error: unknown, reachedServer: boolean): {
+  status: OrderTerminalStatus;
+  errorCode?: string;
+  errorMessage?: string;
+} => {
+  const code = getTradingErrorCode(error) ?? undefined;
+  const httpStatus = error instanceof TradingApiError ? error.status : undefined;
+  const errorMessage = error instanceof Error && error.message.trim() ? error.message.trim() : undefined;
+  if (code === 'ORDER_CONFIRMATION_PENDING') {
+    return { status: 'expired', errorCode: code, errorMessage };
+  }
+  // An explicit gateway/terminal refusal; auth, timeout and rate limits are
+  // transport-level failures instead.
+  const explicitRejection = reachedServer
+    && httpStatus !== undefined
+    && httpStatus >= 400
+    && httpStatus < 500
+    && httpStatus !== 401
+    && httpStatus !== 408
+    && httpStatus !== 429;
+  return {
+    status: explicitRejection ? 'rejected' : 'failed',
+    errorCode: code ?? (httpStatus !== undefined ? `HTTP_${httpStatus}` : undefined),
+    errorMessage,
+  };
+};
+
+/**
+ * Places a market order and records exactly one `placement_terminal` latency
+ * sample (tap -> final outcome, monotonic clock) for the Journal.
+ */
+export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<PlaceOrderResponse> => {
+  const intentAtMs = takeTradeIntentStartedAt();
+  const owner = captureActiveBrokerSessionOwnerStamp();
+  const sessionScope = owner ? buildJournalSessionScopeKey(owner) : undefined;
+  const trace: MarketOrderAttemptTrace = {};
+  const record = (outcome: { status: OrderTerminalStatus; errorCode?: string; errorMessage?: string }) => {
+    try {
+      recordOrderLatencySample({
+        phase: 'placement_terminal',
+        transport: 'rest',
+        clientOrderId: trace.clientOrderId,
+        sessionScope,
+        symbol: trace.symbol ?? payload.symbol,
+        side: payload.side === 'sell' ? 'sell' : 'buy',
+        volume: payload.volume,
+        terminalStatus: outcome.status,
+        errorCode: outcome.errorCode,
+        errorMessage: outcome.errorMessage,
+        totalMs: Math.max(0, getApiLatencyNow() - intentAtMs),
+      });
+    } catch {
+      // Telemetry must never change the order outcome.
+    }
+  };
+  try {
+    const result = await placeMarketOrderAttempt(payload, trace);
+    record({ status: 'filled' });
+    return result;
+  } catch (error) {
+    // Local validation throws before any client_order_id is sent.
+    record(classifyPlacementFailure(error, trace.clientOrderId !== undefined));
+    throw error;
   }
 };
 

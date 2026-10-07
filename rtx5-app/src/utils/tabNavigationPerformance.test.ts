@@ -4,65 +4,52 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import {
   createFastTabVisualController,
+  clearFastTabVisual,
   fastTabVisualController,
   scheduleFastTabNavigation,
 } from '../ui/navigation/fastTabVisualController';
+import { hideSidebarDestination, showSidebarDestination, sidebarDestinationController } from '../ui/components/sidebarDestinationHostController';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
-test('bottom tab press paints optimistically on press-in and delays real navigation', () => {
+test('bottom tab touch-start paints optimistically before real navigation work', () => {
   const source = readSource('app/(tabs)/_layout.tsx');
   const visualControllerSource = readSource('src/ui/navigation/fastTabVisualController.ts');
 
   assert.match(source, /import \{ PlatformPressable \} from '@react-navigation\/elements'/);
-  assert.match(source, /const TAB_SWITCH_MAX_LATENCY_MS = 20/);
-  assert.match(source, /const STALE_TAB_SWITCH_SAMPLE_MS = 5000/);
-  // 350ms absorbs a double-fired press event from one physical tap without
-  // swallowing a deliberate A -> B -> A return tap the way 1500ms did.
-  assert.match(source, /const TAB_PRESS_DEDUP_WINDOW_MS = 350/);
-  assert.match(source, /const recentTabPresses = new Map<string, number>\(\)/);
-  assert.match(source, /function scheduleTabSwitchBudgetCheck\(label: string, startedAtMs: number, navigationFinishedAtMs: number\)/);
+  assert.doesNotMatch(source, /TAB_PRESS_DEDUP_WINDOW_MS|recentTabPresses/);
   assert.match(source, /type FastTabBarButtonProps = BottomTabBarButtonProps & \{/);
   assert.match(source, /const FastTabBarButton = memo/);
-  assert.match(source, /const pressStartedAtRef = useRef<number \| null>\(null\)/);
-  assert.match(source, /const handledOnPressInRef = useRef\(false\)/);
-  assert.match(source, /latencyLabel = 'bottom tab'/);
+  assert.match(source, /const pressGateRef = useRef\(createBottomTabPressGate\(interactionLifecycle\.getEpoch\)\)/);
+  assert.match(source, /pressCallbacksRef\.current = \{ onPress, onPressIn, onPressOut \}/);
   assert.match(source, /const handleTouchStart = useCallback/);
   assert.match(source, /const handlePressIn = useCallback/);
-  assert.match(source, /pressStartedAtRef\.current = pressStartedAtRef\.current \?\? getNow\(\)/);
-  assert.match(source, /onPress && !handledOnPressInRef\.current/);
-  assert.match(source, /handledOnPressInRef\.current = true/);
+  assert.match(source, /pressGateRef\.current\.beginGesture\(\)/);
+  assert.match(source, /pressCallbacksRef\.current\.onPress && pressGateRef\.current\.claimPressIn\(\)/);
   assert.match(source, /runTabPress\(event as TabPressEvent\)/);
-  assert.match(source, /const startedAtMs = pressStartedAtRef\.current \?\? getNow\(\)/);
-  assert.match(source, /const lastHandledAtMs = recentTabPresses\.get\(latencyLabel\)/);
-  assert.match(source, /startedAtMs - lastHandledAtMs < TAB_PRESS_DEDUP_WINDOW_MS/);
-  assert.match(source, /recentTabPresses\.set\(latencyLabel, startedAtMs\)/);
   assert.match(
     source,
-    /if \(routeName === 'chart'\) \{[\s\S]*prefetchChartSelectionHistory\([\s\S]*preferences\.chartSymbol,[\s\S]*preferences\.chartTimeframe,[\s\S]*\}[\s\S]*const visualRevision = showFastTabVisual\(latencyLabel\)/,
-    'an early first Chart tap must dispatch or join history before revealing the retained route',
+    /const visualRevision = showFastTabVisual\(routeName\)[\s\S]*const commitNavigation = \(\) => \{[\s\S]*commitFastTabPress\(navigationRef\.current, \{ name: routeName, key: routeKey \}, visualRevision\)[\s\S]*callbacks\.onPress\?\.\(event\);[\s\S]*if \(routeName === 'chart'\) \{[\s\S]*prefetchChartSelectionHistory\([\s\S]*preferences\.chartSymbol,[\s\S]*preferences\.chartTimeframe/,
+    'Chart data work must follow the retained scene reveal and real navigation',
   );
   assert.match(source, /useUIState\.getState\(\)\.hideActionSheet\(\)/);
-  assert.match(source, /const visualRevision = showFastTabVisual\(latencyLabel\)/);
-  assert.match(source, /if \(visualRevision !== null\) \{[\s\S]*?scheduleFastTabNavigation\(visualRevision, \(\) => onPress\?\.\(event\), TAB_BAR_NAVIGATION_SETTLE_DELAY_MS\);\s*\} else \{\s*onPress\?\.\(event\)/);
-  assert.match(source, /scheduleTabSwitchBudgetCheck\(latencyLabel, startedAtMs, getNow\(\)\)/);
+  assert.match(source, /const visualRevision = showFastTabVisual\(routeName\)/);
+  assert.match(source, /if \(visualRevision !== null\) \{[\s\S]*?scheduleFastTabNavigation\(visualRevision, commitNavigation, TAB_BAR_NAVIGATION_SETTLE_DELAY_MS\);\s*\} else \{\s*commitNavigation\(\)/);
   assert.match(source, /onTouchStart=\{handleTouchStart\}/);
   assert.match(source, /onPressIn=\{handlePressIn\}/);
   assert.match(source, /onPress=\{handlePress\}/);
   assert.match(source, /onPressOut=\{handlePressOut\}/);
   assert.match(source, /unstable_pressDelay=\{0\}/);
-  assert.match(source, /if \(handledOnPressInRef\.current\) \{\s*handledOnPressInRef\.current = false;\s*return;/);
+  assert.match(source, /if \(pressGateRef\.current\.claimPress\(event\)\) runTabPress\(event\)/);
   assert.match(visualControllerSource, /export function scheduleFastTabNavigation\(\s*revision: number,\s*action: \(\) => void,\s*settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,\s*\)/);
   assert.match(visualControllerSource, /const requestedSnapshot = fastTabVisualController\.getSnapshot\(\)/);
   assert.match(visualControllerSource, /requestedSnapshot\.revision === revision \? requestedSnapshot\.routeName : null/);
   assert.match(visualControllerSource, /requestedRouteName !== null &&[\s\S]*currentSnapshot\.revision === revision &&[\s\S]*currentSnapshot\.routeName === requestedRouteName/);
-  // Bottom-bar taps (settleDelayMs=0) commit after one paint frame so the
-  // previous tab's focus work stops immediately. Drawer closes keep the
-  // two-frame + settle path so close animation is not starved.
-  assert.match(visualControllerSource, /if \(settleDelayMs <= 0\) \{\s*globalThis\.requestAnimationFrame\(runIfCurrent\);\s*return;/);
-  assert.match(visualControllerSource, /const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 60/);
+  // Both entry points yield focus work past paint without an animation wait.
+  assert.match(visualControllerSource, /scheduleAfterVisualFrame\(\(\) => \{/);
+  assert.match(visualControllerSource, /const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 0/);
   assert.match(visualControllerSource, /export const TAB_BAR_NAVIGATION_SETTLE_DELAY_MS = 0/);
-  assert.match(visualControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, settleDelayMs\);/);
+  assert.match(visualControllerSource, /cancelPendingFastTabNavigation\?\.\(\)/);
   assert.match(visualControllerSource, /export function showFastTabVisual\(pathOrName: string\) \{[\s\S]*fastTabVisualController\.show\(routeName, false\)/);
 });
 
@@ -91,7 +78,7 @@ test('logged-out chart history warms from the lightweight tabs shell', () => {
   );
 });
 
-test('delayed tab navigation is cancelled after its optimistic route is cleared', () => {
+test('delayed tab navigation is cancelled after its optimistic route is cleared', async () => {
   const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
   const pendingFrames: FrameRequestCallback[] = [];
   globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
@@ -109,6 +96,7 @@ test('delayed tab navigation is cancelled after its optimistic route is cleared'
 
     fastTabVisualController.clear(staleRevision);
     pendingFrames.shift()?.(0);
+    await new Promise<void>((resolveTimer) => setTimeout(resolveTimer, 0));
     assert.equal(navigationCount, 0, 'a cleared optimistic route must not navigate later');
 
     const currentRevision = fastTabVisualController.show('trade', false);
@@ -116,6 +104,7 @@ test('delayed tab navigation is cancelled after its optimistic route is cleared'
       navigationCount += 1;
     }, 0);
     pendingFrames.shift()?.(16);
+    await new Promise<void>((resolveTimer) => setTimeout(resolveTimer, 0));
     assert.equal(navigationCount, 1, 'the still-current optimistic route must navigate');
     fastTabVisualController.clear(currentRevision);
   } finally {
@@ -125,6 +114,52 @@ test('delayed tab navigation is cancelled after its optimistic route is cleared'
     } else {
       Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
     }
+  }
+});
+
+test('a newer hamburger destination cancels an older tab commit instead of blinking away', async () => {
+  const originalFrame = globalThis.requestAnimationFrame;
+  const frames: FrameRequestCallback[] = [];
+  globalThis.requestAnimationFrame = callback => { frames.push(callback); return frames.length; };
+  let navigations = 0;
+  try {
+    fastTabVisualController.setActualRouteName('quotes');
+    const revision = fastTabVisualController.show('trade', false);
+    scheduleFastTabNavigation(revision, () => navigations++);
+    assert.equal(showSidebarDestination('help', 'sidebar'), true);
+    frames.forEach(callback => callback(0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(navigations, 0);
+    assert.equal(sidebarDestinationController.getSnapshot().activeDestination, 'help');
+    assert.equal(sidebarDestinationController.getFocusSnapshot().activeDestination, 'help');
+    assert.equal(fastTabVisualController.getSnapshot().routeName, null);
+  } finally {
+    clearFastTabVisual();
+    if (originalFrame) globalThis.requestAnimationFrame = originalFrame;
+    else Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+    hideSidebarDestination();
+  }
+});
+
+test('dropped tab frames use a bounded route commit, and cannot dispatch twice later', async () => {
+  const originalFrame = globalThis.requestAnimationFrame;
+  let frame: FrameRequestCallback | undefined;
+  globalThis.requestAnimationFrame = callback => { frame = callback; return 1; };
+  let navigations = 0;
+  try {
+    fastTabVisualController.setActualRouteName('quotes');
+    const revision = fastTabVisualController.show('history', false);
+    scheduleFastTabNavigation(revision, () => navigations++);
+    assert.equal(navigations, 0);
+    await new Promise(resolve => setTimeout(resolve, 280));
+    assert.equal(navigations, 1);
+    frame?.(0);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(navigations, 1);
+  } finally {
+    clearFastTabVisual();
+    if (originalFrame) globalThis.requestAnimationFrame = originalFrame;
+    else Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
   }
 });
 
@@ -140,7 +175,7 @@ test('tab layout declares only the five primary cached scenes', () => {
   assert.equal((source.match(/<Tabs\.Screen\b/g) ?? []).length, 5);
   assert.match(source, /import \{ FastTabs as Tabs \} from '\.\.\/\.\.\/src\/ui\/navigation\/FastTabNavigator'/);
   assert.doesNotMatch(source, /SidebarDestinationHost|BrokersLaunchHost|BrokerDetailLaunchHost|RegisterLaunchHost/);
-  assert.match(rootSource, /<SidebarDestinationHost \/>[\s\S]*<BrokersLaunchHost \/>[\s\S]*<BrokerDetailLaunchHost \/>[\s\S]*<RegisterLaunchHost \/>[\s\S]*<SidebarDrawer \/>/);
+  assert.match(rootSource, /<SidebarDestinationHost \/>[\s\S]*<BrokersLaunchHost \/>[\s\S]*<SidebarDrawer \/>/);
   assert.match(source, /detachInactiveScreens=\{false\}/);
   assert.match(source, /<Tabs[\s\S]*backBehavior='firstRoute'[\s\S]*detachInactiveScreens=\{false\}/);
   assert.match(source, /lazy: false/);
@@ -208,7 +243,7 @@ test('tab bar and retained scenes share one deterministic visible route', () => 
   assert.equal(
     (navigatorSource.match(/useFastTabVisualSnapshot\(\)/g) ?? []).length,
     1,
-    'the tab bar and scenes must consume the same parent visual snapshot',
+    'visual scene selection must have one snapshot; navigation handlers keep real focus',
   );
   const tabBarHostSource = navigatorSource.slice(
     navigatorSource.indexOf('const FastTabBarHost'),
@@ -220,7 +255,7 @@ test('tab bar and retained scenes share one deterministic visible route', () => 
   );
   assert.doesNotMatch(tabBarHostSource, /useFastTabVisualSnapshot/);
   assert.match(navigatorSource, /const visibleRouteName = visibleState\.routes\[visibleState\.index\]\?\.name\s*\?\? focusedRoute\.name/);
-  assert.match(navigatorSource, /<FastTabBarHost\s*state=\{visibleState\}/);
+  assert.match(navigatorSource, /<FastTabBarHost\s*state=\{state\}/);
   assert.match(navigatorSource, /visualFocused=\{route\.name === visibleRouteName\}/);
   assert.match(navigatorSource, /registerFastTabVisualApplier\(applyNativeVisualRouteNow\)/);
   const nativeSceneHandoffSource = navigatorSource.slice(
@@ -334,18 +369,15 @@ test('bottom tab bar follows the optimistic visual route before navigation commi
   assert.match(source, /const visualSnapshot = useFastTabVisualSnapshot\(\)/);
   assert.match(source, /const visualRouteIndex = visualSnapshot\.routeName === null[\s\S]*state\.routes\.findIndex\(\(route\) => route\.name === visualSnapshot\.routeName\)/);
   assert.match(source, /const visibleState = visualRouteIndex >= 0 && visualRouteIndex !== state\.index\s*\? \{ \.\.\.state, index: visualRouteIndex \}\s*: state/);
-  assert.match(source, /<FastTabBarHost\s*state=\{visibleState\}/);
+  assert.match(source, /<FastTabBarHost\s*state=\{state\}/);
   assert.match(source, /visualFocused=\{route\.name === visibleRouteName\}/);
 });
 
-test('bottom tab navigation has a strict one-frame latency budget', () => {
+test('bottom tab presses never write timing logs or LogBox warnings', () => {
   const source = readSource('app/(tabs)/_layout.tsx');
-  const budgetMatch = source.match(/const TAB_SWITCH_MAX_LATENCY_MS = (\d+)/);
 
-  assert.ok(budgetMatch, 'tab switch budget constant is missing');
-  assert.ok(Number(budgetMatch[1]) <= 20, 'tab switch budget must stay at or below 20ms');
-  assert.match(source, /scheduleTabSwitchBudgetCheck\(latencyLabel, startedAtMs, getNow\(\)\)/);
-  assert.match(source, /requestAnimationFrame/);
+  assert.doesNotMatch(source, /scheduleTabSwitchBudgetCheck|TabTiming/);
+  assert.doesNotMatch(source, /console\.(log|info|warn)\(/);
   assert.doesNotMatch(source, /InteractionManager/);
   assert.doesNotMatch(source, /transitionSpec/);
 });
@@ -365,8 +397,8 @@ test('bottom tab navigation fast path preserves light and dark tab bar themes', 
   assert.match(source, /const bottomTabActiveColor = T\.trading\.buy\.primary/);
   assert.match(source, /tabBarActiveTintColor: bottomTabActiveColor/);
   assert.match(source, /tabBarInactiveTintColor: inactiveTabColor/);
-  assert.match(source, /styles\.tabLabel,\s*isLandscape && styles\.tabLabelLandscape,\s*\{ color \}/);
-  assert.match(source, /\[T\.bg, T\.borderSubtle, insets\.bottom, isDark, isLandscape, tabBarHeight\]/);
+  assert.match(source, /styles\.tabLabel,\s*inlineLabels && styles\.tabLabelLandscape,\s*\{ color \}/);
+  assert.match(source, /\[T\.bg, T\.borderSubtle, insets\.left, insets\.right, isDark, paddingBottom, paddingTop, tabBarHeight\]/);
 });
 
 test('bottom tab bar compacts in landscape to preserve phone content height', () => {
@@ -374,16 +406,16 @@ test('bottom tab bar compacts in landscape to preserve phone content height', ()
   const bottomTabLayoutSource = readSource('src/ui/layout/bottomTabBar.ts');
 
   assert.match(source, /useWindowDimensions/);
-  assert.match(source, /const \{ width, height \} = useWindowDimensions\(\)/);
+  assert.match(source, /const \{ width, height, fontScale \} = useWindowDimensions\(\)/);
   assert.match(source, /const isLandscape = width > height/);
-  assert.match(source, /resolveBottomTabBarHeight\(\{[\s\S]*isLandscape,[\s\S]*\}\)/);
-  assert.match(source, /paddingTop: isLandscape \? 4 : 8/);
-  assert.match(source, /paddingBottom: Math\.max\(insets\.bottom, isLandscape \? 4 : 8\)/);
-  assert.match(source, /styles\.tabLabel,\s*isLandscape && styles\.tabLabelLandscape,\s*\{ color \}/);
+  assert.match(source, /resolveBottomTabBarLayout\(\{[\s\S]*isLandscape,[\s\S]*viewportHeight: height,[\s\S]*fontScale,[\s\S]*\}\)/);
+  assert.match(source, /availableWidth: Math\.max\(0, width - insets\.left - insets\.right\)/);
+  assert.match(source, /inlineLabels=\{useInlineLabels\}/);
+  assert.match(source, /styles\.tabLabel,\s*inlineLabels && styles\.tabLabelLandscape,\s*\{ color \}/);
   assert.match(source, /tabLabelLandscape: \{[\s\S]*marginBottom: 0,[\s\S]*\}/);
   assert.match(bottomTabLayoutSource, /MT5_BOTTOM_TAB_BAR_LANDSCAPE_BASE_HEIGHT = 64/);
   assert.match(bottomTabLayoutSource, /isLandscape\?: boolean/);
-  assert.match(bottomTabLayoutSource, /const baseHeight = isLandscape[\s\S]*MT5_BOTTOM_TAB_BAR_LANDSCAPE_BASE_HEIGHT[\s\S]*MT5_BOTTOM_TAB_BAR_BASE_HEIGHT/);
+  assert.match(bottomTabLayoutSource, /const baseHeight = compact[\s\S]*MT5_BOTTOM_TAB_BAR_LANDSCAPE_BASE_HEIGHT[\s\S]*MT5_BOTTOM_TAB_BAR_BASE_HEIGHT/);
 });
 
 test('primary tab route wrappers do not unmount screens on blur', () => {

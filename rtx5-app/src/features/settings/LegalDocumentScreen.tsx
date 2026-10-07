@@ -65,7 +65,7 @@ export function LegalDocumentScreen({
 
   return (
     <Screen noBottomInset style={styles.screen}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 12 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 8 }]}>
         <FastPressable
           onPress={handleBack}
           activateOnPressIn
@@ -197,7 +197,7 @@ const makeStyles = (isDark: boolean) => {
       color: palette.text,
       fontSize: 21,
       lineHeight: 27,
-      fontWeight: '700',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     scroll: {

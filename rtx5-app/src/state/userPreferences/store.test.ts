@@ -38,11 +38,13 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /setChartVisualType: \(chartType\) => set\(\{ chartVisualType: normalizeChartVisualType\(chartType\) \}\)/);
   assert.doesNotMatch(storeSource, /const isChartVisualType/);
   assert.match(storeSource, /persistChartDrawingRecordsBySymbol\(nextRecordsBySymbol\)/);
-  assert.match(storeSource, /readChartDrawingRecordsBySymbol\(\)[\s\S]*\.then\(\(storedRecordsBySymbol\) => \{[\s\S]*\.finally\(\(\) => \{[\s\S]*setHasHydrated\(true\)/);
+  assert.match(storeSource, /readChartDrawingRecordsBySymbol\(\)[\s\S]*\.then\(\(storedRecordsBySymbol\) => \{[\s\S]*useUserPreferences\.setState\(current => completeChartDrawingHydration\([\s\S]*\.catch\(\(restoreError\) => \{[\s\S]*setHasHydrated\(true\)/);
+  const restoreSource = storeSource.slice(storeSource.indexOf('onRehydrateStorage:'));
+  assert.doesNotMatch(restoreSource, /state\.setChartDrawingRecordsForSymbol|persistChartDrawingRecordsBySymbol|JSON\.stringify/);
   assert.doesNotMatch(storeSource, /marketNewsSavedIds|setMarketNewsSavedIds|toggleMarketNewsSavedId/);
   assert.match(storeSource, /Boolean\(accountDetails\?\.credentials\?\.accessToken\)/);
   assert.match(storeSource, /resolveBrokerConnectionWithPublicDemoDefault\(\{/);
-  assert.match(storeSource, /brokerId: ORRNN_DEMO_PUBLIC_BROKER_ID/);
+  assert.match(storeSource, /brokerId: ''/);
   assert.match(storeSource, /brokerServerUrl: ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL/);
   assert.match(storeSource, /buildAccountEnvironmentKey\(brokerId, accountDetails\.id\)/);
   assert.match(storeSource, /source: 'legacy-persisted'/);

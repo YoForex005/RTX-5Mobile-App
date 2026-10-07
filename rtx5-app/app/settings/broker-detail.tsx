@@ -1,3 +1,4 @@
+﻿import { AuthEntryScreen } from '../../src/features/auth/AuthEntryScreen';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo } from 'react';
 import { BrokerDetailLaunchShell } from '../../src/features/settings/BrokerDetailLaunchShell';
@@ -21,7 +22,7 @@ import {
   scheduleBackNavigationAfterVisualFrame,
 } from '../../src/utils/navigation';
 
-export default function BrokerDetailRoute() {
+function LegacyBrokerDetailRoute() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     brokerId?: string;
@@ -86,3 +87,6 @@ export default function BrokerDetailRoute() {
     />
   );
 }
+
+export default function SharedAuthenticationEntry() { return <AuthEntryScreen form="login" />; }
+

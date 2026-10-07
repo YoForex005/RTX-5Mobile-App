@@ -13,6 +13,12 @@ type BrokerDetailLaunchShellProps = Readonly<{
   selection: BrokerDetailLaunchSelection;
   onBack: () => void;
   onOpenDemo?: () => void;
+  /**
+   * Contract v3 sign-up gate (public /broker/config flags), resolved by the
+   * caller so this first frame stays data-free. Both default to shown.
+   */
+  showDemoSignUp?: boolean;
+  showRealSignUp?: boolean;
   backLatencyLabel?: string;
 }>;
 
@@ -37,6 +43,8 @@ export const BrokerDetailLaunchShell = memo(function BrokerDetailLaunchShell({
   selection,
   onBack,
   onOpenDemo,
+  showDemoSignUp = true,
+  showRealSignUp = true,
   backLatencyLabel = 'brokerDetail.launch.back',
 }: BrokerDetailLaunchShellProps) {
   const T = useTheme();
@@ -119,6 +127,8 @@ export const BrokerDetailLaunchShell = memo(function BrokerDetailLaunchShell({
               realSubtitle={t('For live trading, additional identification is required')}
               hasActiveRealAccount={hasActiveRealAccount}
               onOpenDemo={onOpenDemo}
+              showDemo={showDemoSignUp}
+              showReal={showRealSignUp}
               styles={styles}
               T={T}
             />
@@ -156,6 +166,8 @@ const LaunchOptionsPanel = memo(function LaunchOptionsPanel({
   realSubtitle,
   hasActiveRealAccount,
   onOpenDemo,
+  showDemo,
+  showReal,
   styles,
   T,
 }: {
@@ -165,29 +177,37 @@ const LaunchOptionsPanel = memo(function LaunchOptionsPanel({
   realSubtitle: string;
   hasActiveRealAccount: boolean;
   onOpenDemo?: () => void;
+  showDemo: boolean;
+  showReal: boolean;
   styles: ReturnType<typeof makeStyles>;
   T: ThemeColors;
 }) {
+  // Brokers that disable sign-up (registration flags false) show no options.
+  if (!showDemo && !showReal) return null;
   return (
     <View style={styles.optionPanel}>
-      <LaunchOption
-        icon="school"
-        title={demoTitle}
-        subtitle={demoSubtitle}
-        onPress={onOpenDemo}
-        latencyLabel="brokerDetail.launch.openDemo"
-        styles={styles}
-        T={T}
-      />
-      <View style={styles.optionDivider} />
-      <LaunchOption
-        icon="trending-up"
-        title={realTitle}
-        subtitle={realSubtitle}
-        disabled={hasActiveRealAccount}
-        styles={styles}
-        T={T}
-      />
+      {showDemo ? (
+        <LaunchOption
+          icon="school"
+          title={demoTitle}
+          subtitle={demoSubtitle}
+          onPress={onOpenDemo}
+          latencyLabel="brokerDetail.launch.openDemo"
+          styles={styles}
+          T={T}
+        />
+      ) : null}
+      {showDemo && showReal ? <View style={styles.optionDivider} /> : null}
+      {showReal ? (
+        <LaunchOption
+          icon="trending-up"
+          title={realTitle}
+          subtitle={realSubtitle}
+          disabled={hasActiveRealAccount}
+          styles={styles}
+          T={T}
+        />
+      ) : null}
     </View>
   );
 });
@@ -213,7 +233,7 @@ const LaunchLoginHeader = memo(function LaunchLoginHeader({
           <Text style={styles.panelEyebrow}>{existingLabel}</Text>
         </View>
         <View style={styles.securePill}>
-          <Ionicons name="shield-checkmark-outline" size={14} color="#10B981" />
+          <Ionicons name="shield-checkmark-outline" size={14} color={styles.secureText.color} />
           <Text style={styles.secureText}>{secureLabel}</Text>
         </View>
       </View>
@@ -342,7 +362,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     page: { flex: 1, backgroundColor: T.bg },
     header: { flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 16, paddingTop: safeTop + 8, paddingBottom: 12, gap: 8, backgroundColor: T.bg },
     iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-    headerTitle: { flex: 1, color: T.text, fontSize: 20, fontWeight: '700' },
+    headerTitle: { flex: 1, color: T.text, fontSize: 20, fontWeight: '500' },
     scrollContent: { paddingHorizontal: 20, paddingBottom: 32, backgroundColor: T.bg },
     brokerSummaryCard: { marginTop: 4, marginBottom: 10, padding: 14, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border },
     brokerSummaryTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -355,9 +375,9 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     brokerName: { color: T.text, fontSize: 17, fontWeight: '600' },
     brokerServerPill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', maxWidth: '100%', gap: 6, marginTop: 8, paddingHorizontal: 9, minHeight: 28, borderRadius: 14, backgroundColor: softSurface, borderWidth: 1, borderColor: divider },
     brokerServerLine: { color: T.textSub, flexShrink: 1, fontSize: 12, fontWeight: '700' },
-    readyPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, minHeight: 26, borderRadius: 13, backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.10)' },
-    readyDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#10B981' },
-    readyText: { color: '#059669', fontSize: 12, fontWeight: '600' },
+    readyPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, minHeight: 26, borderRadius: 13, backgroundColor: isDark ? T.upGlow : T.upGlow },
+    readyDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: T.trading.profit },
+    readyText: { color: T.trading.profit, fontSize: 12, fontWeight: '600' },
     optionPanel: { marginBottom: 12, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, overflow: 'hidden' },
     optionCommand: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 78, paddingHorizontal: 14, paddingVertical: 12 },
     optionDivider: { height: 1, marginLeft: 64, backgroundColor: divider },
@@ -372,8 +392,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     panelTitleRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
     panelIconMark: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(37,99,235,0.16)' : 'rgba(37,99,235,0.10)' },
     panelEyebrow: { color: T.textMuted, fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
-    securePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, minHeight: 28, borderRadius: 14, backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.10)' },
-    secureText: { color: '#059669', fontSize: 12, fontWeight: '600' },
+    securePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, minHeight: 28, borderRadius: 14, backgroundColor: isDark ? T.upGlow : T.upGlow },
+    secureText: { color: T.trading.profit, fontSize: 12, fontWeight: '600' },
     sectionTitle: { color: T.text, fontSize: 17, fontWeight: '600', lineHeight: 22 },
     fieldBlock: { gap: 7, marginBottom: 12 },
     inputLabel: { color: T.textSub, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },

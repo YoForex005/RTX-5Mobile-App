@@ -18,12 +18,14 @@ test('sidebar host resolver accepts stable names and Expo Router paths', () => {
   assert.equal(resolveSidebarHostDestination('/trade'), null);
 });
 
-test('Settings-hosted destinations publish focus immediately without a drawer settle wait', () => {
+test('Settings-hosted destinations paint before focus without an animation wait', async () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
   let scheduledFrames = 0;
+  let nextFrame: FrameRequestCallback | undefined;
   Object.defineProperty(globalThis, 'requestAnimationFrame', {
     configurable: true,
-    value: () => {
+    value: (callback: FrameRequestCallback) => {
+      nextFrame = callback;
       scheduledFrames += 1;
       return scheduledFrames;
     },
@@ -38,9 +40,14 @@ test('Settings-hosted destinations publish focus immediately without a drawer se
 
     assert.equal(controller.show('accounts', 'settings'), true);
     assert.equal(controller.getSnapshot().activeDestination, 'accounts');
+    assert.equal(controller.getFocusSnapshot().activeDestination, null);
+    assert.equal(focusEvents.length, 0);
+    assert.equal(scheduledFrames, 1);
+    nextFrame?.(0);
+    assert.equal(focusEvents.length, 0, 'focus work must not run before paint');
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(controller.getFocusSnapshot().activeDestination, 'accounts');
     assert.deepEqual(focusEvents, ['accounts']);
-    assert.equal(scheduledFrames, 0);
   } finally {
     if (originalDescriptor) {
       Object.defineProperty(globalThis, 'requestAnimationFrame', originalDescriptor);
@@ -245,7 +252,7 @@ test('retained visual layer switches before subscribers receive focus work', () 
   unsubscribe();
 });
 
-test('rapid visual selections publish focus only for the latest revision after two frames and the settle delay', async () => {
+test('rapid visual selections publish only the latest focus after the first paint opportunity', async () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
   let nextFrameId = 1;
   let frameQueue: Array<(timestamp: number) => void> = [];
@@ -300,11 +307,8 @@ test('rapid visual selections publish focus only for the latest revision after t
     };
     flushFrame();
     assert.deepEqual(focusEvents, []);
-    flushFrame();
-    // Focus publishes only after the drawer close motion has settled, so the
-    // heavy focus/query commit can never drop frames of the animation.
-    assert.deepEqual(focusEvents, []);
-    await new Promise((resolve) => setTimeout(resolve, 160));
+    assert.equal(frameQueue.length, 0, 'selection needs no second frame or close-animation delay');
+    await new Promise((resolve) => setTimeout(resolve, 0));
     assert.deepEqual(focusEvents, ['journal']);
     assert.equal(controller.getFocusSnapshot(), controller.getSnapshot());
   } finally {
